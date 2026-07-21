@@ -831,7 +831,7 @@ git commit -m "feat: classify Java texture coverage"
 - Produces: `GET /api/projects/{project_id}/coverage`
 - Produces error JSON: `{"code", "stage", "user_message", "recommended_actions", "technical_details"}`
 
-- [ ] **Step 1: Write API contract tests**
+- [x] **Step 1: Write API contract tests**
 
 Use `TestClient`, a pytest temporary project root, and the synthetic ZIP factory. The successful import assertion must be:
 
@@ -852,7 +852,7 @@ assert body["catalog_id"] == "java-dev-format-34"
 
 Also assert a rejected unsafe ZIP returns HTTP 400 with `code="UNSAFE_PACK_PATH"`, and an unknown project returns HTTP 404 with `code="PROJECT_NOT_FOUND"`.
 
-- [ ] **Step 2: Run API tests and confirm route absence**
+- [x] **Step 2: Run API tests and confirm route absence**
 
 ```powershell
 .\.venv\Scripts\python -m pytest backend\tests\api\test_projects.py -v
@@ -860,17 +860,17 @@ Also assert a rejected unsafe ZIP returns HTTP 400 with `code="UNSAFE_PACK_PATH"
 
 Expected: the import request returns 404 because the route is not registered.
 
-- [ ] **Step 3: Add explicit application dependencies**
+- [x] **Step 3: Add explicit application dependencies**
 
 Define an `AppServices` dataclass containing `workspace`, `catalogs`, and `project_root`. Change `create_app` to accept `project_root: Path | None = None` and `catalog_root: Path | None = None`, construct services once, store them in `app.state.services`, and register the projects router. Tests pass temporary roots; runtime defaults resolve from the repository configuration, never from the current shell directory implicitly.
 
-- [ ] **Step 4: Implement routes with bounded uploads**
+- [x] **Step 4: Implement routes with bounded uploads**
 
 `POST /api/projects/import` must stream the upload to a temporary file under the configured project root, reject files over a named `MAX_IMPORT_BYTES` constant, call `ProjectWorkspace.import_pack`, and remove only that temporary upload in `finally`. The endpoint never accepts an arbitrary client filesystem path.
 
 The two GET endpoints load `project.json` from a UUID project directory and recompute coverage from the current working copy. Map known domain errors to the stable envelope; unexpected errors preserve technical details in logs but return a generic user message.
 
-- [ ] **Step 5: Run API, backend, and import immutability tests**
+- [x] **Step 5: Run API, backend, and import immutability tests**
 
 ```powershell
 .\.venv\Scripts\python -m pytest backend\tests\api -v
@@ -879,7 +879,7 @@ The two GET endpoints load `project.json` from a UUID project directory and reco
 
 Expected: all tests pass; temporary uploads are gone after success and failure; imported snapshots remain unchanged.
 
-- [ ] **Step 6: Commit the project API**
+- [x] **Step 6: Commit the project API**
 
 ```powershell
 git add backend/src/aimctexturegen/api backend/src/aimctexturegen/core backend/src/aimctexturegen/main.py backend/tests/api
