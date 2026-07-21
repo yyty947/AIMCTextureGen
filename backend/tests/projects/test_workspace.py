@@ -14,6 +14,7 @@ import pytest
 from PIL import Image
 from pydantic import ValidationError
 
+import aimctexturegen.projects.workspace as workspace_module
 from aimctexturegen.catalog.registry import CatalogRegistry
 from aimctexturegen.packs.java_adapter import JavaPackAdapter, PackValidationError
 from aimctexturegen.projects.models import ProjectManifest
@@ -318,6 +319,56 @@ def test_pack_junction_substitution_cannot_write_outside_temp_project(
         assert sentinel.read_text(encoding="utf-8") == "must survive"
         assert not (outside / "pack.mcmeta").exists()
         assert not (outside / "assets").exists()
+        assert all(path.name.endswith(".tmp") for path in project_directories)
+    finally:
+        for project_directory in project_directories:
+            pack_directory = project_directory / "pack"
+            if pack_directory.is_junction():
+                _remove_junction(pack_directory)
+            if project_directory.exists() and not project_directory.is_junction():
+                shutil.rmtree(project_directory)
+
+
+def test_pack_junction_inserted_after_containment_creates_no_outside_entry(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    pack_zip_factory: Callable[[str, dict[str, bytes], int], Path],
+) -> None:
+    source = pack_zip_factory("source.zip", {})
+    projects_root = tmp_path / "projects"
+    outside = tmp_path / "outside-after-check"
+    outside.mkdir()
+    sentinel = outside / "sentinel.txt"
+    sentinel.write_text("must survive", encoding="utf-8")
+    workspace = build_workspace(projects_root)
+    contained_destination = workspace_module._contained_destination
+    substituted = False
+
+    def substitute_after_containment(*args, **kwargs) -> Path:
+        nonlocal substituted
+        destination = contained_destination(*args, **kwargs)
+        if not substituted:
+            pack_directory = args[2]
+            pack_directory.rmdir()
+            _create_junction(pack_directory, outside)
+            substituted = True
+        return destination
+
+    monkeypatch.setattr(
+        workspace_module,
+        "_contained_destination",
+        substitute_after_containment,
+    )
+
+    with pytest.raises(PackValidationError) as raised:
+        workspace.import_pack(source, "Check-to-open junction attack")
+
+    project_directories = list(projects_root.iterdir())
+    try:
+        assert raised.value.code == "UNSAFE_PROJECT_PATH"
+        assert sentinel.read_text(encoding="utf-8") == "must survive"
+        assert not (outside / "pack.mcmeta").exists()
+        assert {path.name for path in outside.iterdir()} == {"sentinel.txt"}
         assert all(path.name.endswith(".tmp") for path in project_directories)
     finally:
         for project_directory in project_directories:

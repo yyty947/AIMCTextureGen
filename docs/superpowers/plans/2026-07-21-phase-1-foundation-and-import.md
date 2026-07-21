@@ -599,6 +599,7 @@ git commit -m "feat: validate Java resource pack inputs"
 
 **Files:**
 - Create: `backend/src/aimctexturegen/projects/__init__.py`
+- Create: `backend/src/aimctexturegen/projects/_directory_guard.py`
 - Create: `backend/src/aimctexturegen/projects/models.py`
 - Create: `backend/src/aimctexturegen/projects/workspace.py`
 - Create: `backend/tests/projects/test_workspace.py`
@@ -696,9 +697,11 @@ Create `ProjectWorkspace`. `import_pack` must perform operations in this order:
 9. on failure, delete only the verified `<project-id>.tmp` directory inside the configured project root. Preserve its original Windows file identity, reject any junction/symlink/reparse point in the temp tree, never recurse through a resolved target, and fail closed if identity or reparse verification fails.
 
 Working-copy writes must be anchored to the original temp directory identity and
-reject reparse points in their ancestry. Bind the retained snapshot to its file
-identity and SHA-256 while copying, then compare both again immediately before
-atomic publication.
+reject reparse points in their ancestry. On Windows, hold native handles for the
+temp root, `pack/`, and each created ancestor without `FILE_SHARE_DELETE`; verify
+their file identity, final path and reparse attributes before any descendant or file
+open. Bind the retained snapshot to its file identity and SHA-256 while copying,
+then compare both again immediately before atomic publication.
 
 The constructor and method signatures must be:
 
