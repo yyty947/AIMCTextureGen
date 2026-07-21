@@ -31,7 +31,7 @@ The MVP spans independent subsystems whose external versions and measured behavi
 
 **Executable plan:** [`2026-07-21-phase-1-foundation-and-import.md`](2026-07-21-phase-1-foundation-and-import.md)
 
-**Deliverable:** A GPU-free vertical slice that creates a project from a Java ZIP or directory, preserves an immutable snapshot, parses `pack.mcmeta`, loads a versioned test catalog, classifies paths, and displays coverage through FastAPI and React.
+**Deliverable:** A GPU-free vertical slice whose backend creates a project from a Java ZIP or directory, preserves an immutable snapshot, parses `pack.mcmeta`, loads a versioned test catalog, and classifies paths. The initial React flow uploads ZIP files and displays coverage; browser directory upload is completed before the Phase 6 MVP acceptance gate.
 
 **Exit gate:** Backend unit and integration tests pass; frontend tests pass; the original input hash is unchanged; unsafe ZIP fixtures are rejected; a browser smoke test shows the expected covered, missing, and unknown counts.
 
@@ -71,7 +71,7 @@ The MVP spans independent subsystems whose external versions and measured behavi
 
 **Planned ownership:** atomic adoption service, export validator, final wizard step, PowerShell launcher, end-to-end tests, `docs/TESTING.md`, licensing notices, and user-facing setup documentation.
 
-**Deliverable:** Explicit candidate adoption to the standard target path, refreshed coverage, validated temporary ZIP export, project restoration, startup environment checks, browser launch, model download consent, readable recovery guidance, and recorded 8 GB sequential validation.
+**Deliverable:** Explicit candidate adoption to the standard target path, refreshed coverage, validated temporary ZIP export, browser directory import, project restoration, startup environment checks, browser launch, model download consent, readable recovery guidance, and recorded 8 GB sequential validation.
 
 **Exit gate:** Every acceptance criterion in the MVP design specification has linked automated or manual evidence; original snapshot hashes remain unchanged; exports exclude internal artifacts; a clean Windows checkout can follow the documented setup path.
 
@@ -86,4 +86,3 @@ The MVP spans independent subsystems whose external versions and measured behavi
 ## Definition of MVP Completion
 
 MVP completion means all six phase exit gates pass and all thirteen acceptance criteria in the design specification have evidence. A partially completed roadmap item is not a release, even if a manually generated texture looks correct.
-

@@ -20,6 +20,7 @@
 - WebUI accesses imported data only through FastAPI.
 - The Phase 1 catalog is explicitly marked as a developer fixture and must not be presented as a complete production compatibility catalog.
 - No ComfyUI, model, generation, adoption, export, or GPU logic enters this phase.
+- Every behavioral change follows RED -> GREEN: import/collection/compilation errors are setup failures, not an acceptable RED result. When a test initially cannot run, add only the smallest importable or compilable no-behavior scaffold, then rerun until a behavioral assertion fails for the expected reason before implementing the behavior.
 
 ---
 
@@ -78,28 +79,9 @@ projects/
 *.log
 ```
 
-- [ ] **Step 2: Write the failing health test**
+- [ ] **Step 2: Add the backend package metadata and route-free scaffold**
 
-Create `backend/tests/test_health.py`:
-
-```python
-from fastapi.testclient import TestClient
-
-from aimctexturegen.main import create_app
-
-
-def test_health_contract() -> None:
-    client = TestClient(create_app())
-
-    response = client.get("/api/health")
-
-    assert response.status_code == 200
-    assert response.json() == {"status": "ok", "schema_version": 1}
-```
-
-- [ ] **Step 3: Add the backend package metadata**
-
-Create `backend/pyproject.toml` with fixed Phase 1-compatible dependencies:
+Create `backend/pyproject.toml` with this exact Phase 1-compatible content:
 
 ```toml
 [build-system]
@@ -132,9 +114,61 @@ testpaths = ["tests"]
 addopts = "-ra --strict-markers"
 ```
 
-- [ ] **Step 4: Create the minimal FastAPI application**
+Create an empty `backend/src/aimctexturegen/__init__.py`, and create `backend/src/aimctexturegen/main.py` with a route-free application:
 
-Create an empty `backend/src/aimctexturegen/__init__.py`, then create `backend/src/aimctexturegen/main.py`:
+```python
+from fastapi import FastAPI
+
+
+def create_app() -> FastAPI:
+    return FastAPI(title="AIMCTextureGen API", version="0.1.0")
+
+
+app = create_app()
+```
+
+- [ ] **Step 3: Create the isolated environment**
+
+Run from the repository root:
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\python -m pip install --upgrade pip
+.\.venv\Scripts\python -m pip install -e ".\backend[dev]"
+```
+
+Expected: installation succeeds inside `.venv`; global Python is unchanged.
+
+- [ ] **Step 4: Write the failing health test**
+
+Create `backend/tests/test_health.py`:
+
+```python
+from fastapi.testclient import TestClient
+
+from aimctexturegen.main import create_app
+
+
+def test_health_contract() -> None:
+    client = TestClient(create_app())
+
+    response = client.get("/api/health")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok", "schema_version": 1}
+```
+
+- [ ] **Step 5: Verify RED**
+
+```powershell
+.\.venv\Scripts\python -m pytest backend\tests\test_health.py -v
+```
+
+Expected: the test runs and fails because `/api/health` returns HTTP 404 instead of 200.
+
+- [ ] **Step 6: Add the health behavior**
+
+Replace `backend/src/aimctexturegen/main.py` with:
 
 ```python
 from fastapi import FastAPI
@@ -153,20 +187,17 @@ def create_app() -> FastAPI:
 app = create_app()
 ```
 
-- [ ] **Step 5: Create the isolated environment and verify the test**
+- [ ] **Step 7: Verify GREEN**
 
 Run from the repository root:
 
 ```powershell
-py -3.12 -m venv .venv
-\.\.venv\Scripts\python -m pip install --upgrade pip
-\.\.venv\Scripts\python -m pip install -e ".\backend[dev]"
-\.\.venv\Scripts\python -m pytest backend\tests\test_health.py -v
+.\.venv\Scripts\python -m pytest backend\tests\test_health.py -v
 ```
 
 Expected: one test passes and no package is installed into global Python.
 
-- [ ] **Step 6: Commit the backend skeleton**
+- [ ] **Step 8: Commit the backend skeleton**
 
 ```powershell
 git add .gitignore backend
@@ -229,10 +260,10 @@ def test_rejects_unsupported_primary_pack_format() -> None:
 - [ ] **Step 2: Run the tests and confirm the missing-module failure**
 
 ```powershell
-\.\.venv\Scripts\python -m pytest backend\tests\catalog\test_registry.py -v
+.\.venv\Scripts\python -m pytest backend\tests\catalog\test_registry.py -v
 ```
 
-Expected: collection fails because `aimctexturegen.catalog.registry` does not exist.
+Expected: after adding only importable no-behavior stubs required by the global RED rule, the tests execute and fail their first behavioral assertion because no profile is loaded.
 
 - [ ] **Step 3: Define strict catalog models**
 
@@ -345,8 +376,8 @@ class CatalogRegistry:
 - [ ] **Step 6: Verify catalog tests and the complete backend suite**
 
 ```powershell
-\.\.venv\Scripts\python -m pytest backend\tests\catalog\test_registry.py -v
-\.\.venv\Scripts\python -m pytest backend\tests -v
+.\.venv\Scripts\python -m pytest backend\tests\catalog\test_registry.py -v
+.\.venv\Scripts\python -m pytest backend\tests -v
 ```
 
 Expected: all tests pass.
@@ -487,11 +518,11 @@ Also add tests for: missing `pack.mcmeta`, malformed JSON, missing/non-integer `
 - [ ] **Step 3: Run the tests and confirm the missing implementation**
 
 ```powershell
-\.\.venv\Scripts\python -m pip install -e ".\backend[dev]"
-\.\.venv\Scripts\python -m pytest backend\tests\packs\test_java_adapter.py -v
+.\.venv\Scripts\python -m pip install -e ".\backend[dev]"
+.\.venv\Scripts\python -m pytest backend\tests\packs\test_java_adapter.py -v
 ```
 
-Expected: collection fails because the pack adapter modules do not exist.
+Expected: after adding only importable no-behavior stubs required by the global RED rule, the tests execute and fail their first behavioral assertion because inspection is not implemented.
 
 - [ ] **Step 4: Define immutable inspection models**
 
@@ -549,8 +580,8 @@ Safety helpers must return normalized forward-slash paths, reject empty/dot-only
 - [ ] **Step 6: Run all pack and backend tests**
 
 ```powershell
-\.\.venv\Scripts\python -m pytest backend\tests\packs -v
-\.\.venv\Scripts\python -m pytest backend\tests -v
+.\.venv\Scripts\python -m pytest backend\tests\packs -v
+.\.venv\Scripts\python -m pytest backend\tests -v
 ```
 
 Expected: all tests pass; test output contains no writes outside pytest temporary directories.
@@ -610,10 +641,10 @@ The same file must assert that failed validation leaves no project directory, di
 - [ ] **Step 2: Run tests and verify the expected import failure**
 
 ```powershell
-\.\.venv\Scripts\python -m pytest backend\tests\projects\test_workspace.py -v
+.\.venv\Scripts\python -m pytest backend\tests\projects\test_workspace.py -v
 ```
 
-Expected: collection fails because project workspace modules do not exist.
+Expected: after adding only importable no-behavior stubs required by the global RED rule, the tests execute and fail their first behavioral assertion because project import is not implemented.
 
 - [ ] **Step 3: Define the versioned project manifest**
 
@@ -682,8 +713,8 @@ Reject an empty trimmed project name with `PackValidationError("INVALID_PROJECT_
 - [ ] **Step 5: Run workspace and regression tests**
 
 ```powershell
-\.\.venv\Scripts\python -m pytest backend\tests\projects -v
-\.\.venv\Scripts\python -m pytest backend\tests -v
+.\.venv\Scripts\python -m pytest backend\tests\projects -v
+.\.venv\Scripts\python -m pytest backend\tests -v
 ```
 
 Expected: all tests pass; source hashes are unchanged; failed imports leave no final or temporary project directory.
@@ -733,10 +764,10 @@ assert report.unknown_paths == (
 - [ ] **Step 2: Run the focused test and confirm the missing function**
 
 ```powershell
-\.\.venv\Scripts\python -m pytest backend\tests\packs\test_coverage.py -v
+.\.venv\Scripts\python -m pytest backend\tests\packs\test_coverage.py -v
 ```
 
-Expected: collection fails because `packs.coverage` does not exist.
+Expected: after adding only importable no-behavior stubs required by the global RED rule, the test executes and fails its first behavioral assertion because coverage classification is not implemented.
 
 - [ ] **Step 3: Implement exact-path coverage**
 
@@ -754,8 +785,8 @@ Use `PIL.Image.verify()` for decode validation and reopen the image before readi
 - [ ] **Step 4: Run coverage and all backend tests**
 
 ```powershell
-\.\.venv\Scripts\python -m pytest backend\tests\packs\test_coverage.py -v
-\.\.venv\Scripts\python -m pytest backend\tests -v
+.\.venv\Scripts\python -m pytest backend\tests\packs\test_coverage.py -v
+.\.venv\Scripts\python -m pytest backend\tests -v
 ```
 
 Expected: all tests pass and coverage results remain stable across repeated runs.
@@ -809,7 +840,7 @@ Also assert a rejected unsafe ZIP returns HTTP 400 with `code="UNSAFE_PACK_PATH"
 - [ ] **Step 2: Run API tests and confirm route absence**
 
 ```powershell
-\.\.venv\Scripts\python -m pytest backend\tests\api\test_projects.py -v
+.\.venv\Scripts\python -m pytest backend\tests\api\test_projects.py -v
 ```
 
 Expected: the import request returns 404 because the route is not registered.
@@ -827,8 +858,8 @@ The two GET endpoints load `project.json` from a UUID project directory and reco
 - [ ] **Step 5: Run API, backend, and import immutability tests**
 
 ```powershell
-\.\.venv\Scripts\python -m pytest backend\tests\api -v
-\.\.venv\Scripts\python -m pytest backend\tests -v
+.\.venv\Scripts\python -m pytest backend\tests\api -v
+.\.venv\Scripts\python -m pytest backend\tests -v
 ```
 
 Expected: all tests pass; temporary uploads are gone after success and failure; imported snapshots remain unchanged.
@@ -912,7 +943,7 @@ npm test
 Pop-Location
 ```
 
-Expected: test compilation fails because `App.tsx` and the API client do not exist.
+Expected: after adding only compilable no-behavior stubs required by the global RED rule, the tests execute and fail because the expected imported-project summary is not rendered.
 
 - [ ] **Step 4: Implement a typed API client**
 
@@ -986,7 +1017,7 @@ The integration test must create a synthetic ZIP, record its SHA-256, call the i
 - [ ] **Step 2: Run the complete automated gate**
 
 ```powershell
-\.\.venv\Scripts\python -m pytest backend\tests --cov=aimctexturegen --cov-report=term-missing
+.\.venv\Scripts\python -m pytest backend\tests --cov=aimctexturegen --cov-report=term-missing
 Push-Location frontend
 npm test
 npm run build
@@ -1001,7 +1032,7 @@ Expected: backend tests, frontend tests and frontend build pass; `git diff --che
 In terminal one:
 
 ```powershell
-\.\.venv\Scripts\python -m uvicorn aimctexturegen.main:app --app-dir backend\src --host 127.0.0.1 --port 8000
+.\.venv\Scripts\python -m uvicorn aimctexturegen.main:app --app-dir backend\src --host 127.0.0.1 --port 8000
 ```
 
 In terminal two:
