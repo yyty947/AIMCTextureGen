@@ -755,7 +755,7 @@ git commit -m "feat: import packs into isolated project workspaces"
 - Produces: `CoverageReport(catalog_id, catalog_status, covered_count, missing_count, unknown_paths, items)`
 - Produces: `classify_coverage(pack_root: Path, profile: CatalogProfile) -> CoverageReport`
 
-- [ ] **Step 1: Write failing coverage tests**
+- [x] **Step 1: Write failing coverage tests**
 
 Create a temporary working pack containing valid synthetic `stone.png`, an unknown square PNG, and no `deepslate.png`. Assert that `stone` is covered, `deepslate` is missing, the unknown file is preserved in `unknown_paths`, and a wrongly cased `Stone.png` does not cover the canonical lowercase path.
 
@@ -776,7 +776,7 @@ assert report.unknown_paths == (
 )
 ```
 
-- [ ] **Step 2: Run the focused test and confirm the missing function**
+- [x] **Step 2: Run the focused test and confirm the missing function**
 
 ```powershell
 .\.venv\Scripts\python -m pytest backend\tests\packs\test_coverage.py -v
@@ -784,7 +784,7 @@ assert report.unknown_paths == (
 
 Expected: after adding only importable no-behavior stubs required by the global RED rule, the test executes and fails its first behavioral assertion because coverage classification is not implemented.
 
-- [ ] **Step 3: Implement exact-path coverage**
+- [x] **Step 3: Implement exact-path coverage**
 
 Define frozen Pydantic report models and implement `classify_coverage` so it copies both `profile.catalog_id` and `profile.status` into `catalog_id` and `catalog_status`, then:
 
@@ -797,7 +797,7 @@ Define frozen Pydantic report models and implement `classify_coverage` so it cop
 
 Use `PIL.Image.verify()` for decode validation and reopen the image before reading dimensions; do not retain decoded pixel data.
 
-- [ ] **Step 4: Run coverage and all backend tests**
+- [x] **Step 4: Run coverage and all backend tests**
 
 ```powershell
 .\.venv\Scripts\python -m pytest backend\tests\packs\test_coverage.py -v
@@ -806,7 +806,7 @@ Use `PIL.Image.verify()` for decode validation and reopen the image before readi
 
 Expected: all tests pass and coverage results remain stable across repeated runs.
 
-- [ ] **Step 5: Commit coverage classification**
+- [x] **Step 5: Commit coverage classification**
 
 ```powershell
 git add backend/src/aimctexturegen/packs/coverage.py backend/tests/packs/test_coverage.py
