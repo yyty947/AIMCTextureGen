@@ -6,8 +6,8 @@
 
 - 仓库已初始化，当前分支为 `master`。
 - MVP 产品设计已在提交 `026dec8` 中确认。
-- 文档体系正在建立；应用、测试、启动脚本和依赖清单尚未实现。
-- 当前没有可运行的 WebUI、FastAPI 服务或 ComfyUI 集成。
+- 已完成第一阶段任务 1：FastAPI 应用工厂、`GET /api/health` 健康契约、固定后端依赖清单和健康契约测试已实现。
+- 当前没有可运行的 WebUI 或 ComfyUI 集成；FastAPI 应用可由 `aimctexturegen.main:create_app` 创建。
 - 当前没有需要迁移的用户项目数据。
 
 ## 已确认边界
@@ -32,20 +32,22 @@
 
 1. 运行 `git status --short`，确认并保留当前未提交改动。
 2. 阅读 `AGENTS.md`、当前阶段计划和 MVP 设计规格。
-3. 找到当前阶段计划中第一个未勾选任务，只执行该任务定义的范围。
+3. 找到当前阶段计划中第一个未勾选任务（目前为任务 2：Catalog Contracts and Version Selection），只执行该任务定义的范围。
 4. 先运行该任务的基线测试，再按计划测试先行实现。
 5. 完成任务后更新计划复选框、本文件的当前状态和验证结果。
 
 ## 当前可用验证
 
-当前仓库只有文档，可运行：
+当前可运行后端健康契约测试：
 
 ```powershell
+\.venv\Scripts\python -m pytest backend\tests\test_health.py -v
+\.venv\Scripts\python -m pytest backend\tests -v
 git diff --check
 git status --short
 ```
 
-预期：`git diff --check` 无输出；`git status --short` 只显示当前有意创建或修改的文件。
+已于 2026-07-21 使用 Python 3.12.10 运行：两个 pytest 命令均为 1 passed；FastAPI/Starlette 固定依赖组合会发出 `TestClient` 弃用警告。预期：`git diff --check` 无输出；`git status --short` 只显示当前有意创建或修改的文件。
 
 ## 需要在对应阶段确定的事项
 

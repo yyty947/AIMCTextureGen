@@ -62,7 +62,7 @@ Later phases consume the interfaces named below. Do not rename them casually; if
 - Produces: `create_app() -> FastAPI`
 - Produces: `GET /api/health -> {"status": "ok", "schema_version": 1}`
 
-- [ ] **Step 1: Extend local artifact exclusions**
+- [x] **Step 1: Extend local artifact exclusions**
 
 Add these exact entries without removing existing ignore rules:
 
@@ -79,7 +79,7 @@ projects/
 *.log
 ```
 
-- [ ] **Step 2: Add the backend package metadata and route-free scaffold**
+- [x] **Step 2: Add the backend package metadata and route-free scaffold**
 
 Create `backend/pyproject.toml` with this exact Phase 1-compatible content:
 
@@ -127,7 +127,7 @@ def create_app() -> FastAPI:
 app = create_app()
 ```
 
-- [ ] **Step 3: Create the isolated environment**
+- [x] **Step 3: Create the isolated environment**
 
 Run from the repository root:
 
@@ -139,7 +139,7 @@ py -3.12 -m venv .venv
 
 Expected: installation succeeds inside `.venv`; global Python is unchanged.
 
-- [ ] **Step 4: Write the failing health test**
+- [x] **Step 4: Write the failing health test**
 
 Create `backend/tests/test_health.py`:
 
@@ -158,7 +158,7 @@ def test_health_contract() -> None:
     assert response.json() == {"status": "ok", "schema_version": 1}
 ```
 
-- [ ] **Step 5: Verify RED**
+- [x] **Step 5: Verify RED**
 
 ```powershell
 .\.venv\Scripts\python -m pytest backend\tests\test_health.py -v
@@ -166,7 +166,7 @@ def test_health_contract() -> None:
 
 Expected: the test runs and fails because `/api/health` returns HTTP 404 instead of 200.
 
-- [ ] **Step 6: Add the health behavior**
+- [x] **Step 6: Add the health behavior**
 
 Replace `backend/src/aimctexturegen/main.py` with:
 
@@ -187,7 +187,7 @@ def create_app() -> FastAPI:
 app = create_app()
 ```
 
-- [ ] **Step 7: Verify GREEN**
+- [x] **Step 7: Verify GREEN**
 
 Run from the repository root:
 
@@ -197,7 +197,7 @@ Run from the repository root:
 
 Expected: one test passes and no package is installed into global Python.
 
-- [ ] **Step 8: Commit the backend skeleton**
+- [x] **Step 8: Commit the backend skeleton**
 
 ```powershell
 git add .gitignore backend
