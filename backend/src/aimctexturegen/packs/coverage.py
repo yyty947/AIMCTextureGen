@@ -13,9 +13,16 @@ CoverageStatus = Literal["covered", "missing"]
 
 
 class CoverageValidationError(ValueError):
-    def __init__(self, relative_path: str) -> None:
+    def __init__(
+        self,
+        code: str,
+        user_message: str,
+        relative_path: str | None = None,
+    ) -> None:
+        self.code = code
+        self.user_message = user_message
         self.relative_path = relative_path
-        super().__init__(f"目录材质 PNG 无法解码: {relative_path}")
+        super().__init__(user_message)
 
 
 class CoverageItem(BaseModel):
@@ -40,6 +47,7 @@ class CoverageReport(BaseModel):
 
 
 def classify_coverage(pack_root: Path, profile: CatalogProfile) -> CoverageReport:
+    _validate_pack_root(pack_root)
     files = _enumerate_files(pack_root)
     catalog_paths = frozenset(entry.relative_path for entry in profile.entries)
     items = tuple(
@@ -86,8 +94,24 @@ def _enumerate_files(pack_root: Path) -> dict[str, Path]:
 
 def _is_directory_reparse_point(path: Path) -> bool:
     status = os.lstat(path)
+    return _is_reparse_point(path, status)
+
+
+def _validate_pack_root(pack_root: Path) -> None:
+    try:
+        status = os.lstat(pack_root)
+    except OSError as error:
+        raise CoverageValidationError(
+            "UNSAFE_PACK_ROOT", "资源包工作目录不安全"
+        ) from error
+    if not stat.S_ISDIR(status.st_mode) or _is_reparse_point(pack_root, status):
+        raise CoverageValidationError("UNSAFE_PACK_ROOT", "资源包工作目录不安全")
+
+
+def _is_reparse_point(path: Path, status: os.stat_result) -> bool:
     return (
-        path.is_symlink()
+        stat.S_ISLNK(status.st_mode)
+        or path.is_symlink()
         or path.is_junction()
         or bool(
             getattr(status, "st_file_attributes", 0)
@@ -100,7 +124,11 @@ def _coverage_item(entry: CatalogEntry, path: Path | None) -> CoverageItem:
     status: CoverageStatus = "missing"
     if path is not None:
         if not _is_decodable_png(path):
-            raise CoverageValidationError(entry.relative_path)
+            raise CoverageValidationError(
+                "INVALID_TEXTURE_PNG",
+                "目录材质 PNG 无法解码",
+                entry.relative_path,
+            )
         status = "covered"
     return CoverageItem(
         semantic_id=entry.semantic_id,

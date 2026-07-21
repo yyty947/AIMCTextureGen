@@ -55,7 +55,7 @@ git diff --check
 git status --short
 ```
 
-已于 2026-07-21 使用 Python 3.12.10 运行：覆盖分类套件为 6 passed，完整后端套件为 82 passed；所有 pytest 命令均使用 `-W error` 且无警告。预期：`git diff --check` 无输出；`git status --short` 只显示当前有意创建或修改的文件。
+已于 2026-07-21 使用 Python 3.12.10 运行：覆盖分类套件为 10 passed，完整后端套件为 86 passed；所有 pytest 命令均使用 `-W error` 且无警告。预期：`git diff --check` 无输出；`git status --short` 只显示当前有意创建或修改的文件。
 
 ## 需要在对应阶段确定的事项
 
