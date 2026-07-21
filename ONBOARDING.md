@@ -63,7 +63,7 @@ git diff --check
 git status --short
 ```
 
-已于 2026-07-21 使用 Python 3.12.10 运行完整覆盖率门禁：120 passed、总覆盖率 86%，使用 `-W error` 且无警告。使用便携 Node.js 24.18.0 运行：前端为 1 个测试文件、11 个测试通过，Vite 8.1.5 生产构建成功。`git diff --check` 无输出；`git status --short` 只应显示当前有意创建或修改的文件。任务 8 的实现提交为 `4d950ab`（`test: verify Phase 1 import flow`），当前已提交的自动化交接 HEAD 为 `0c4a32f`（`docs: finalize Phase 1 automated handoff`）。
+已于 2026-07-21 使用 Python 3.12.10 运行完整覆盖率门禁：120 passed、总覆盖率 86%，使用 `-W error` 且无警告。使用便携 Node.js 24.18.0 运行：前端为 1 个测试文件、11 个测试通过，Vite 8.1.5 生产构建成功。`git diff --check` 无输出；`git status --short` 只应显示当前有意创建或修改的文件。任务 8 的初始实现提交为 `4d950ab`（`test: verify Phase 1 import flow`），初始自动化交接 HEAD 为 `0c4a32f`（`docs: finalize Phase 1 automated handoff`），隔离证据 review-fix 提交为 `1acaa86`（`test: enforce Phase 1 import isolation`）。
 
 ## 需要在对应阶段确定的事项
 
