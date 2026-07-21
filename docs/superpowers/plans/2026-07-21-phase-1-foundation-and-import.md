@@ -1063,7 +1063,7 @@ Open `http://127.0.0.1:5173`, import a synthetic test ZIP, and verify the develo
 
 Update `README.md` with only commands that succeeded. Update `ONBOARDING.md` with the final test results, the last completed commit, and Phase 2 as the next work item. Mark every completed checkbox in this plan. Do not claim support for a production `pack_format` catalog while the profile status remains `development_fixture`.
 
-- [ ] **Step 5: Commit Phase 1 evidence and handoff**
+- [x] **Step 5: Commit Phase 1 evidence and handoff**
 
 ```powershell
 git add backend/tests/integration README.md ONBOARDING.md docs/superpowers/plans/2026-07-21-phase-1-foundation-and-import.md

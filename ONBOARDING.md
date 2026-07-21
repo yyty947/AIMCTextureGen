@@ -63,7 +63,7 @@ git diff --check
 git status --short
 ```
 
-已于 2026-07-21 使用 Python 3.12.10 运行完整覆盖率门禁：118 passed、总覆盖率 86%，使用 `-W error` 且无警告。使用便携 Node.js 24.18.0 运行：前端为 1 个测试文件、11 个测试通过，Vite 8.1.5 生产构建成功。`git diff --check` 无输出；`git status --short` 只应显示当前有意创建或修改的文件。最近完成的已提交实现基线仍为任务 7 提交 `d0e4eaf`；任务 8 的确切提交会在提交后写入本交接。
+已于 2026-07-21 使用 Python 3.12.10 运行完整覆盖率门禁：118 passed、总覆盖率 86%，使用 `-W error` 且无警告。使用便携 Node.js 24.18.0 运行：前端为 1 个测试文件、11 个测试通过，Vite 8.1.5 生产构建成功。`git diff --check` 无输出；`git status --short` 只应显示当前有意创建或修改的文件。最近完成的实现提交为任务 8 的 `4d950ab`（`test: verify Phase 1 import flow`）。
 
 ## 需要在对应阶段确定的事项
 
