@@ -3,15 +3,20 @@ import os
 import stat
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from aimctexturegen.api.projects import router as projects_router
+from aimctexturegen.api import projects as projects_api
+from aimctexturegen.catalog.models import CatalogProfile
 from aimctexturegen.catalog.registry import CatalogRegistry
 from aimctexturegen.core.errors import ApiProblem, problem_response
+from aimctexturegen.core.request_limits import ImportBodyLimitMiddleware
 from aimctexturegen.packs.java_adapter import JavaPackAdapter
 from aimctexturegen.projects._directory_guard import is_reparse_point
+from aimctexturegen.projects.models import ProjectManifest
 from aimctexturegen.projects.workspace import ProjectWorkspace
 
 
@@ -21,35 +26,65 @@ _DEFAULT_CATALOG_ROOT = _REPOSITORY_ROOT / "catalogs" / "java"
 _LOGGER = logging.getLogger(__name__)
 
 
+class WorkspaceService(Protocol):
+    def import_pack(self, source: Path, project_name: str) -> ProjectManifest: ...
+
+
+class CatalogService(Protocol):
+    def for_pack_format(self, pack_format: int) -> CatalogProfile: ...
+
+
 @dataclass(frozen=True)
 class AppServices:
-    workspace: ProjectWorkspace
-    catalogs: CatalogRegistry
+    workspace: WorkspaceService
+    catalogs: CatalogService
     project_root: Path
 
 
 def create_app(
     project_root: Path | None = None,
     catalog_root: Path | None = None,
+    max_import_bytes: int | None = None,
+    max_import_body_bytes: int | None = None,
+    services: AppServices | None = None,
 ) -> FastAPI:
-    configured_project_root = _resolve_project_root(
-        _DEFAULT_PROJECT_ROOT if project_root is None else project_root
-    )
-    configured_catalog_root = (
-        _DEFAULT_CATALOG_ROOT if catalog_root is None else catalog_root
-    ).resolve()
-    catalogs = CatalogRegistry(configured_catalog_root)
-    services = AppServices(
-        workspace=ProjectWorkspace(
-            configured_project_root,
-            JavaPackAdapter(),
-            catalogs,
-        ),
-        catalogs=catalogs,
-        project_root=configured_project_root,
-    )
+    if services is None:
+        configured_project_root = _resolve_project_root(
+            _DEFAULT_PROJECT_ROOT if project_root is None else project_root
+        )
+        configured_catalog_root = (
+            _DEFAULT_CATALOG_ROOT if catalog_root is None else catalog_root
+        ).resolve()
+        catalogs = CatalogRegistry(configured_catalog_root)
+        services = AppServices(
+            workspace=ProjectWorkspace(
+                configured_project_root,
+                JavaPackAdapter(),
+                catalogs,
+            ),
+            catalogs=catalogs,
+            project_root=configured_project_root,
+        )
+    elif project_root is not None or catalog_root is not None:
+        raise ValueError("services cannot be combined with project_root or catalog_root")
     app = FastAPI(title="AIMCTextureGen API", version="0.1.0")
     app.state.services = services
+    app.state.max_import_bytes = (
+        projects_api.MAX_IMPORT_BYTES
+        if max_import_bytes is None
+        else max_import_bytes
+    )
+    configured_body_limit = (
+        projects_api.MAX_IMPORT_BODY_BYTES
+        if max_import_body_bytes is None
+        else max_import_body_bytes
+    )
+    if app.state.max_import_bytes <= 0 or configured_body_limit <= 0:
+        raise ValueError("import size limits must be positive")
+    app.add_middleware(
+        ImportBodyLimitMiddleware,
+        max_body_bytes=configured_body_limit,
+    )
 
     @app.exception_handler(ApiProblem)
     async def api_problem_handler(
@@ -70,6 +105,33 @@ def create_app(
                 stage="request_validation",
                 user_message="请求格式无效；导入只接受项目名称和 ZIP 文件上传",
                 recommended_actions=("选择 ZIP 文件并重新提交",),
+                technical_details=None,
+            )
+        )
+
+    @app.exception_handler(StarletteHTTPException)
+    async def http_exception_handler(
+        request: Request,
+        error: StarletteHTTPException,
+    ):
+        if request.url.path == "/api/projects/import" and error.status_code == 400:
+            return problem_response(
+                ApiProblem(
+                    status_code=400,
+                    code="INVALID_MULTIPART",
+                    stage="request_validation",
+                    user_message="multipart 上传内容无效",
+                    recommended_actions=("重新选择 ZIP 文件并提交",),
+                    technical_details=None,
+                )
+            )
+        return problem_response(
+            ApiProblem(
+                status_code=error.status_code,
+                code="HTTP_ERROR",
+                stage="request_processing",
+                user_message="请求无法处理",
+                recommended_actions=(),
                 technical_details=None,
             )
         )
@@ -95,7 +157,7 @@ def create_app(
     def health() -> dict[str, object]:
         return {"status": "ok", "schema_version": 1}
 
-    app.include_router(projects_router)
+    app.include_router(projects_api.router)
 
     return app
 

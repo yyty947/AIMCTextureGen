@@ -1,29 +1,21 @@
+import asyncio
 import io
 import json
 import os
 import subprocess
 import zipfile
-import warnings
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+import httpx
 import pytest
 from PIL import Image
-from starlette.exceptions import StarletteDeprecationWarning
-
-with warnings.catch_warnings():
-    warnings.filterwarnings(
-        "ignore",
-        message="Using `httpx` with `starlette.testclient` is deprecated.*",
-        category=StarletteDeprecationWarning,
-    )
-    from fastapi.testclient import TestClient
+from fastapi import FastAPI
 
 import aimctexturegen.main as main_module
-from aimctexturegen.api import projects as projects_api
 from aimctexturegen.catalog.registry import CatalogRegistry
 from aimctexturegen.main import create_app
 from aimctexturegen.projects.models import ProjectManifest
@@ -65,13 +57,62 @@ def api_one_pixel_png() -> bytes:
     return buffer.getvalue()
 
 
+class ApiClient:
+    def __init__(
+        self,
+        app: FastAPI,
+        *,
+        raise_server_exceptions: bool,
+    ) -> None:
+        self.app = app
+        self._raise_server_exceptions = raise_server_exceptions
+
+    def request(self, method: str, path: str, **kwargs) -> httpx.Response:
+        files = kwargs.get("files")
+        if files is not None:
+            kwargs["files"] = {
+                field: (
+                    value[0],
+                    value[1].read() if hasattr(value[1], "read") else value[1],
+                    *value[2:],
+                )
+                for field, value in files.items()
+            }
+
+        async def send() -> httpx.Response:
+            transport = httpx.ASGITransport(
+                app=self.app,
+                raise_app_exceptions=self._raise_server_exceptions,
+            )
+            async with httpx.AsyncClient(
+                transport=transport,
+                base_url="http://testserver",
+            ) as client:
+                return await client.request(method, path, **kwargs)
+
+        return asyncio.run(send())
+
+    def post(self, path: str, **kwargs) -> httpx.Response:
+        return self.request("POST", path, **kwargs)
+
+    def get(self, path: str, **kwargs) -> httpx.Response:
+        return self.request("GET", path, **kwargs)
+
+
 def build_client(
     project_root: Path,
     *,
     raise_server_exceptions: bool = True,
-) -> TestClient:
-    return TestClient(
-        create_app(project_root=project_root, catalog_root=CATALOG_ROOT),
+    max_import_bytes: int | None = None,
+    max_import_body_bytes: int | None = None,
+) -> ApiClient:
+    return ApiClient(
+        create_app(
+            project_root=project_root,
+            catalog_root=CATALOG_ROOT,
+            max_import_bytes=max_import_bytes,
+            max_import_body_bytes=max_import_body_bytes,
+        ),
         raise_server_exceptions=raise_server_exceptions,
     )
 
@@ -283,13 +324,11 @@ def test_gets_manifest_and_recomputes_coverage_from_working_copy(
 
 def test_rejects_oversize_upload_and_removes_temporary_file(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     api_pack_zip_factory: Callable[[str, dict[str, bytes], int], Path],
 ) -> None:
     source = api_pack_zip_factory("oversize.zip", {"large.bin": b"x" * 256})
     project_root = tmp_path / "projects"
-    client = build_client(project_root)
-    monkeypatch.setattr(projects_api, "MAX_IMPORT_BYTES", 128)
+    client = build_client(project_root, max_import_bytes=128)
 
     with source.open("rb") as upload:
         response = client.post(

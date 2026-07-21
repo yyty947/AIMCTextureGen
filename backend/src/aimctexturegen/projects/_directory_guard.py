@@ -1,6 +1,8 @@
 import ctypes
 import os
 import stat
+from collections.abc import Iterator
+from contextlib import contextmanager
 from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
@@ -116,6 +118,12 @@ class _DirectoryGuard:
 def capture_directory_identity(path: Path) -> FileIdentity:
     with _open_directory_guard(path) as guard:
         return guard.identity
+
+
+@contextmanager
+def hold_directory_identity(path: Path) -> Iterator[FileIdentity]:
+    with _open_directory_guard(path) as guard:
+        yield guard.identity
 
 
 def matches_directory_identity(path: Path, expected: FileIdentity) -> bool:

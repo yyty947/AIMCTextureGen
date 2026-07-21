@@ -2,6 +2,8 @@ import logging
 import os
 import stat
 import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Annotated, BinaryIO
 from uuid import UUID
@@ -17,11 +19,19 @@ from aimctexturegen.packs.coverage import (
     classify_coverage,
 )
 from aimctexturegen.packs.java_adapter import PackValidationError
-from aimctexturegen.projects._directory_guard import is_reparse_point
+from aimctexturegen.projects._directory_guard import (
+    DirectoryGuardError,
+    FileIdentity as NativeDirectoryIdentity,
+    hold_directory_identity,
+    is_reparse_point,
+    matches_directory_identity,
+)
 from aimctexturegen.projects.models import ProjectManifest
 
 
 MAX_IMPORT_BYTES = 512 * 1024 * 1024
+MAX_MULTIPART_OVERHEAD_BYTES = 1024 * 1024
+MAX_IMPORT_BODY_BYTES = MAX_IMPORT_BYTES + MAX_MULTIPART_OVERHEAD_BYTES
 UPLOAD_CHUNK_BYTES = 1024 * 1024
 MAX_MANIFEST_BYTES = 1024 * 1024
 _UPLOAD_PREFIX = ".import-upload-"
@@ -55,7 +65,11 @@ async def import_project(
             project_root_identity,
         )
         with os.fdopen(descriptor, "w+b") as temporary_file:
-            await _copy_bounded_upload(pack, temporary_file)
+            await _copy_bounded_upload(
+                pack,
+                temporary_file,
+                request.app.state.max_import_bytes,
+            )
             temporary_file.flush()
             _require_directory_identity(
                 services.project_root,
@@ -121,34 +135,7 @@ def get_project_coverage(request: Request, project_id: str) -> CoverageReport:
     try:
         parsed_id = _parse_project_id(project_id)
         services = request.app.state.services
-        manifest, project_directory = _load_project(
-            services.project_root,
-            parsed_id,
-        )
-        try:
-            profile = services.catalogs.for_pack_format(manifest.java_pack_format)
-        except UnsupportedPackFormat as error:
-            raise ApiProblem(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                code="UNSUPPORTED_PACK_FORMAT",
-                stage="classifying_coverage",
-                user_message="项目记录的资源格式当前不受支持",
-                recommended_actions=("重新导入资源包或恢复对应目录配置",),
-                technical_details=None,
-            ) from error
-        if profile.catalog_id != manifest.catalog_id:
-            raise _corrupt_manifest_problem()
-        try:
-            return classify_coverage(project_directory / "pack", profile)
-        except CoverageValidationError as error:
-            raise ApiProblem(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                code=error.code,
-                stage="classifying_coverage",
-                user_message=error.user_message,
-                recommended_actions=("检查项目工作副本，或重新导入原始资源包",),
-                technical_details=None,
-            ) from error
+        return _classify_project_coverage(services, parsed_id)
     except ApiProblem:
         raise
     except Exception as error:
@@ -156,11 +143,124 @@ def get_project_coverage(request: Request, project_id: str) -> CoverageReport:
         raise _internal_problem("classifying_coverage") from error
 
 
-async def _copy_bounded_upload(pack: UploadFile, destination: BinaryIO) -> None:
+def _classify_project_coverage(services, project_id: UUID) -> CoverageReport:
+    project_root = services.project_root
+    if not project_root.exists():
+        raise _project_not_found_problem()
+    project_directory = project_root / str(project_id)
+    if not project_directory.exists():
+        raise _project_not_found_problem()
+
+    try:
+        with hold_directory_identity(project_root) as root_identity:
+            try:
+                with hold_directory_identity(project_directory) as project_identity:
+                    with _open_project_manifest(project_root, project_id) as (
+                        manifest,
+                        guarded_project_directory,
+                    ):
+                        pack_root = guarded_project_directory / "pack"
+                        try:
+                            with hold_directory_identity(pack_root) as pack_identity:
+                                report = _coverage_for_manifest(
+                                    services,
+                                    manifest,
+                                    pack_root,
+                                )
+                                _require_held_identity(
+                                    pack_root,
+                                    pack_identity,
+                                    code="UNSAFE_PACK_ROOT",
+                                    stage="classifying_coverage",
+                                    message="资源包工作目录不安全",
+                                )
+                        except DirectoryGuardError as error:
+                            raise ApiProblem(
+                                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                                code="UNSAFE_PACK_ROOT",
+                                stage="classifying_coverage",
+                                user_message="资源包工作目录不安全",
+                                recommended_actions=("检查项目工作副本，或重新导入原始资源包",),
+                                technical_details=None,
+                            ) from error
+                        _require_held_identity(
+                            project_directory,
+                            project_identity,
+                            code="UNSAFE_PROJECT_PATH",
+                            stage="loading_project",
+                            message="项目目录不安全",
+                        )
+                    _require_held_identity(
+                        project_directory,
+                        project_identity,
+                        code="UNSAFE_PROJECT_PATH",
+                        stage="loading_project",
+                        message="项目目录不安全",
+                    )
+            except DirectoryGuardError as error:
+                raise ApiProblem(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    code="UNSAFE_PROJECT_PATH",
+                    stage="loading_project",
+                    user_message="项目目录不安全",
+                    recommended_actions=("检查项目存储目录后重试",),
+                    technical_details=None,
+                ) from error
+            _require_held_identity(
+                project_root,
+                root_identity,
+                code="UNSAFE_PROJECT_ROOT",
+                stage="loading_project",
+                message="项目存储目录不安全",
+            )
+            return report
+    except DirectoryGuardError as error:
+        raise ApiProblem(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            code="UNSAFE_PROJECT_ROOT",
+            stage="loading_project",
+            user_message="项目存储目录不安全",
+            recommended_actions=("检查项目存储目录后重试",),
+            technical_details=None,
+        ) from error
+
+
+def _coverage_for_manifest(services, manifest, pack_root: Path) -> CoverageReport:
+    try:
+        profile = services.catalogs.for_pack_format(manifest.java_pack_format)
+    except UnsupportedPackFormat as error:
+        raise ApiProblem(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            code="UNSUPPORTED_PACK_FORMAT",
+            stage="classifying_coverage",
+            user_message="项目记录的资源格式当前不受支持",
+            recommended_actions=("重新导入资源包或恢复对应目录配置",),
+            technical_details=None,
+        ) from error
+    if profile.catalog_id != manifest.catalog_id:
+        raise _corrupt_manifest_problem()
+    try:
+        return classify_coverage(pack_root, profile)
+    except CoverageValidationError as error:
+        raise ApiProblem(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            code=error.code,
+            stage="classifying_coverage",
+            user_message=error.user_message,
+            recommended_actions=("检查项目工作副本，或重新导入原始资源包",),
+            technical_details=None,
+        ) from error
+
+
+async def _copy_bounded_upload(
+    pack: UploadFile,
+    destination: BinaryIO,
+    max_import_bytes: int,
+) -> None:
     total = 0
     while chunk := await pack.read(UPLOAD_CHUNK_BYTES):
         total += len(chunk)
-        if total > MAX_IMPORT_BYTES:
+        if total > max_import_bytes:
             raise ApiProblem(
                 status_code=status.HTTP_413_CONTENT_TOO_LARGE,
                 code="IMPORT_TOO_LARGE",
@@ -245,7 +345,7 @@ def _parse_project_id(raw_project_id: str) -> UUID:
             recommended_actions=("返回项目列表并重新选择项目",),
             technical_details=None,
         ) from error
-    if str(project_id) != raw_project_id.lower():
+    if str(project_id) != raw_project_id:
         raise ApiProblem(
             status_code=status.HTTP_400_BAD_REQUEST,
             code="INVALID_PROJECT_ID",
@@ -261,6 +361,15 @@ def _load_project(
     project_root: Path,
     project_id: UUID,
 ) -> tuple[ProjectManifest, Path]:
+    with _open_project_manifest(project_root, project_id) as loaded:
+        return loaded
+
+
+@contextmanager
+def _open_project_manifest(
+    project_root: Path,
+    project_id: UUID,
+) -> Iterator[tuple[ProjectManifest, Path]]:
     if not project_root.exists():
         raise _project_not_found_problem()
     root_identity = _plain_directory_identity(
@@ -279,6 +388,7 @@ def _load_project(
         raise _project_not_found_problem() from error
 
     manifest_path = project_directory / "project.json"
+    manifest_file = None
     try:
         manifest_status = os.lstat(manifest_path)
         if (
@@ -287,32 +397,81 @@ def _load_project(
             or manifest_status.st_size > MAX_MANIFEST_BYTES
         ):
             raise OSError("Project manifest is not a bounded regular file")
-        with manifest_path.open("rb") as manifest_file:
-            handle_status = os.fstat(manifest_file.fileno())
-            if (
-                not stat.S_ISREG(handle_status.st_mode)
-                or _identity(handle_status) != _identity(manifest_status)
-            ):
-                raise OSError("Project manifest changed before reading")
-            payload = manifest_file.read(MAX_MANIFEST_BYTES + 1)
-            if len(payload) > MAX_MANIFEST_BYTES:
-                raise OSError("Project manifest exceeds its size limit")
-            _require_directory_identity(project_root, root_identity)
-            _require_directory_identity(project_directory, project_identity)
-            final_manifest_status = os.lstat(manifest_path)
-            final_handle_status = os.fstat(manifest_file.fileno())
-            if (
-                _identity(final_manifest_status) != _identity(manifest_status)
-                or _identity(final_handle_status) != _identity(manifest_status)
-                or is_reparse_point(manifest_path, final_manifest_status)
-            ):
-                raise OSError("Project manifest changed while reading")
+        manifest_file = manifest_path.open("rb")
+        handle_status = os.fstat(manifest_file.fileno())
+        if (
+            not stat.S_ISREG(handle_status.st_mode)
+            or _identity(handle_status) != _identity(manifest_status)
+        ):
+            raise OSError("Project manifest changed before reading")
+        payload = manifest_file.read(MAX_MANIFEST_BYTES + 1)
+        if len(payload) > MAX_MANIFEST_BYTES:
+            raise OSError("Project manifest exceeds its size limit")
+        _require_directory_identity(project_root, root_identity)
+        _require_directory_identity(project_directory, project_identity)
+        _verify_manifest_binding(
+            manifest_path,
+            manifest_file,
+            _identity(manifest_status),
+        )
         manifest = ProjectManifest.model_validate_json(payload, strict=True)
     except (OSError, ValidationError, ValueError) as error:
+        if manifest_file is not None:
+            manifest_file.close()
         raise _corrupt_manifest_problem() from error
     if manifest.project_id != project_id:
+        manifest_file.close()
         raise _corrupt_manifest_problem()
-    return manifest, project_directory
+
+    try:
+        yield manifest, project_directory
+    finally:
+        try:
+            _require_directory_identity(project_root, root_identity)
+            _require_directory_identity(project_directory, project_identity)
+            _verify_manifest_binding(
+                manifest_path,
+                manifest_file,
+                _identity(manifest_status),
+            )
+        except OSError as error:
+            raise _corrupt_manifest_problem() from error
+        finally:
+            manifest_file.close()
+
+
+def _verify_manifest_binding(
+    manifest_path: Path,
+    manifest_file: BinaryIO,
+    expected_identity: FileIdentity,
+) -> None:
+    final_manifest_status = os.lstat(manifest_path)
+    final_handle_status = os.fstat(manifest_file.fileno())
+    if (
+        _identity(final_manifest_status) != expected_identity
+        or _identity(final_handle_status) != expected_identity
+        or is_reparse_point(manifest_path, final_manifest_status)
+    ):
+        raise OSError("Project manifest changed while reading")
+
+
+def _require_held_identity(
+    path: Path,
+    expected_identity: NativeDirectoryIdentity,
+    *,
+    code: str,
+    stage: str,
+    message: str,
+) -> None:
+    if not matches_directory_identity(path, expected_identity):
+        raise ApiProblem(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            code=code,
+            stage=stage,
+            user_message=message,
+            recommended_actions=("检查项目存储目录后重试",),
+            technical_details=None,
+        )
 
 
 def _plain_directory_identity(
