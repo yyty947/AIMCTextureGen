@@ -1054,7 +1054,7 @@ In terminal two:
 
 ```powershell
 Push-Location frontend
-npm run dev -- --host 127.0.0.1 --port 5173
+..\runtime\node-v24.18.0-win-x64\npm.cmd run dev -- --host 127.0.0.1 --port 5173
 ```
 
 Open `http://127.0.0.1:5173`, import a synthetic test ZIP, and verify the development-catalog warning, format 34, one covered item, one missing item, and the missing Deepslate path. Stop both processes after the smoke test.
@@ -1078,13 +1078,8 @@ git commit -m "test: verify Phase 1 import flow"
 - **Placeholder scan:** This plan contains no `TBD`, implementation placeholders, or unnamed error-handling steps. Production catalog provenance and runtime/model pins are explicitly phase-gated decisions, not hidden work in Phase 1.
 - **Type consistency:** `CatalogRegistry`, `JavaPackAdapter`, `ProjectWorkspace`, `ProjectManifest`, and `CoverageReport` names are stable across tasks. API and frontend types consume those same persisted identifiers.
 
-## Execution Handoff
+## Phase 1 Handoff
 
-Plan complete and saved to `docs/superpowers/plans/2026-07-21-phase-1-foundation-and-import.md`.
+Tasks 1–8 的自动化实现、测试和交接文档已经完成。当前唯一未完成的 Phase 1 门禁是 Task 8 Step 3 的真实浏览器 smoke；在控制器记录开发目录警告、格式 34、一项已覆盖、一项缺失和 Deepslate 缺失路径之前，不得勾选该步骤或宣称 Phase 1 全部门禁完成。
 
-Execution options when implementation begins:
-
-1. **Subagent-Driven** — use `superpowers:subagent-driven-development` only when the user explicitly requests subagents or applicable repository instructions authorize them.
-2. **Inline Execution** — use `superpowers:executing-plans` in the current session with review checkpoints.
-
-Do not begin either option until the user explicitly asks to start implementation.
+浏览器 smoke 通过并同步更新本计划与 `ONBOARDING.md` 后，下一项工作是为 Phase 2“确定性材质处理”编写并确认可执行计划。不要在该门禁前接入 ComfyUI、CUDA、模型或生产目录。

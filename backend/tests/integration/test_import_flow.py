@@ -1,32 +1,19 @@
-import asyncio
 import io
 import json
-import socket
+import os
+import subprocess
 import sys
 import zipfile
 from hashlib import sha256
 from pathlib import Path
 
-import httpx
-import pytest
-from fastapi import FastAPI
 from PIL import Image
-
-from aimctexturegen.main import create_app
 
 
 REPOSITORY_ROOT = Path(__file__).parents[3]
 CATALOG_ROOT = REPOSITORY_ROOT / "catalogs" / "java"
+CHILD_HELPER = Path(__file__).with_name("import_flow_child.py")
 STONE_PATH = "assets/minecraft/textures/block/stone.png"
-FORBIDDEN_RUNTIME_PREFIXES = (
-    "comfy",
-    "cuda",
-    "diffusers",
-    "huggingface_hub",
-    "nvidia",
-    "torch",
-    "transformers",
-)
 
 
 def _png_bytes() -> bytes:
@@ -63,65 +50,76 @@ def _file_hashes_outside(root: Path, excluded: Path) -> dict[str, str]:
     }
 
 
-def _loaded_forbidden_runtime_modules() -> set[str]:
-    return {
-        module_name
-        for module_name in sys.modules
-        if module_name.split(".", 1)[0].casefold() in FORBIDDEN_RUNTIME_PREFIXES
-    }
+def _run_child(
+    project_root: Path,
+    source: Path,
+    *,
+    outside_write_probe: Path | None = None,
+    network_probe: bool = False,
+) -> subprocess.CompletedProcess[str]:
+    assert outside_write_probe is None or not network_probe
+    environment = os.environ.copy()
+    environment["PYTHONDONTWRITEBYTECODE"] = "1"
+    command = [
+        sys.executable,
+        "-B",
+        "-W",
+        "error",
+        str(CHILD_HELPER),
+        str(project_root),
+        str(source),
+        str(CATALOG_ROOT),
+    ]
+    if outside_write_probe is not None:
+        command.append(str(outside_write_probe))
+    elif network_probe:
+        command.append("--probe-network")
+    return subprocess.run(
+        command,
+        cwd=REPOSITORY_ROOT,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
 
 
-async def _call_import_flow(
-    app: FastAPI,
-    source_name: str,
-    source_bytes: bytes,
-) -> tuple[httpx.Response, httpx.Response]:
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(
-        transport=transport,
-        base_url="http://testserver",
-    ) as client:
-        imported = await client.post(
-            "/api/projects/import",
-            data={"project_name": "Phase 1 Synthetic Pack"},
-            files={"pack": (source_name, source_bytes, "application/zip")},
-        )
-        if imported.status_code != 201:
-            return imported, imported
-        coverage = await client.get(
-            f"/api/projects/{imported.json()['project_id']}/coverage"
-        )
-        return imported, coverage
+def _assert_child_succeeded(
+    completed: subprocess.CompletedProcess[str],
+) -> dict[str, object]:
+    assert completed.returncode == 0, (
+        f"audited import child failed with exit {completed.returncode}\n"
+        f"stdout:\n{completed.stdout}\n"
+        f"stderr:\n{completed.stderr}"
+    )
+    assert completed.stderr == ""
+    return json.loads(completed.stdout)
 
 
 def test_phase_1_import_flow_is_isolated_and_preserves_source(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     project_root = tmp_path / "projects"
+    project_root.mkdir()
     source = tmp_path / "synthetic-pack.zip"
     sentinel = tmp_path / "outside-project-root.txt"
     sentinel.write_text("must remain unchanged", encoding="utf-8")
     source_bytes, expected_members = _create_synthetic_pack(source)
     source_hash = sha256(source_bytes).hexdigest()
     outside_before = _file_hashes_outside(tmp_path, project_root)
-    runtime_modules_before = _loaded_forbidden_runtime_modules()
 
-    def reject_network(*_args: object, **_kwargs: object) -> None:
-        pytest.fail("Phase 1 import flow attempted an external network connection")
+    child_result = _assert_child_succeeded(_run_child(project_root, source))
+    assert child_result["isolation_policy_active"] is True
+    assert child_result["dont_write_bytecode"] is True
+    assert child_result["forbidden_modules_before"] == []
+    assert child_result["forbidden_modules_after"] == []
+    assert child_result["import_status"] == 201
+    imported_body = child_result["import_body"]
+    assert isinstance(imported_body, dict)
+    assert child_result["coverage_status"] == 200
+    coverage_body = child_result["coverage_body"]
 
-    monkeypatch.setattr(socket, "create_connection", reject_network)
-    app = create_app(project_root=project_root, catalog_root=CATALOG_ROOT)
-
-    imported, coverage = asyncio.run(
-        _call_import_flow(app, source.name, source_bytes)
-    )
-    assert imported.status_code == 201
-    imported_body = imported.json()
-    assert coverage.status_code == 200
-    coverage_body = coverage.json()
-
-    project_directory = project_root / imported_body["project_id"]
+    project_directory = project_root / str(imported_body["project_id"])
     manifest_path = project_directory / "project.json"
     snapshot_path = project_directory / "source" / "imported-pack.zip"
     working_pack = project_directory / "pack"
@@ -132,6 +130,9 @@ def test_phase_1_import_flow_is_isolated_and_preserves_source(
     assert imported_body["source_sha256"] == source_hash
     assert persisted_manifest == imported_body
     assert persisted_manifest["source_sha256"] == source_hash
+    assert persisted_manifest["java_pack_format"] == 34
+    assert persisted_manifest["supported_formats"] is None
+    assert persisted_manifest["catalog_id"] == "java-dev-format-34"
     assert sha256(snapshot_bytes).hexdigest() == source_hash
     assert snapshot_bytes == source_bytes
 
@@ -174,7 +175,36 @@ def test_phase_1_import_flow_is_isolated_and_preserves_source(
         ],
     }
     assert _file_hashes_outside(tmp_path, project_root) == outside_before
-    assert _loaded_forbidden_runtime_modules() == runtime_modules_before
     assert [path.name for path in project_root.iterdir()] == [
         imported_body["project_id"]
     ]
+
+
+def test_import_flow_audit_policy_blocks_an_outside_write(tmp_path: Path) -> None:
+    project_root = tmp_path / "projects"
+    project_root.mkdir()
+    source = tmp_path / "synthetic-pack.zip"
+    _create_synthetic_pack(source)
+    outside_write = tmp_path / "transient-outside-write.txt"
+
+    completed = _run_child(
+        project_root,
+        source,
+        outside_write_probe=outside_write,
+    )
+
+    assert completed.returncode != 0
+    assert "filesystem mutation outside allowed project root: open" in completed.stderr
+    assert not outside_write.exists()
+
+
+def test_import_flow_audit_policy_blocks_network_access(tmp_path: Path) -> None:
+    project_root = tmp_path / "projects"
+    project_root.mkdir()
+    source = tmp_path / "synthetic-pack.zip"
+    _create_synthetic_pack(source)
+
+    completed = _run_child(project_root, source, network_probe=True)
+
+    assert completed.returncode != 0
+    assert "network audit event blocked: socket.connect" in completed.stderr

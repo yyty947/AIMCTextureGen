@@ -41,7 +41,7 @@ Pop-Location
 git diff --check
 ```
 
-当前结果为后端 118 个测试通过、总覆盖率 86%，前端 1 个测试文件中的 11 个测试通过，Vite 生产构建成功。`runtime/`、`.venv/`、`frontend/node_modules/` 和 `frontend/dist/` 都是本地忽略产物，不应提交。
+当前结果为后端 120 个测试通过、总覆盖率 86%，前端 1 个测试文件中的 11 个测试通过，Vite 生产构建成功。`runtime/`、`.venv/`、`frontend/node_modules/` 和 `frontend/dist/` 都是本地忽略产物，不应提交。
 
 ## 核心边界
 
