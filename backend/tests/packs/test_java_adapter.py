@@ -1,4 +1,8 @@
 import json
+import os
+import struct
+import subprocess
+import warnings
 import zipfile
 from pathlib import Path
 
@@ -52,6 +56,45 @@ def test_preserves_supported_formats_without_replacing_primary(tmp_path: Path) -
 
     assert inspected.metadata.pack_format == 34
     assert inspected.metadata.supported_formats == (34, 48)
+
+
+@pytest.mark.parametrize(
+    "supported_formats",
+    [
+        [34, 48],
+        {"min_inclusive": 34},
+        {"min_inclusive": 34, "max_inclusive": 48, "unexpected": 49},
+        {"min_inclusive": True, "max_inclusive": 48},
+        {"min_inclusive": "34", "max_inclusive": 48},
+        {"min_inclusive": 48, "max_inclusive": 34},
+    ],
+    ids=[
+        "list-shape",
+        "missing-bound",
+        "extra-bound",
+        "boolean-bound",
+        "string-bound",
+        "reversed-range",
+    ],
+)
+def test_rejects_invalid_supported_formats(
+    tmp_path: Path, supported_formats: object
+) -> None:
+    source = tmp_path / "invalid-range.zip"
+    metadata = {
+        "pack": {
+            "pack_format": 34,
+            "supported_formats": supported_formats,
+            "description": "synthetic",
+        }
+    }
+    with zipfile.ZipFile(source, "w") as archive:
+        archive.writestr("pack.mcmeta", json.dumps(metadata))
+
+    with pytest.raises(PackValidationError) as raised:
+        JavaPackAdapter().inspect(source)
+
+    assert raised.value.code == "INVALID_PACK_METADATA"
 
 
 @pytest.mark.parametrize(
@@ -148,12 +191,70 @@ def test_rejects_two_possible_pack_roots(tmp_path: Path) -> None:
     assert raised.value.code == "AMBIGUOUS_PACK_ROOT"
 
 
+def test_rejects_root_plus_wrapper_pack_roots(tmp_path: Path) -> None:
+    source = tmp_path / "root-and-wrapper.zip"
+    with zipfile.ZipFile(source, "w") as archive:
+        archive.writestr("pack.mcmeta", _metadata())
+        archive.writestr("wrapper/pack.mcmeta", _metadata())
+
+    with pytest.raises(PackValidationError) as raised:
+        JavaPackAdapter().inspect(source)
+
+    assert raised.value.code == "AMBIGUOUS_PACK_ROOT"
+
+
 def test_rejects_case_folding_duplicate_paths(tmp_path: Path) -> None:
     source = tmp_path / "case-conflict.zip"
     with zipfile.ZipFile(source, "w") as archive:
         archive.writestr("pack.mcmeta", _metadata())
         archive.writestr("assets/example.txt", b"lower")
         archive.writestr("Assets/EXAMPLE.txt", b"upper")
+
+    with pytest.raises(PackValidationError) as raised:
+        JavaPackAdapter().inspect(source)
+
+    assert raised.value.code == "CASE_CONFLICT"
+
+
+def test_rejects_exact_duplicate_file_names(tmp_path: Path) -> None:
+    source = tmp_path / "duplicate.zip"
+    with zipfile.ZipFile(source, "w") as archive:
+        archive.writestr("pack.mcmeta", _metadata())
+        archive.writestr("assets/example.txt", b"first")
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message=r"Duplicate name: 'assets/example\.txt'",
+                category=UserWarning,
+                module="zipfile",
+            )
+            archive.writestr("assets/example.txt", b"second")
+
+    with pytest.raises(PackValidationError) as raised:
+        JavaPackAdapter().inspect(source)
+
+    assert raised.value.code == "CASE_CONFLICT"
+
+
+def test_rejects_file_directory_topology_collision(tmp_path: Path) -> None:
+    source = tmp_path / "topology-conflict.zip"
+    with zipfile.ZipFile(source, "w") as archive:
+        archive.writestr("pack.mcmeta", _metadata())
+        archive.writestr("assets", b"file")
+        archive.writestr("assets/example.txt", b"child")
+
+    with pytest.raises(PackValidationError) as raised:
+        JavaPackAdapter().inspect(source)
+
+    assert raised.value.code == "CASE_CONFLICT"
+
+
+def test_rejects_parent_directory_case_conflict(tmp_path: Path) -> None:
+    source = tmp_path / "parent-case-conflict.zip"
+    with zipfile.ZipFile(source, "w") as archive:
+        archive.writestr("pack.mcmeta", _metadata())
+        archive.writestr("Assets/first.txt", b"first")
+        archive.writestr("assets/second.txt", b"second")
 
     with pytest.raises(PackValidationError) as raised:
         JavaPackAdapter().inspect(source)
@@ -178,6 +279,49 @@ def test_inspects_valid_directory_source(tmp_path: Path, one_pixel_png: bytes) -
     )
 
 
+def _create_directory_link_or_junction(link: Path, target: Path) -> str:
+    try:
+        link.symlink_to(target, target_is_directory=True)
+        return "symlink"
+    except OSError as symlink_error:
+        if os.name != "nt":
+            pytest.skip(
+                "Directory-link fixture requires symlink privilege: "
+                f"{symlink_error}"
+            )
+        junction = subprocess.run(
+            ["cmd.exe", "/c", "mklink", "/J", str(link), str(target)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if junction.returncode != 0:
+            detail = junction.stderr.strip() or junction.stdout.strip()
+            pytest.skip(
+                "Directory-link containment test requires symlink privilege "
+                f"or junction creation support: {symlink_error}; {detail}"
+            )
+        return "junction"
+
+
+def test_rejects_directory_link_or_junction_escaping_selected_root(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "directory-pack"
+    source.mkdir()
+    source.joinpath("pack.mcmeta").write_text(_metadata(), encoding="utf-8")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    outside.joinpath("external.txt").write_text("synthetic", encoding="utf-8")
+    link_kind = _create_directory_link_or_junction(source / "escape", outside)
+
+    with pytest.raises(PackValidationError) as raised:
+        JavaPackAdapter().inspect(source)
+
+    assert link_kind in {"symlink", "junction"}
+    assert raised.value.code == "UNSAFE_PACK_PATH"
+
+
 def test_inspects_exactly_one_nested_wrapper_directory(
     tmp_path: Path, one_pixel_png: bytes
 ) -> None:
@@ -195,6 +339,42 @@ def test_inspects_exactly_one_nested_wrapper_directory(
     assert inspected.normalized_files == frozenset(
         {"pack.mcmeta", "assets/minecraft/textures/block/stone.png"}
     )
+
+
+def test_inspects_nested_wrapper_directory_source(
+    tmp_path: Path, one_pixel_png: bytes
+) -> None:
+    source = tmp_path / "wrapped-directory"
+    wrapper = source / "synthetic-pack"
+    texture = wrapper / "assets" / "minecraft" / "textures" / "block" / "stone.png"
+    texture.parent.mkdir(parents=True)
+    wrapper.joinpath("pack.mcmeta").write_text(_metadata(), encoding="utf-8")
+    texture.write_bytes(one_pixel_png)
+
+    inspected = JavaPackAdapter().inspect(source)
+
+    assert inspected.pack_root.as_posix() == "synthetic-pack"
+    assert inspected.normalized_files == frozenset(
+        {"pack.mcmeta", "assets/minecraft/textures/block/stone.png"}
+    )
+
+
+def test_translates_unsupported_zip_compression(tmp_path: Path) -> None:
+    source = tmp_path / "unsupported-compression.zip"
+    with zipfile.ZipFile(source, "w", compression=zipfile.ZIP_STORED) as archive:
+        archive.writestr("pack.mcmeta", _metadata())
+
+    payload = bytearray(source.read_bytes())
+    local_header = payload.index(b"PK\x03\x04")
+    central_header = payload.index(b"PK\x01\x02")
+    struct.pack_into("<H", payload, local_header + 8, 99)
+    struct.pack_into("<H", payload, central_header + 10, 99)
+    source.write_bytes(payload)
+
+    with pytest.raises(PackValidationError) as raised:
+        JavaPackAdapter().inspect(source)
+
+    assert raised.value.code == "UNSUPPORTED_ZIP_COMPRESSION"
 
 
 def test_rejects_invalid_zip_file(tmp_path: Path) -> None:

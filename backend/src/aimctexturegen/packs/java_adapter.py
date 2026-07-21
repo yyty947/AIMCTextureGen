@@ -53,6 +53,11 @@ class JavaPackAdapter:
                 metadata_path = _under_root("pack.mcmeta", pack_root)
                 try:
                     metadata_payload = archive.read(files[metadata_path])
+                except NotImplementedError as error:
+                    raise PackValidationError(
+                        "UNSUPPORTED_ZIP_COMPRESSION",
+                        "ZIP 资源包使用了不支持的压缩方式",
+                    ) from error
                 except (KeyError, OSError, RuntimeError, zipfile.BadZipFile) as error:
                     raise PackValidationError(
                         "INVALID_PACK_METADATA", "无法读取 pack.mcmeta"
@@ -229,7 +234,10 @@ def _parse_metadata(payload: bytes) -> PackMetadata:
     supported_formats = None
     if "supported_formats" in pack:
         supported = pack["supported_formats"]
-        if type(supported) is not dict:
+        if type(supported) is not dict or set(supported) != {
+            "min_inclusive",
+            "max_inclusive",
+        }:
             raise PackValidationError("INVALID_PACK_METADATA", "pack.mcmeta 无效")
         minimum = supported.get("min_inclusive")
         maximum = supported.get("max_inclusive")
