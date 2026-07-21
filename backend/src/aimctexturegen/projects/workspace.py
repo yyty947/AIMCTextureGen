@@ -1,8 +1,12 @@
+import os
 import shutil
+import stat
 import zipfile
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path, PurePosixPath
+from typing import BinaryIO
 from uuid import UUID, uuid4
 
 from aimctexturegen.catalog.models import CatalogProfile
@@ -16,6 +20,12 @@ from aimctexturegen.projects.models import ProjectManifest
 _COPY_BUFFER_BYTES = 1024 * 1024
 _DETERMINISTIC_ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
 _REGULAR_FILE_MODE = 0o100644
+
+
+@dataclass(frozen=True)
+class _FileIdentity:
+    device: int
+    file_id: int
 
 
 class ProjectWorkspace:
@@ -47,50 +57,88 @@ class ProjectWorkspace:
         temporary_root = self._root / f"{project_id}.tmp"
         final_root = self._root / str(project_id)
         temporary_created = False
+        temporary_identity: _FileIdentity | None = None
 
         try:
             temporary_root.mkdir(parents=True, exist_ok=False)
             temporary_created = True
+            temporary_identity = _capture_directory_identity(temporary_root)
             source_directory = temporary_root / "source"
             working_directory = temporary_root / "pack"
             source_directory.mkdir()
             working_directory.mkdir()
+            working_identity = _capture_directory_identity(working_directory)
 
             snapshot = source_directory / "imported-pack.zip"
             source_hash = self._create_snapshot(inspected, snapshot)
+            snapshot_identity = _capture_regular_file_identity(snapshot)
             snapshot_inspection = JavaPackAdapter().inspect(snapshot)
             self._validate_snapshot(inspected, snapshot_inspection)
-            self._copy_validated_members(snapshot_inspection, working_directory)
+            with snapshot.open("rb") as snapshot_file:
+                _verify_snapshot_binding(
+                    snapshot,
+                    snapshot_file,
+                    snapshot_identity,
+                    source_hash,
+                )
+                self._copy_validated_members(
+                    snapshot_inspection,
+                    snapshot_file,
+                    working_directory,
+                    temporary_root,
+                    temporary_identity,
+                    working_identity,
+                )
 
-            timestamp = datetime.now(timezone.utc)
-            manifest = ProjectManifest(
-                schema_version=1,
-                project_id=project_id,
-                project_name=project_name,
-                edition="java",
-                java_pack_format=inspected.metadata.pack_format,
-                supported_formats=inspected.metadata.supported_formats,
-                catalog_id=profile.catalog_id,
-                source_sha256=source_hash,
-                created_at=timestamp,
-                updated_at=timestamp,
+                timestamp = datetime.now(timezone.utc)
+                manifest = ProjectManifest(
+                    schema_version=1,
+                    project_id=project_id,
+                    project_name=project_name,
+                    edition="java",
+                    java_pack_format=inspected.metadata.pack_format,
+                    supported_formats=inspected.metadata.supported_formats,
+                    catalog_id=profile.catalog_id,
+                    source_sha256=source_hash,
+                    created_at=timestamp,
+                    updated_at=timestamp,
+                )
+                manifest_path = temporary_root / "project.json"
+                _require_directory_identity(temporary_root, temporary_identity)
+                manifest_path.write_text(
+                    manifest.model_dump_json(indent=2),
+                    encoding="utf-8",
+                )
+                validated_manifest = ProjectManifest.model_validate_json(
+                    manifest_path.read_text(encoding="utf-8"),
+                    strict=True,
+                )
+                _verify_snapshot_binding(
+                    snapshot,
+                    snapshot_file,
+                    snapshot_identity,
+                    source_hash,
+                )
+            _require_directory_identity(temporary_root, temporary_identity)
+            if _tree_contains_reparse_point(temporary_root):
+                raise PackValidationError(
+                    "UNSAFE_PROJECT_PATH",
+                    "项目临时目录不安全",
+                )
+            _verify_snapshot_path(
+                snapshot,
+                snapshot_identity,
+                source_hash,
             )
-            manifest_path = temporary_root / "project.json"
-            manifest_path.write_text(
-                manifest.model_dump_json(indent=2),
-                encoding="utf-8",
-            )
-            validated_manifest = ProjectManifest.model_validate_json(
-                manifest_path.read_text(encoding="utf-8"),
-                strict=True,
-            )
+            _require_directory_identity(temporary_root, temporary_identity)
             temporary_root.rename(final_root)
             return validated_manifest
         except BaseException:
-            if temporary_created:
+            if temporary_created and temporary_identity is not None:
                 self._remove_verified_temporary_directory(
                     temporary_root,
                     project_id,
+                    temporary_identity,
                 )
             raise
 
@@ -118,10 +166,15 @@ class ProjectWorkspace:
     @staticmethod
     def _copy_validated_members(
         inspected: InspectedPack,
+        snapshot_file: BinaryIO,
         destination_root: Path,
+        temporary_root: Path,
+        temporary_identity: _FileIdentity,
+        destination_identity: _FileIdentity,
     ) -> None:
         try:
-            with zipfile.ZipFile(inspected.source) as archive:
+            snapshot_file.seek(0)
+            with zipfile.ZipFile(snapshot_file) as archive:
                 files = {
                     info.filename.replace("\\", "/"): info
                     for info in archive.infolist()
@@ -140,10 +193,12 @@ class ProjectWorkspace:
                             "资源包在导入期间发生变化",
                         )
                     destination = _contained_destination(
+                        temporary_root,
+                        temporary_identity,
                         destination_root,
+                        destination_identity,
                         relative_name,
                     )
-                    destination.parent.mkdir(parents=True, exist_ok=True)
                     with archive.open(info) as source_file, destination.open(
                         "xb"
                     ) as destination_file:
@@ -152,6 +207,13 @@ class ProjectWorkspace:
                             destination_file,
                             length=_COPY_BUFFER_BYTES,
                         )
+                    _verify_destination_ancestry(
+                        temporary_root,
+                        temporary_identity,
+                        destination_root,
+                        destination_identity,
+                        destination.parent,
+                    )
         except PackValidationError:
             raise
         except NotImplementedError as error:
@@ -164,19 +226,18 @@ class ProjectWorkspace:
         self,
         temporary_root: Path,
         project_id: UUID,
+        original_identity: _FileIdentity,
     ) -> None:
         expected = self._root / f"{project_id}.tmp"
         if temporary_root != expected or temporary_root.parent != self._root:
             return
-        if not temporary_root.exists() or temporary_root.is_symlink():
+        if not _matches_directory_identity(temporary_root, original_identity):
             return
-        try:
-            resolved = temporary_root.resolve(strict=True)
-        except OSError:
+        if _tree_contains_reparse_point(temporary_root):
             return
-        if resolved.parent != self._root or not resolved.is_dir():
+        if not _matches_directory_identity(temporary_root, original_identity):
             return
-        shutil.rmtree(resolved)
+        shutil.rmtree(temporary_root)
 
 
 def _copy_file_and_hash(source: Path, destination: Path) -> str:
@@ -186,6 +247,163 @@ def _copy_file_and_hash(source: Path, destination: Path) -> str:
             destination_file.write(chunk)
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _capture_directory_identity(path: Path) -> _FileIdentity:
+    try:
+        status = os.lstat(path)
+    except OSError as error:
+        raise PackValidationError(
+            "UNSAFE_PROJECT_PATH",
+            "项目临时目录不安全",
+        ) from error
+    if not stat.S_ISDIR(status.st_mode) or _is_reparse_point(path, status):
+        raise PackValidationError(
+            "UNSAFE_PROJECT_PATH",
+            "项目临时目录不安全",
+        )
+    return _identity_from_stat(status)
+
+
+def _capture_regular_file_identity(path: Path) -> _FileIdentity:
+    try:
+        status = os.lstat(path)
+    except OSError as error:
+        raise PackValidationError(
+            "SOURCE_CHANGED",
+            "资源包快照在导入期间发生变化",
+        ) from error
+    if not stat.S_ISREG(status.st_mode) or _is_reparse_point(path, status):
+        raise PackValidationError(
+            "SOURCE_CHANGED",
+            "资源包快照在导入期间发生变化",
+        )
+    return _identity_from_stat(status)
+
+
+def _verify_snapshot_binding(
+    path: Path,
+    snapshot_file: BinaryIO,
+    expected_identity: _FileIdentity,
+    expected_hash: str,
+) -> None:
+    try:
+        path_status = os.lstat(path)
+        handle_status = os.fstat(snapshot_file.fileno())
+    except OSError as error:
+        raise PackValidationError(
+            "SOURCE_CHANGED",
+            "资源包快照在导入期间发生变化",
+        ) from error
+    if (
+        not stat.S_ISREG(path_status.st_mode)
+        or _is_reparse_point(path, path_status)
+        or _identity_from_stat(path_status) != expected_identity
+        or not stat.S_ISREG(handle_status.st_mode)
+        or _identity_from_stat(handle_status) != expected_identity
+        or _hash_stream(snapshot_file) != expected_hash
+    ):
+        raise PackValidationError(
+            "SOURCE_CHANGED",
+            "资源包快照在导入期间发生变化",
+        )
+    try:
+        final_path_status = os.lstat(path)
+        final_handle_status = os.fstat(snapshot_file.fileno())
+    except OSError as error:
+        raise PackValidationError(
+            "SOURCE_CHANGED",
+            "资源包快照在导入期间发生变化",
+        ) from error
+    if (
+        _is_reparse_point(path, final_path_status)
+        or _identity_from_stat(final_path_status) != expected_identity
+        or _identity_from_stat(final_handle_status) != expected_identity
+    ):
+        raise PackValidationError(
+            "SOURCE_CHANGED",
+            "资源包快照在导入期间发生变化",
+        )
+
+
+def _verify_snapshot_path(
+    path: Path,
+    expected_identity: _FileIdentity,
+    expected_hash: str,
+) -> None:
+    if _capture_regular_file_identity(path) != expected_identity:
+        raise PackValidationError(
+            "SOURCE_CHANGED",
+            "资源包快照在导入期间发生变化",
+        )
+    try:
+        with path.open("rb") as snapshot_file:
+            _verify_snapshot_binding(
+                path,
+                snapshot_file,
+                expected_identity,
+                expected_hash,
+            )
+    except PackValidationError:
+        raise
+    except OSError as error:
+        raise PackValidationError(
+            "SOURCE_CHANGED",
+            "资源包快照在导入期间发生变化",
+        ) from error
+
+
+def _hash_stream(source_file: BinaryIO) -> str:
+    digest = sha256()
+    source_file.seek(0)
+    while chunk := source_file.read(_COPY_BUFFER_BYTES):
+        digest.update(chunk)
+    source_file.seek(0)
+    return digest.hexdigest()
+
+
+def _matches_directory_identity(path: Path, expected: _FileIdentity) -> bool:
+    try:
+        status = os.lstat(path)
+    except OSError:
+        return False
+    return (
+        stat.S_ISDIR(status.st_mode)
+        and not _is_reparse_point(path, status)
+        and _identity_from_stat(status) == expected
+    )
+
+
+def _tree_contains_reparse_point(root: Path) -> bool:
+    try:
+        for current_root, directory_names, file_names in os.walk(
+            root,
+            topdown=True,
+            followlinks=False,
+        ):
+            current = Path(current_root)
+            for name in [*directory_names, *file_names]:
+                path = current / name
+                status = os.lstat(path)
+                if _is_reparse_point(path, status):
+                    return True
+    except OSError:
+        return True
+    return False
+
+
+def _is_reparse_point(path: Path, status: os.stat_result) -> bool:
+    attributes = getattr(status, "st_file_attributes", 0)
+    return (
+        stat.S_ISLNK(status.st_mode)
+        or path.is_symlink()
+        or path.is_junction()
+        or bool(attributes & stat.FILE_ATTRIBUTE_REPARSE_POINT)
+    )
+
+
+def _identity_from_stat(status: os.stat_result) -> _FileIdentity:
+    return _FileIdentity(device=status.st_dev, file_id=status.st_ino)
 
 
 def _hash_file(path: Path) -> str:
@@ -244,8 +462,83 @@ def _under_pack_root(relative_name: str, pack_root: PurePosixPath) -> str:
     return (pack_root / relative_name).as_posix()
 
 
-def _contained_destination(root: Path, relative_name: str) -> Path:
-    destination = root.joinpath(*PurePosixPath(relative_name).parts)
-    if not destination.resolve().is_relative_to(root.resolve()):
-        raise PackValidationError("UNSAFE_PACK_PATH", "资源包包含不安全的路径")
+def _contained_destination(
+    temporary_root: Path,
+    temporary_identity: _FileIdentity,
+    destination_root: Path,
+    destination_identity: _FileIdentity,
+    relative_name: str,
+) -> Path:
+    destination = destination_root.joinpath(*PurePosixPath(relative_name).parts)
+    if not destination.is_relative_to(temporary_root):
+        raise PackValidationError("UNSAFE_PROJECT_PATH", "项目工作目录不安全")
+    _create_and_verify_destination_ancestry(
+        temporary_root,
+        temporary_identity,
+        destination_root,
+        destination_identity,
+        destination.parent,
+    )
     return destination
+
+
+def _create_and_verify_destination_ancestry(
+    temporary_root: Path,
+    temporary_identity: _FileIdentity,
+    destination_root: Path,
+    destination_identity: _FileIdentity,
+    parent: Path,
+) -> None:
+    _require_directory_identity(temporary_root, temporary_identity)
+    _require_directory_identity(destination_root, destination_identity)
+    if not parent.is_relative_to(destination_root):
+        raise PackValidationError("UNSAFE_PROJECT_PATH", "项目工作目录不安全")
+
+    current = destination_root
+    for part in parent.relative_to(destination_root).parts:
+        current /= part
+        try:
+            current.mkdir()
+        except FileExistsError:
+            pass
+        _require_plain_directory(current)
+
+    _verify_destination_ancestry(
+        temporary_root,
+        temporary_identity,
+        destination_root,
+        destination_identity,
+        parent,
+    )
+
+
+def _verify_destination_ancestry(
+    temporary_root: Path,
+    temporary_identity: _FileIdentity,
+    destination_root: Path,
+    destination_identity: _FileIdentity,
+    parent: Path,
+) -> None:
+    _require_directory_identity(temporary_root, temporary_identity)
+    _require_directory_identity(destination_root, destination_identity)
+    current = destination_root
+    for part in parent.relative_to(destination_root).parts:
+        current /= part
+        _require_plain_directory(current)
+
+
+def _require_directory_identity(path: Path, expected: _FileIdentity) -> None:
+    if not _matches_directory_identity(path, expected):
+        raise PackValidationError("UNSAFE_PROJECT_PATH", "项目工作目录不安全")
+
+
+def _require_plain_directory(path: Path) -> None:
+    try:
+        status = os.lstat(path)
+    except OSError as error:
+        raise PackValidationError(
+            "UNSAFE_PROJECT_PATH",
+            "项目工作目录不安全",
+        ) from error
+    if not stat.S_ISDIR(status.st_mode) or _is_reparse_point(path, status):
+        raise PackValidationError("UNSAFE_PROJECT_PATH", "项目工作目录不安全")

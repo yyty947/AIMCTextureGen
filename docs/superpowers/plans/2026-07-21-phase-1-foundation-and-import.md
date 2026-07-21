@@ -638,6 +638,13 @@ def test_import_creates_snapshot_and_working_copy(
 
 The same file must assert that failed validation leaves no project directory, directory import produces a deterministic local ZIP snapshot, and project names containing filesystem separators do not affect generated paths.
 
+Security regression coverage must also use real Windows junctions to prove cleanup
+never follows a replaced temp directory and working-copy writes never traverse a
+replaced `pack/` directory. A controlled private-stage monkeypatch must prove a
+same-shape snapshot replacement prevents publication. Direct manifest tests must
+cover strict constants, coercion rejection, exact persisted keys, frozen instances,
+and timezone-aware timestamps.
+
 - [x] **Step 2: Run tests and verify the expected import failure**
 
 ```powershell
@@ -651,25 +658,25 @@ Expected: after adding only importable no-behavior stubs required by the global 
 Create `backend/src/aimctexturegen/projects/models.py` with a strict frozen `ProjectManifest` containing these exact fields:
 
 ```python
-from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import AwareDatetime, BaseModel, ConfigDict
 
 
 class ProjectManifest(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
-    schema_version: int
+    schema_version: Literal[1]
     project_id: UUID
     project_name: str
-    edition: str
+    edition: Literal["java"]
     java_pack_format: int
     supported_formats: tuple[int, int] | None
     catalog_id: str
     source_sha256: str
-    created_at: datetime
-    updated_at: datetime
+    created_at: AwareDatetime
+    updated_at: AwareDatetime
 ```
 
 Use `schema_version=1` and `edition="java"` in Phase 1.
@@ -686,7 +693,12 @@ Create `ProjectWorkspace`. `import_pack` must perform operations in this order:
 6. write UTF-8 `project.json` with `model_dump_json(indent=2)`;
 7. re-open and validate `project.json`;
 8. atomically rename the temporary project directory to `<project-id>`;
-9. on failure, delete only the verified `<project-id>.tmp` directory inside the configured project root.
+9. on failure, delete only the verified `<project-id>.tmp` directory inside the configured project root. Preserve its original Windows file identity, reject any junction/symlink/reparse point in the temp tree, never recurse through a resolved target, and fail closed if identity or reparse verification fails.
+
+Working-copy writes must be anchored to the original temp directory identity and
+reject reparse points in their ancestry. Bind the retained snapshot to its file
+identity and SHA-256 while copying, then compare both again immediately before
+atomic publication.
 
 The constructor and method signatures must be:
 

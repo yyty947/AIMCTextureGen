@@ -1,15 +1,22 @@
 import io
 import json
+import os
+import shutil
+import subprocess
 import zipfile
 from collections.abc import Callable
+from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 from PIL import Image
+from pydantic import ValidationError
 
 from aimctexturegen.catalog.registry import CatalogRegistry
 from aimctexturegen.packs.java_adapter import JavaPackAdapter, PackValidationError
+from aimctexturegen.projects.models import ProjectManifest
 from aimctexturegen.projects.workspace import ProjectWorkspace
 
 
@@ -50,6 +57,25 @@ def build_workspace(root: Path, adapter: JavaPackAdapter | None = None) -> Proje
     )
 
 
+def _create_junction(link: Path, target: Path) -> None:
+    result = subprocess.run(
+        ["cmd.exe", "/d", "/c", "mklink", "/J", str(link), str(target)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        pytest.fail(
+            f"Unable to create test junction: {result.stdout}{result.stderr}"
+        )
+    assert link.is_junction()
+
+
+def _remove_junction(link: Path) -> None:
+    if os.path.lexists(link):
+        os.rmdir(link)
+
+
 def test_import_creates_snapshot_and_working_copy(
     tmp_path: Path,
     pack_zip_factory: Callable[[str, dict[str, bytes], int], Path],
@@ -78,6 +104,28 @@ def test_import_creates_snapshot_and_working_copy(
     ).read_bytes() == one_pixel_png
     assert source_hash_before == sha256(source.read_bytes()).hexdigest()
     assert not list((tmp_path / "projects").glob("*.tmp"))
+    manifest_document = json.loads((project_root / "project.json").read_text("utf-8"))
+    assert set(manifest_document) == {
+        "schema_version",
+        "project_id",
+        "project_name",
+        "edition",
+        "java_pack_format",
+        "supported_formats",
+        "catalog_id",
+        "source_sha256",
+        "created_at",
+        "updated_at",
+    }
+    persisted = ProjectManifest.model_validate_json(
+        (project_root / "project.json").read_text("utf-8"),
+        strict=True,
+    )
+    assert persisted == manifest
+    assert persisted.schema_version == 1
+    assert persisted.edition == "java"
+    assert persisted.created_at.utcoffset() is not None
+    assert persisted.updated_at.utcoffset() is not None
 
 
 def test_failed_validation_leaves_no_project_directory(tmp_path: Path) -> None:
@@ -195,3 +243,167 @@ def test_copy_failure_cleans_only_staged_project_directory(
 
     assert (unrelated / "sentinel.txt").read_text(encoding="utf-8") == "keep"
     assert {path.name for path in projects_root.iterdir()} == {"keep-me"}
+
+
+def test_cleanup_never_follows_replaced_temp_directory_junction(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    pack_zip_factory: Callable[[str, dict[str, bytes], int], Path],
+) -> None:
+    source = pack_zip_factory("source.zip", {})
+    projects_root = tmp_path / "projects"
+    unrelated = projects_root / "unrelated"
+    unrelated.mkdir(parents=True)
+    sentinel = unrelated / "sentinel.txt"
+    sentinel.write_text("must survive", encoding="utf-8")
+    workspace = build_workspace(projects_root)
+
+    def replace_temp_with_junction(_inspected, destination: Path) -> str:
+        temporary_root = destination.parents[1]
+        shutil.rmtree(temporary_root)
+        _create_junction(temporary_root, unrelated)
+        raise OSError("forced failure after temp junction substitution")
+
+    monkeypatch.setattr(workspace, "_create_snapshot", replace_temp_with_junction)
+
+    with pytest.raises(OSError, match="forced failure"):
+        workspace.import_pack(source, "Junction cleanup attack")
+
+    temporary_roots = [
+        path for path in projects_root.iterdir() if path.name.endswith(".tmp")
+    ]
+    try:
+        assert sentinel.is_file()
+        assert sentinel.read_text(encoding="utf-8") == "must survive"
+        assert len(temporary_roots) == 1
+        assert temporary_roots[0].is_junction()
+    finally:
+        for temporary_root in temporary_roots:
+            _remove_junction(temporary_root)
+
+
+def test_pack_junction_substitution_cannot_write_outside_temp_project(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    pack_zip_factory: Callable[[str, dict[str, bytes], int], Path],
+    one_pixel_png: bytes,
+) -> None:
+    source = pack_zip_factory(
+        "source.zip",
+        {"assets/minecraft/textures/block/stone.png": one_pixel_png},
+    )
+    projects_root = tmp_path / "projects"
+    outside = tmp_path / "outside-pack"
+    outside.mkdir()
+    sentinel = outside / "sentinel.txt"
+    sentinel.write_text("must survive", encoding="utf-8")
+    workspace = build_workspace(projects_root)
+    create_snapshot = workspace._create_snapshot
+
+    def substitute_pack_junction(inspected, destination: Path) -> str:
+        source_hash = create_snapshot(inspected, destination)
+        pack_directory = destination.parents[1] / "pack"
+        pack_directory.rmdir()
+        _create_junction(pack_directory, outside)
+        return source_hash
+
+    monkeypatch.setattr(workspace, "_create_snapshot", substitute_pack_junction)
+
+    with pytest.raises(PackValidationError) as raised:
+        workspace.import_pack(source, "Pack junction attack")
+
+    project_directories = list(projects_root.iterdir())
+    try:
+        assert raised.value.code == "UNSAFE_PROJECT_PATH"
+        assert sentinel.read_text(encoding="utf-8") == "must survive"
+        assert not (outside / "pack.mcmeta").exists()
+        assert not (outside / "assets").exists()
+        assert all(path.name.endswith(".tmp") for path in project_directories)
+    finally:
+        for project_directory in project_directories:
+            pack_directory = project_directory / "pack"
+            if pack_directory.is_junction():
+                _remove_junction(pack_directory)
+            if project_directory.exists() and not project_directory.is_junction():
+                shutil.rmtree(project_directory)
+
+
+def test_snapshot_replacement_before_copy_prevents_publication(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    pack_zip_factory: Callable[[str, dict[str, bytes], int], Path],
+    one_pixel_png: bytes,
+) -> None:
+    source = pack_zip_factory(
+        "source.zip",
+        {"assets/minecraft/textures/block/stone.png": one_pixel_png},
+    )
+    replacement = pack_zip_factory(
+        "replacement.zip",
+        {"assets/minecraft/textures/block/stone.png": b"replacement"},
+    )
+    projects_root = tmp_path / "projects"
+    workspace = build_workspace(projects_root)
+    validate_snapshot = workspace._validate_snapshot
+
+    def replace_after_validation(original, snapshot) -> None:
+        validate_snapshot(original, snapshot)
+        shutil.copyfile(replacement, snapshot.source)
+
+    monkeypatch.setattr(workspace, "_validate_snapshot", replace_after_validation)
+
+    with pytest.raises(PackValidationError) as raised:
+        workspace.import_pack(source, "Snapshot replacement attack")
+
+    assert raised.value.code == "SOURCE_CHANGED"
+    assert not list(projects_root.iterdir())
+
+
+def _manifest_values() -> dict[str, object]:
+    timestamp = datetime.now(timezone.utc)
+    return {
+        "schema_version": 1,
+        "project_id": uuid4(),
+        "project_name": "Strict manifest",
+        "edition": "java",
+        "java_pack_format": 34,
+        "supported_formats": (34, 48),
+        "catalog_id": "java-dev-format-34",
+        "source_sha256": "0" * 64,
+        "created_at": timestamp,
+        "updated_at": timestamp,
+    }
+
+
+@pytest.mark.parametrize(
+    ("field", "invalid_value"),
+    [
+        ("schema_version", "1"),
+        ("schema_version", 2),
+        ("edition", "bedrock"),
+        ("project_id", str(uuid4())),
+        ("java_pack_format", "34"),
+        ("created_at", datetime.now()),
+        ("updated_at", datetime.now()),
+    ],
+)
+def test_project_manifest_rejects_coercion_constants_and_naive_timestamps(
+    field: str,
+    invalid_value: object,
+) -> None:
+    values = _manifest_values()
+    values[field] = invalid_value
+
+    with pytest.raises(ValidationError):
+        ProjectManifest.model_validate(values)
+
+
+def test_project_manifest_rejects_extra_fields_and_is_frozen() -> None:
+    values = _manifest_values()
+    values["unexpected"] = "rejected"
+    with pytest.raises(ValidationError):
+        ProjectManifest.model_validate(values)
+
+    manifest = ProjectManifest.model_validate(_manifest_values())
+    with pytest.raises(ValidationError):
+        manifest.project_name = "mutation rejected"
