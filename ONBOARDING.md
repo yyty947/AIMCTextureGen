@@ -9,6 +9,7 @@
 - 已完成第一阶段任务 1：FastAPI 应用工厂、`GET /api/health` 健康契约、固定后端依赖清单和健康契约测试已实现。
 - 已完成第一阶段任务 2：严格的目录 Pydantic 契约、明确标记为 `development_fixture` 的格式 34 开发目录，以及确定性的主 `pack_format` 选择已实现。
 - 已完成第一阶段任务 3：ZIP 与目录资源包的只读检查、严格不可变结果契约、安全路径和大小写/拓扑冲突校验、单一根目录识别、`pack.mcmeta` 主格式解析及不支持压缩方式的稳定错误映射已实现；尚未进行工作区提取。
+- 已完成第一阶段任务 4：ZIP 与目录导入会先完成检查和目录配置解析，再通过 `<project-id>.tmp` 建立不可变 ZIP 快照、工作副本和经重新验证的 `project.json`，最后原子重命名；失败只清理经确认位于项目根目录内的本次临时目录。
 - 当前没有可运行的 WebUI 或 ComfyUI 集成；FastAPI 应用可由 `aimctexturegen.main:create_app` 创建。
 - 当前没有需要迁移的用户项目数据。
 
@@ -34,7 +35,7 @@
 
 1. 运行 `git status --short`，确认并保留当前未提交改动。
 2. 阅读 `AGENTS.md`、当前阶段计划和 MVP 设计规格。
-3. 找到当前阶段计划中第一个未勾选任务（目前为任务 4：Project Workspace Import and Immutable Snapshot），只执行该任务定义的范围。
+3. 找到当前阶段计划中第一个未勾选任务（目前为任务 5：Coverage Classification），只执行该任务定义的范围。
 4. 先运行该任务的基线测试，再按计划测试先行实现。
 5. 完成任务后更新计划复选框、本文件的当前状态和验证结果。
 
@@ -46,12 +47,13 @@
 .\.venv\Scripts\python -W error -m pytest backend\tests\test_health.py -v
 .\.venv\Scripts\python -W error -m pytest backend\tests\catalog\test_registry.py -v
 .\.venv\Scripts\python -W error -m pytest backend\tests\packs -v
+.\.venv\Scripts\python -W error -m pytest backend\tests\projects -v
 .\.venv\Scripts\python -W error -m pytest backend\tests -v
 git diff --check
 git status --short
 ```
 
-已于 2026-07-21 使用 Python 3.12.10 运行：资源包检查套件为 53 passed，完整后端套件为 58 passed；所有 pytest 命令均使用 `-W error` 且无警告。预期：`git diff --check` 无输出；`git status --short` 只显示当前有意创建或修改的文件。
+已于 2026-07-21 使用 Python 3.12.10 运行：项目工作区套件为 6 passed，完整后端套件为 64 passed；所有 pytest 命令均使用 `-W error` 且无警告。预期：`git diff --check` 无输出；`git status --short` 只显示当前有意创建或修改的文件。
 
 ## 需要在对应阶段确定的事项
 

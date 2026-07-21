@@ -609,7 +609,7 @@ git commit -m "feat: validate Java resource pack inputs"
 - Produces: `ProjectWorkspace.import_pack(source: Path, project_name: str) -> ProjectManifest`
 - Produces project paths: `project.json`, `source/imported-pack.zip`, and `pack/`
 
-- [ ] **Step 1: Write failing import tests**
+- [x] **Step 1: Write failing import tests**
 
 Create `backend/tests/projects/test_workspace.py` covering both ZIP and directory sources. The primary test must assert:
 
@@ -638,7 +638,7 @@ def test_import_creates_snapshot_and_working_copy(
 
 The same file must assert that failed validation leaves no project directory, directory import produces a deterministic local ZIP snapshot, and project names containing filesystem separators do not affect generated paths.
 
-- [ ] **Step 2: Run tests and verify the expected import failure**
+- [x] **Step 2: Run tests and verify the expected import failure**
 
 ```powershell
 .\.venv\Scripts\python -m pytest backend\tests\projects\test_workspace.py -v
@@ -646,7 +646,7 @@ The same file must assert that failed validation leaves no project directory, di
 
 Expected: after adding only importable no-behavior stubs required by the global RED rule, the tests execute and fail their first behavioral assertion because project import is not implemented.
 
-- [ ] **Step 3: Define the versioned project manifest**
+- [x] **Step 3: Define the versioned project manifest**
 
 Create `backend/src/aimctexturegen/projects/models.py` with a strict frozen `ProjectManifest` containing these exact fields:
 
@@ -674,7 +674,7 @@ class ProjectManifest(BaseModel):
 
 Use `schema_version=1` and `edition="java"` in Phase 1.
 
-- [ ] **Step 4: Implement staged import**
+- [x] **Step 4: Implement staged import**
 
 Create `ProjectWorkspace`. `import_pack` must perform operations in this order:
 
@@ -710,7 +710,7 @@ class ProjectWorkspace:
 
 Reject an empty trimmed project name with `PackValidationError("INVALID_PROJECT_NAME", "项目名称不能为空")`.
 
-- [ ] **Step 5: Run workspace and regression tests**
+- [x] **Step 5: Run workspace and regression tests**
 
 ```powershell
 .\.venv\Scripts\python -m pytest backend\tests\projects -v
@@ -719,7 +719,7 @@ Reject an empty trimmed project name with `PackValidationError("INVALID_PROJECT_
 
 Expected: all tests pass; source hashes are unchanged; failed imports leave no final or temporary project directory.
 
-- [ ] **Step 6: Commit workspace import**
+- [x] **Step 6: Commit workspace import**
 
 ```powershell
 git add backend/src/aimctexturegen/projects backend/tests/projects
