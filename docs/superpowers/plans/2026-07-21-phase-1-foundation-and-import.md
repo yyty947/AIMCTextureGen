@@ -221,7 +221,7 @@ git commit -m "build: scaffold FastAPI backend"
 - Produces: `CatalogRegistry.for_pack_format(pack_format: int) -> CatalogProfile`
 - Raises: `UnsupportedPackFormat(pack_format: int, supported: tuple[int, ...])`
 
-- [ ] **Step 1: Write failing registry tests**
+- [x] **Step 1: Write failing registry tests**
 
 Create `backend/tests/catalog/test_registry.py`:
 
@@ -257,7 +257,7 @@ def test_rejects_unsupported_primary_pack_format() -> None:
     assert raised.value.supported == (34,)
 ```
 
-- [ ] **Step 2: Run the tests and confirm the missing-module failure**
+- [x] **Step 2: Run the tests and confirm the missing-module failure**
 
 ```powershell
 .\.venv\Scripts\python -m pytest backend\tests\catalog\test_registry.py -v
@@ -265,7 +265,7 @@ def test_rejects_unsupported_primary_pack_format() -> None:
 
 Expected: after adding only importable no-behavior stubs required by the global RED rule, the tests execute and fail their first behavioral assertion because no profile is loaded.
 
-- [ ] **Step 3: Define strict catalog models**
+- [x] **Step 3: Define strict catalog models**
 
 Create an empty `backend/src/aimctexturegen/catalog/__init__.py` and create `backend/src/aimctexturegen/catalog/models.py`:
 
@@ -297,7 +297,7 @@ class CatalogProfile(BaseModel):
     entries: tuple[CatalogEntry, ...]
 ```
 
-- [ ] **Step 4: Add the developer catalog fixture**
+- [x] **Step 4: Add the developer catalog fixture**
 
 Create `catalogs/java/dev-format-34.json`:
 
@@ -330,7 +330,7 @@ Create `catalogs/java/dev-format-34.json`:
 }
 ```
 
-- [ ] **Step 5: Implement deterministic profile loading**
+- [x] **Step 5: Implement deterministic profile loading**
 
 Create `backend/src/aimctexturegen/catalog/registry.py`:
 
@@ -373,7 +373,7 @@ class CatalogRegistry:
         return profile
 ```
 
-- [ ] **Step 6: Verify catalog tests and the complete backend suite**
+- [x] **Step 6: Verify catalog tests and the complete backend suite**
 
 ```powershell
 .\.venv\Scripts\python -m pytest backend\tests\catalog\test_registry.py -v
@@ -382,7 +382,7 @@ class CatalogRegistry:
 
 Expected: all tests pass.
 
-- [ ] **Step 7: Commit catalog contracts**
+- [x] **Step 7: Commit catalog contracts**
 
 ```powershell
 git add backend/src/aimctexturegen/catalog backend/tests/catalog catalogs/java

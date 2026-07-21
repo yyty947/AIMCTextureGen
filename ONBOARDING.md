@@ -7,6 +7,7 @@
 - 仓库已初始化，当前分支为 `master`。
 - MVP 产品设计已在提交 `026dec8` 中确认。
 - 已完成第一阶段任务 1：FastAPI 应用工厂、`GET /api/health` 健康契约、固定后端依赖清单和健康契约测试已实现。
+- 已完成第一阶段任务 2：严格的目录 Pydantic 契约、明确标记为 `development_fixture` 的格式 34 开发目录，以及确定性的主 `pack_format` 选择已实现。
 - 当前没有可运行的 WebUI 或 ComfyUI 集成；FastAPI 应用可由 `aimctexturegen.main:create_app` 创建。
 - 当前没有需要迁移的用户项目数据。
 
@@ -32,7 +33,7 @@
 
 1. 运行 `git status --short`，确认并保留当前未提交改动。
 2. 阅读 `AGENTS.md`、当前阶段计划和 MVP 设计规格。
-3. 找到当前阶段计划中第一个未勾选任务（目前为任务 2：Catalog Contracts and Version Selection），只执行该任务定义的范围。
+3. 找到当前阶段计划中第一个未勾选任务（目前为任务 3：Java Pack Metadata Parsing），只执行该任务定义的范围。
 4. 先运行该任务的基线测试，再按计划测试先行实现。
 5. 完成任务后更新计划复选框、本文件的当前状态和验证结果。
 
@@ -42,12 +43,13 @@
 
 ```powershell
 \.venv\Scripts\python -m pytest backend\tests\test_health.py -v
+\.venv\Scripts\python -m pytest backend\tests\catalog\test_registry.py -v
 \.venv\Scripts\python -m pytest backend\tests -v
 git diff --check
 git status --short
 ```
 
-已于 2026-07-21 使用 Python 3.12.10 运行：两个 pytest 命令均为 1 passed，输出无警告。预期：`git diff --check` 无输出；`git status --short` 只显示当前有意创建或修改的文件。
+已于 2026-07-21 使用 Python 3.12.10 运行：健康契约为 1 passed，目录契约为 2 passed，完整后端套件为 3 passed，输出无警告。预期：`git diff --check` 无输出；`git status --short` 只显示当前有意创建或修改的文件。
 
 ## 需要在对应阶段确定的事项
 
