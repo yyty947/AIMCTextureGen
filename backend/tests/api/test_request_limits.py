@@ -5,9 +5,11 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
-import pytest
 import httpx
+import pytest
+import starlette.formparsers as starlette_formparsers
 from starlette.datastructures import UploadFile
+from starlette.requests import ClientDisconnect
 
 from aimctexturegen.api import projects as projects_api
 from aimctexturegen.main import create_app
@@ -58,15 +60,18 @@ async def invoke_asgi(
     body_chunks: list[bytes],
     headers: list[tuple[bytes, bytes]],
     fail_after_receives: int | None = None,
+    disconnect_after_chunks: bool = False,
 ) -> tuple[int, dict[str, Any], int]:
     messages = [
         {
             "type": "http.request",
             "body": chunk,
-            "more_body": index < len(body_chunks) - 1,
+            "more_body": disconnect_after_chunks or index < len(body_chunks) - 1,
         }
         for index, chunk in enumerate(body_chunks)
     ]
+    if disconnect_after_chunks:
+        messages.append({"type": "http.disconnect"})
     sent: list[dict[str, Any]] = []
     receive_calls = 0
 
@@ -97,7 +102,11 @@ async def invoke_asgi(
         "server": ("testserver", 80),
     }
     await app(scope, receive, send)
-    status_code = next(message["status"] for message in sent if message["type"] == "http.response.start")
+    response_starts = [
+        message for message in sent if message["type"] == "http.response.start"
+    ]
+    assert len(response_starts) == 1
+    status_code = response_starts[0]["status"]
     response_body = b"".join(
         message.get("body", b"")
         for message in sent
@@ -355,6 +364,75 @@ def test_request_receive_failure_closes_parser_files_and_creates_no_project(
 
     assert status_code == 400
     assert response_body["code"] == "INVALID_MULTIPART"
+    assert not project_root.exists() or list(project_root.iterdir()) == []
+
+
+def test_real_disconnect_closes_partial_parser_spools_before_app_returns(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created_spools = []
+    original_spool_factory = starlette_formparsers.SpooledTemporaryFile
+
+    def tracked_spool_factory(*args, **kwargs):
+        spool = original_spool_factory(*args, **kwargs)
+        created_spools.append(spool)
+        return spool
+
+    monkeypatch.setattr(
+        starlette_formparsers,
+        "SpooledTemporaryFile",
+        tracked_spool_factory,
+    )
+    pack = zip_payload()
+    body = multipart_body(pack)
+    partial_body = body[: body.index(pack) + 1]
+    project_root = tmp_path / "projects"
+    app = create_app(
+        project_root=project_root,
+        catalog_root=CATALOG_ROOT,
+        max_import_body_bytes=len(body) + 1,
+    )
+
+    result = None
+    try:
+        try:
+            result = asyncio.run(
+                invoke_asgi(
+                    app,
+                    body_chunks=[partial_body],
+                    headers=[
+                        (
+                            b"content-type",
+                            b"multipart/form-data; boundary=aimc-boundary",
+                        )
+                    ],
+                    disconnect_after_chunks=True,
+                )
+            )
+        except ClientDisconnect:
+            pass
+        spools_closed_before_return = all(spool.closed for spool in created_spools)
+    finally:
+        for spool in created_spools:
+            spool.close()
+
+    assert created_spools
+    assert spools_closed_before_return
+    assert result is not None
+    status_code, response_body, receive_calls = result
+    assert status_code == 400
+    assert set(response_body) == {
+        "code",
+        "stage",
+        "user_message",
+        "recommended_actions",
+        "technical_details",
+    }
+    assert response_body["code"] == "INVALID_MULTIPART"
+    assert response_body["stage"] == "request_validation"
+    assert response_body["technical_details"] is None
+    assert receive_calls == 2
     assert not project_root.exists() or list(project_root.iterdir()) == []
 
 

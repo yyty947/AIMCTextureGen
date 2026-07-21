@@ -13,6 +13,10 @@ class _RequestBodyTooLarge(OSError):
     pass
 
 
+class _RequestDisconnected(OSError):
+    pass
+
+
 class ImportBodyLimitMiddleware:
     def __init__(self, app, *, max_body_bytes: int) -> None:
         if max_body_bytes <= 0:
@@ -37,6 +41,8 @@ class ImportBodyLimitMiddleware:
         async def limited_receive() -> AsgiMessage:
             nonlocal received_bytes, limit_exceeded
             message = await receive()
+            if message["type"] == "http.disconnect":
+                raise _RequestDisconnected
             if message["type"] == "http.request":
                 received_bytes += len(message.get("body", b""))
                 if received_bytes > self._max_body_bytes:
