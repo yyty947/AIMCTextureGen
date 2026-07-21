@@ -406,7 +406,7 @@ git commit -m "feat: add versioned Java catalog registry"
 - Produces: `JavaPackAdapter.inspect(source: Path) -> InspectedPack`
 - Raises: `PackValidationError(code: str, user_message: str)`
 
-- [ ] **Step 1: Add fixture helpers that create assets without Mojang content**
+- [x] **Step 1: Add fixture helpers that create assets without Mojang content**
 
 Create `backend/tests/packs/conftest.py`:
 
@@ -449,7 +449,7 @@ def one_pixel_png() -> bytes:
 
 Add `Pillow==12.3.0` to `backend/pyproject.toml` dependencies before running these tests.
 
-- [ ] **Step 2: Write inspection and safety tests**
+- [x] **Step 2: Write inspection and safety tests**
 
 Create `backend/tests/packs/test_java_adapter.py` with these cases:
 
@@ -515,7 +515,7 @@ def test_rejects_unsafe_zip_member(tmp_path: Path, unsafe_name: str) -> None:
 
 Also add tests for: missing `pack.mcmeta`, malformed JSON, missing/non-integer `pack_format`, two possible pack roots, case-folding duplicate paths, a valid directory source, and exactly one nested wrapper directory containing `pack.mcmeta`.
 
-- [ ] **Step 3: Run the tests and confirm the missing implementation**
+- [x] **Step 3: Run the tests and confirm the missing implementation**
 
 ```powershell
 .\.venv\Scripts\python -m pip install -e ".\backend[dev]"
@@ -524,7 +524,7 @@ Also add tests for: missing `pack.mcmeta`, malformed JSON, missing/non-integer `
 
 Expected: after adding only importable no-behavior stubs required by the global RED rule, the tests execute and fail their first behavioral assertion because inspection is not implemented.
 
-- [ ] **Step 4: Define immutable inspection models**
+- [x] **Step 4: Define immutable inspection models**
 
 Create `backend/src/aimctexturegen/packs/models.py`:
 
@@ -552,7 +552,7 @@ class InspectedPack(BaseModel):
     normalized_files: frozenset[str]
 ```
 
-- [ ] **Step 5: Implement validation before extraction**
+- [x] **Step 5: Implement validation before extraction**
 
 Create an empty `backend/src/aimctexturegen/packs/__init__.py`. In `java_adapter.py`, implement `PackValidationError`, path normalization, Windows reserved-name rejection, case-folding conflict detection, root discovery, metadata parsing, and `inspect`. Use `PurePosixPath` for archive members and `Path.resolve()` plus `is_relative_to()` for directory entries. Do not call `ZipFile.extractall`.
 
@@ -577,7 +577,7 @@ class JavaPackAdapter:
 
 Safety helpers must return normalized forward-slash paths, reject empty/dot-only file names, reject any `..` segment, reject absolute/drive/UNC forms, and reject these Windows device stems case-insensitively: `CON`, `PRN`, `AUX`, `NUL`, `COM1` through `COM9`, and `LPT1` through `LPT9`.
 
-- [ ] **Step 6: Run all pack and backend tests**
+- [x] **Step 6: Run all pack and backend tests**
 
 ```powershell
 .\.venv\Scripts\python -m pytest backend\tests\packs -v
@@ -586,7 +586,7 @@ Safety helpers must return normalized forward-slash paths, reject empty/dot-only
 
 Expected: all tests pass; test output contains no writes outside pytest temporary directories.
 
-- [ ] **Step 7: Commit Java pack inspection**
+- [x] **Step 7: Commit Java pack inspection**
 
 ```powershell
 git add backend/pyproject.toml backend/src/aimctexturegen/packs backend/tests/packs
