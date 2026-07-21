@@ -1042,7 +1042,7 @@ git diff --check
 
 Expected: backend tests, frontend tests and frontend build pass; `git diff --check` prints nothing. Coverage percentage is recorded as evidence but Phase 1 does not impose an arbitrary numeric threshold.
 
-- [ ] **Step 3: Run the local browser smoke test**
+- [x] **Step 3: Run the local browser smoke test**
 
 In terminal one:
 
@@ -1058,6 +1058,8 @@ Push-Location frontend
 ```
 
 Open `http://127.0.0.1:5173`, import a synthetic test ZIP, and verify the development-catalog warning, format 34, one covered item, one missing item, and the missing Deepslate path. Stop both processes after the smoke test.
+
+Observed on 2026-07-21 with the in-app browser: the desktop and 375 px viewport both showed the development-catalog warning, format 34, one covered item, one missing item, and `assets/minecraft/textures/block/deepslate.png`. At 375 px the document scroll width equaled the viewport width, the result card remained readable, and the browser console reported no warnings or errors. Both local processes were stopped after the check.
 
 - [x] **Step 4: Update living documentation from observed facts**
 
@@ -1080,6 +1082,4 @@ git commit -m "test: verify Phase 1 import flow"
 
 ## Phase 1 Handoff
 
-Tasks 1–8 的自动化实现、测试和交接文档已经完成。当前唯一未完成的 Phase 1 门禁是 Task 8 Step 3 的真实浏览器 smoke；在控制器记录开发目录警告、格式 34、一项已覆盖、一项缺失和 Deepslate 缺失路径之前，不得勾选该步骤或宣称 Phase 1 全部门禁完成。
-
-浏览器 smoke 通过并同步更新本计划与 `ONBOARDING.md` 后，下一项工作是为 Phase 2“确定性材质处理”编写并确认可执行计划。不要在该门禁前接入 ComfyUI、CUDA、模型或生产目录。
+Tasks 1–8 的实现、自动化验证、独立审查和真实浏览器 smoke 都已完成，Phase 1 退出门禁全部通过。下一步是先编写并确认 Phase 2“确定性材质处理”的可执行计划；不得跳过规划直接接入 ComfyUI、CUDA、真实模型或生产目录。
