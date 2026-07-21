@@ -47,7 +47,7 @@ git diff --check
 git status --short
 ```
 
-已于 2026-07-21 使用 Python 3.12.10 运行：两个 pytest 命令均为 1 passed；FastAPI/Starlette 固定依赖组合会发出 `TestClient` 弃用警告。预期：`git diff --check` 无输出；`git status --short` 只显示当前有意创建或修改的文件。
+已于 2026-07-21 使用 Python 3.12.10 运行：两个 pytest 命令均为 1 passed，输出无警告。预期：`git diff --check` 无输出；`git status --short` 只显示当前有意创建或修改的文件。
 
 ## 需要在对应阶段确定的事项
 
