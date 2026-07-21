@@ -13,6 +13,7 @@
 - 已完成第一阶段任务 5：覆盖分类以精确、保留大小写的相对路径比对工作副本；标准目录 PNG 必须可解码，损坏文件会产生显式验证错误；未知候选仅包含 `assets/*/textures/` 下可解码的方形 PNG，目录 junction/symlink 不会被遍历。
 - 已完成第一阶段任务 6：FastAPI 提供仅接受 multipart ZIP 上传的项目导入、规范 UUID 项目清单和实时覆盖端点；纯 ASGI 中间件在 multipart 解析前限制整个请求体，解析后继续限制文件字节数，并将真实客户端断开转换到 multipart 的确定性 spool 关闭路径和稳定错误信封，上传使用项目根内的有界临时文件并在成功或失败后精确清理；覆盖分类全过程持有项目根、项目、`pack/` 和清单文件的原生句柄，已知错误统一映射为稳定错误信封，意外异常只在日志保留技术详情；应用工厂支持显式注入服务和测试用大小限制。
 - 已完成第一阶段任务 7：React WebUI 提供单列 ZIP 导入和覆盖摘要，使用类型化 FastAPI 客户端，显示资源格式、开发目录警告、已覆盖/未覆盖计数、缺失可生成条目与未知文件计数；稳定 API 错误、网络错误、非 JSON 响应和形状错误的成功 JSON 均显示可读警报，新导入开始时会清除旧摘要。若项目导入成功但覆盖请求失败，界面会保留已创建项目并只重试覆盖分析，避免重复导入。文件选择会按不区分大小写的 `.zip` 后缀校验，并通过输入关联的文字说明错误。原生表单控件具有标签、键盘焦点、忙碌/禁用状态和移动端无横向滚动样式。
+- 已完成第一阶段任务 8 的自动化证据：合成 ZIP 的完整 API 导入流会核对原输入、持久化哈希和不可变快照 SHA-256，重新打开快照 ZIP、`project.json` 与工作副本，并精确验证格式 34 开发目录的一项已覆盖和一项缺失；测试只使用 pytest 临时根与内存 ASGI transport，并阻断标准网络连接，不引入 ComfyUI、CUDA 或模型依赖。真实浏览器 smoke 由控制器在本提交后执行，尚未声称通过。
 - 前端固定 Node.js 24.18.0；首次 lockfile 和验证使用经 Node.js 官方 `SHASUMS256.txt` 校验的便携 Windows x64 ZIP，SHA-256 为 `0ae68406b42d7725661da979b1403ec9926da205c6770827f33aac9d8f26e821`。当前没有 ComfyUI 集成；FastAPI 应用可由 `aimctexturegen.main:create_app` 创建，运行时默认项目根和目录根从仓库位置解析，不依赖当前 PowerShell 目录。
 - 当前没有需要迁移的用户项目数据。
 
@@ -30,17 +31,17 @@
 
 ## 当前工作入口
 
-当前应执行 [第一阶段：基础设施与 Java 导入](docs/superpowers/plans/2026-07-21-phase-1-foundation-and-import.md)。这一阶段结束时应得到一个不依赖 GPU 的垂直切片：用户可导入安全的 Java 资源包，在 WebUI 中看到资源格式和基于测试目录配置计算的覆盖状态。
+当前应完成 [第一阶段：基础设施与 Java 导入](docs/superpowers/plans/2026-07-21-phase-1-foundation-and-import.md) 中尚未勾选的真实浏览器 smoke：使用合成 ZIP 验证开发目录警告、格式 34、一项已覆盖、一项缺失和缺失的 Deepslate 路径。自动化门禁已经通过，但在控制器记录该人工证据前，不得宣称第一阶段退出门禁全部完成。
 
-第一阶段之外的工作顺序见 [MVP 实施路线](docs/superpowers/plans/2026-07-21-aimc-texturegen-mvp-roadmap.md)。不要提前接入真实模型或构建完整生产目录。
+浏览器 smoke 通过后，下一个实施工作是路线中的第二阶段“确定性材质处理”；先为第二阶段编写并确认可执行计划。不要提前接入真实模型或构建完整生产目录。
 
 ## 接手步骤
 
 1. 运行 `git status --short`，确认并保留当前未提交改动。
 2. 阅读 `AGENTS.md`、当前阶段计划和 MVP 设计规格。
-3. 找到当前阶段计划中第一个未勾选任务（目前为任务 8：Phase Integration Evidence and Handoff），只执行该任务定义的范围。
-4. 先运行该任务的基线测试，再按计划测试先行实现。
-5. 完成任务后更新计划复选框、本文件的当前状态和验证结果。
+3. 执行任务 8 中尚未勾选的真实浏览器 smoke，并记录观察结果；不要重复或扩展已经通过的自动化实现。
+4. smoke 通过后更新计划复选框和本文件，再为第二阶段编写可执行计划。
+5. 第二阶段开始前重新运行当前自动化门禁，保留开发目录非生产的明确标记。
 
 ## 当前可用验证
 
@@ -53,7 +54,7 @@
 .\.venv\Scripts\python -W error -m pytest backend\tests\packs -v
 .\.venv\Scripts\python -W error -m pytest backend\tests\projects -v
 .\.venv\Scripts\python -W error -m pytest backend\tests\api -v
-.\.venv\Scripts\python -W error -m pytest backend\tests -v
+.\.venv\Scripts\python -W error -m pytest backend\tests --cov=aimctexturegen --cov-report=term-missing
 Push-Location frontend
 ..\runtime\node-v24.18.0-win-x64\npm.cmd test
 ..\runtime\node-v24.18.0-win-x64\npm.cmd run build
@@ -62,7 +63,7 @@ git diff --check
 git status --short
 ```
 
-已于 2026-07-21 使用 Python 3.12.10 运行：项目 API 套件为 31 passed，完整后端套件为 117 passed；所有 pytest 命令均使用 `-W error` 且无警告。使用便携 Node.js 24.18.0 运行：前端为 1 个测试文件、11 个测试通过，Vite 8.1.5 生产构建成功。预期：`git diff --check` 无输出；`git status --short` 只显示当前有意创建或修改的文件。
+已于 2026-07-21 使用 Python 3.12.10 运行完整覆盖率门禁：118 passed、总覆盖率 86%，使用 `-W error` 且无警告。使用便携 Node.js 24.18.0 运行：前端为 1 个测试文件、11 个测试通过，Vite 8.1.5 生产构建成功。`git diff --check` 无输出；`git status --short` 只应显示当前有意创建或修改的文件。最近完成的已提交实现基线仍为任务 7 提交 `d0e4eaf`；任务 8 的确切提交会在提交后写入本交接。
 
 ## 需要在对应阶段确定的事项
 

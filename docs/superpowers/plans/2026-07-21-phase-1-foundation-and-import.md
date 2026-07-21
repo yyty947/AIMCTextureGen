@@ -1019,7 +1019,7 @@ git commit -m "feat: add resource pack import UI"
 - Verifies the complete Phase 1 backend flow without GPU
 - Produces true development commands and Phase 2 handoff state
 
-- [ ] **Step 1: Add a full backend import-flow test**
+- [x] **Step 1: Add a full backend import-flow test**
 
 The integration test must create a synthetic ZIP, record its SHA-256, call the import endpoint, call the coverage endpoint, reopen `project.json`, reopen `source/imported-pack.zip`, and assert:
 
@@ -1029,13 +1029,13 @@ The integration test must create a synthetic ZIP, record its SHA-256, call the i
 - no file outside the pytest temporary project root changes;
 - no ComfyUI, CUDA, network, or model dependency is used.
 
-- [ ] **Step 2: Run the complete automated gate**
+- [x] **Step 2: Run the complete automated gate**
 
 ```powershell
-.\.venv\Scripts\python -m pytest backend\tests --cov=aimctexturegen --cov-report=term-missing
+.\.venv\Scripts\python -W error -m pytest backend\tests --cov=aimctexturegen --cov-report=term-missing
 Push-Location frontend
-npm test
-npm run build
+..\runtime\node-v24.18.0-win-x64\npm.cmd test
+..\runtime\node-v24.18.0-win-x64\npm.cmd run build
 Pop-Location
 git diff --check
 ```
@@ -1059,7 +1059,7 @@ npm run dev -- --host 127.0.0.1 --port 5173
 
 Open `http://127.0.0.1:5173`, import a synthetic test ZIP, and verify the development-catalog warning, format 34, one covered item, one missing item, and the missing Deepslate path. Stop both processes after the smoke test.
 
-- [ ] **Step 4: Update living documentation from observed facts**
+- [x] **Step 4: Update living documentation from observed facts**
 
 Update `README.md` with only commands that succeeded. Update `ONBOARDING.md` with the final test results, the last completed commit, and Phase 2 as the next work item. Mark every completed checkbox in this plan. Do not claim support for a production `pack_format` catalog while the profile status remains `development_fixture`.
 

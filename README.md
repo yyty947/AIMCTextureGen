@@ -4,7 +4,7 @@ AIMCTextureGen 是一个面向 Minecraft 资源包作者的本地 WebUI，用于
 
 ## 当前状态
 
-项目处于 MVP 第一阶段实施中。后端已提供可测试的 FastAPI 健康契约；完整启动流程将在后续阶段加入，因此当前仓库还没有可运行的启动命令。
+MVP 第一阶段的导入纵向切片已完成自动化验证：FastAPI 可以把合成 Java ZIP 导入隔离项目，保留不可变快照与工作副本，并用格式 34 的开发目录配置计算覆盖状态；React WebUI 可以上传 ZIP 并展示该结果。该目录仍是 `development_fixture`，不是生产兼容性声明。真实浏览器 smoke 仍是进入第二阶段前的最后一项人工门禁；一键启动与 GPU 生成流程尚未实现。
 
 首个 MVP 仅覆盖：
 
@@ -27,6 +27,21 @@ MVP 不做 Java/基岩版转换、跨版本转换、Minecraft JAR 扫描、原�
 5. [MVP 设计规格](docs/superpowers/specs/2026-07-18-aimc-texturegen-mvp-design.md)：产品、架构与安全边界。
 
 设计规格回答“做什么和为什么”；实施计划回答“按什么顺序修改哪些文件”；`ONBOARDING.md` 只记录当前事实，不替代前两者。
+
+## 当前开发验证
+
+在已准备好仓库 `.venv` 和 `runtime/node-v24.18.0-win-x64` 的工作树中，以下 PowerShell 命令已实际通过：
+
+```powershell
+.\.venv\Scripts\python -W error -m pytest backend\tests --cov=aimctexturegen --cov-report=term-missing
+Push-Location frontend
+..\runtime\node-v24.18.0-win-x64\npm.cmd test
+..\runtime\node-v24.18.0-win-x64\npm.cmd run build
+Pop-Location
+git diff --check
+```
+
+当前结果为后端 118 个测试通过、总覆盖率 86%，前端 1 个测试文件中的 11 个测试通过，Vite 生产构建成功。`runtime/`、`.venv/`、`frontend/node_modules/` 和 `frontend/dist/` 都是本地忽略产物，不应提交。
 
 ## 核心边界
 
