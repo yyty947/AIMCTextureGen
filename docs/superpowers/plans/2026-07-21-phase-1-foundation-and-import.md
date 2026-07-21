@@ -907,7 +907,7 @@ git commit -m "feat: expose project import and coverage API"
 - Consumes: Phase 1 project API contracts
 - Produces: project-name input, ZIP picker, explicit import action, resource-format summary, covered/missing counts, missing-item list, unknown-path count, and readable error panel
 
-- [ ] **Step 1: Create pinned frontend metadata**
+- [x] **Step 1: Create pinned frontend metadata**
 
 Create `frontend/.node-version` containing `24.18.0`, the LTS patch verified when this plan was written. Then create `frontend/package.json`:
 
@@ -946,11 +946,11 @@ Create `frontend/.node-version` containing `24.18.0`, the LTS patch verified whe
 
 Run `node --version` first and require `v24.18.0` for the initial lockfile. Run `npm install` inside `frontend` and commit the resulting `package-lock.json`. Do not hand-edit the lockfile. If a pin cannot resolve, stop and update this dated plan with registry evidence instead of silently selecting another version.
 
-- [ ] **Step 2: Write the failing UI behavior test**
+- [x] **Step 2: Write the failing UI behavior test**
 
 Create `frontend/src/App.test.tsx` using `vi.stubGlobal("fetch", ...)`. The test must select a synthetic `File`, click the Chinese-labeled import button, and assert the rendered summary includes `资源格式 34`, `已覆盖 1`, `未覆盖 1`, and `Deepslate`. A second test returns the API error envelope and asserts `不安全的资源包路径` is visible.
 
-- [ ] **Step 3: Run the UI tests and verify the missing component**
+- [x] **Step 3: Run the UI tests and verify the missing component**
 
 ```powershell
 Push-Location frontend
@@ -960,7 +960,7 @@ Pop-Location
 
 Expected: after adding only compilable no-behavior stubs required by the global RED rule, the tests execute and fail because the expected imported-project summary is not rendered.
 
-- [ ] **Step 4: Implement a typed API client**
+- [x] **Step 4: Implement a typed API client**
 
 Create `frontend/src/api.ts` with exact TypeScript types for `ProjectManifest`, `CoverageItem`, `CoverageReport`, and `ApiError`. `CoverageReport.catalogStatus` must be the union `"development_fixture" | "production"` after JSON key conversion. Export:
 
@@ -971,7 +971,7 @@ export async function getCoverage(projectId: string): Promise<CoverageReport>
 
 `importProject` sends `FormData` with `project_name` and `pack`. Both functions parse the error envelope and throw an `ApiRequestError` carrying `code`, `userMessage`, `recommendedActions`, and `technicalDetails`.
 
-- [ ] **Step 5: Implement the accessible import screen**
+- [x] **Step 5: Implement the accessible import screen**
 
 `App.tsx` must use native form controls with associated labels, disable submission until a non-empty name and ZIP are selected, expose `aria-busy` during import, and render errors in an element with `role="alert"`. After import, fetch coverage and show:
 
@@ -983,7 +983,7 @@ export async function getCoverage(projectId: string): Promise<CoverageReport>
 
 Do not add generation controls, model settings, desktop APIs, or direct path fields in this phase.
 
-- [ ] **Step 6: Configure Vite and run tests/build**
+- [x] **Step 6: Configure Vite and run tests/build**
 
 Configure `/api` to proxy to `http://127.0.0.1:8000` during development and configure Vitest with `environment: "jsdom"` and a setup file that imports `@testing-library/jest-dom/vitest`.
 
@@ -998,7 +998,7 @@ Pop-Location
 
 Expected: UI tests pass and Vite produces `frontend/dist` without TypeScript errors.
 
-- [ ] **Step 7: Commit the frontend vertical slice**
+- [x] **Step 7: Commit the frontend vertical slice**
 
 ```powershell
 git add frontend
