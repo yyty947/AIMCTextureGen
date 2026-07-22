@@ -4,7 +4,7 @@ AIMCTextureGen 是一个面向 Minecraft 资源包作者的本地 WebUI，用于
 
 ## 当前状态
 
-MVP 第一阶段的导入纵向切片已通过自动化、独立审查和真实浏览器验证：FastAPI 可以把合成 Java ZIP 导入隔离项目，保留不可变快照与工作副本，并用格式 34 的开发目录配置计算覆盖状态；React WebUI 可以上传 ZIP 并展示该结果。该目录仍是 `development_fixture`，不是生产兼容性声明。下一步是编写并确认第二阶段“确定性材质处理”的实施计划；一键启动与 GPU 生成流程尚未实现。
+MVP 第一阶段的导入纵向切片已通过当前自动化和独立审查：FastAPI 可以把合成 Java ZIP 导入隔离项目，保留不可变快照与工作副本，并用格式 34 的开发目录配置计算覆盖状态；React WebUI 可以上传 ZIP 并展示该结果。2026-07-22 的最终审查修复替换了 multipart 上传实现，因此 2026-07-21 的真实浏览器记录不再足以验证当前上传路径；进入第二阶段前仍需由用户重新执行一次手工浏览器 smoke。该目录仍是 `development_fixture`，不是生产兼容性声明；一键启动与 GPU 生成流程尚未实现。
 
 首个 MVP 仅覆盖：
 
@@ -41,7 +41,7 @@ Pop-Location
 git diff --check
 ```
 
-当前结果为后端 120 个测试通过、总覆盖率 86%，前端 1 个测试文件中的 11 个测试通过，Vite 生产构建成功。`runtime/`、`.venv/`、`frontend/node_modules/` 和 `frontend/dist/` 都是本地忽略产物，不应提交。
+2026-07-22 的当前结果为后端 138 个测试通过、总覆盖率 86%，前端 1 个测试文件中的 19 个测试通过，Vite 生产构建成功。`runtime/`、`.venv/`、`frontend/node_modules/` 和 `frontend/dist/` 都是本地忽略产物，不应提交。当前浏览器 smoke 为待用户手工复验项，不包含在这些自动化结果中。
 
 ## 核心边界
 

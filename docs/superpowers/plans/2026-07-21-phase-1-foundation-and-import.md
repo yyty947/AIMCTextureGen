@@ -1072,6 +1072,16 @@ git add backend/tests/integration README.md ONBOARDING.md docs/superpowers/plans
 git commit -m "test: verify Phase 1 import flow"
 ```
 
+### Final-review hardening (2026-07-22)
+
+- [x] Replaced framework `UploadFile` parsing with a narrow incremental multipart parser that writes the ZIP directly to an identity-checked file under the configured project root. The whole-request and file limits remain independent and exact; a `>1 MiB` audited import proves that no external spool write occurs.
+- [x] Added central-directory and streamed-byte ZIP limits: 4096 members, 1 MiB `pack.mcmeta`, 256 MiB per member, 1 GiB total uncompressed bytes, and 200:1 maximum compression ratio. Encrypted members and compression other than stored/deflate are rejected before extraction.
+- [x] Converted normal-member CRC, truncation, encryption, and unsupported-compression failures during working-copy creation to stable `PackValidationError` results while preserving staged cleanup and the existing junction/TOCTOU guards.
+- [x] Limited project names to 128 characters in multipart parsing, workspace creation, the persisted manifest, and the React input; manifest bytes are checked against the 1 MiB read limit before publication.
+- [x] Made catalog JSON contracts strict and canonical/unique, and hardened successful frontend response validation for UUID, SHA-256, timestamps, formats, and counts.
+- [x] Verified the current automated gate: backend `138 passed` at 86% coverage with `-W error`; frontend `19 passed`; Vite 8.1.5 build succeeded.
+- [ ] Re-run the desktop and 375 px browser smoke manually after the multipart replacement. The 2026-07-21 observation above is historical and does not close this changed-flow gate.
+
 ---
 
 ## Self-Review Record
@@ -1082,4 +1092,4 @@ git commit -m "test: verify Phase 1 import flow"
 
 ## Phase 1 Handoff
 
-Tasks 1–8 的实现、自动化验证、独立审查和真实浏览器 smoke 都已完成，Phase 1 退出门禁全部通过。下一步是先编写并确认 Phase 2“确定性材质处理”的可执行计划；不得跳过规划直接接入 ComfyUI、CUDA、真实模型或生产目录。
+Tasks 1–8 及 2026-07-22 最终审查修复的自动化验证已完成。由于 multipart 上传路径发生变化，Phase 1 仍等待用户重新执行桌面与 375 px 手工浏览器 smoke；通过前不得声称当前退出门禁全部完成。通过后下一步是先编写并确认 Phase 2“确定性材质处理”的可执行计划；不得跳过规划直接接入 ComfyUI、CUDA、真实模型或生产目录。
