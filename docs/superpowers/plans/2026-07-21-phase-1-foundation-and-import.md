@@ -62,7 +62,7 @@ Later phases consume the interfaces named below. Do not rename them casually; if
 - Produces: `create_app() -> FastAPI`
 - Produces: `GET /api/health -> {"status": "ok", "schema_version": 1}`
 
-- [ ] **Step 1: Extend local artifact exclusions**
+- [x] **Step 1: Extend local artifact exclusions**
 
 Add these exact entries without removing existing ignore rules:
 
@@ -79,7 +79,7 @@ projects/
 *.log
 ```
 
-- [ ] **Step 2: Add the backend package metadata and route-free scaffold**
+- [x] **Step 2: Add the backend package metadata and route-free scaffold**
 
 Create `backend/pyproject.toml` with this exact Phase 1-compatible content:
 
@@ -127,7 +127,7 @@ def create_app() -> FastAPI:
 app = create_app()
 ```
 
-- [ ] **Step 3: Create the isolated environment**
+- [x] **Step 3: Create the isolated environment**
 
 Run from the repository root:
 
@@ -139,7 +139,7 @@ py -3.12 -m venv .venv
 
 Expected: installation succeeds inside `.venv`; global Python is unchanged.
 
-- [ ] **Step 4: Write the failing health test**
+- [x] **Step 4: Write the failing health test**
 
 Create `backend/tests/test_health.py`:
 
@@ -158,7 +158,7 @@ def test_health_contract() -> None:
     assert response.json() == {"status": "ok", "schema_version": 1}
 ```
 
-- [ ] **Step 5: Verify RED**
+- [x] **Step 5: Verify RED**
 
 ```powershell
 .\.venv\Scripts\python -m pytest backend\tests\test_health.py -v
@@ -166,7 +166,7 @@ def test_health_contract() -> None:
 
 Expected: the test runs and fails because `/api/health` returns HTTP 404 instead of 200.
 
-- [ ] **Step 6: Add the health behavior**
+- [x] **Step 6: Add the health behavior**
 
 Replace `backend/src/aimctexturegen/main.py` with:
 
@@ -187,7 +187,7 @@ def create_app() -> FastAPI:
 app = create_app()
 ```
 
-- [ ] **Step 7: Verify GREEN**
+- [x] **Step 7: Verify GREEN**
 
 Run from the repository root:
 
@@ -197,7 +197,7 @@ Run from the repository root:
 
 Expected: one test passes and no package is installed into global Python.
 
-- [ ] **Step 8: Commit the backend skeleton**
+- [x] **Step 8: Commit the backend skeleton**
 
 ```powershell
 git add .gitignore backend
@@ -221,7 +221,7 @@ git commit -m "build: scaffold FastAPI backend"
 - Produces: `CatalogRegistry.for_pack_format(pack_format: int) -> CatalogProfile`
 - Raises: `UnsupportedPackFormat(pack_format: int, supported: tuple[int, ...])`
 
-- [ ] **Step 1: Write failing registry tests**
+- [x] **Step 1: Write failing registry tests**
 
 Create `backend/tests/catalog/test_registry.py`:
 
@@ -257,7 +257,7 @@ def test_rejects_unsupported_primary_pack_format() -> None:
     assert raised.value.supported == (34,)
 ```
 
-- [ ] **Step 2: Run the tests and confirm the missing-module failure**
+- [x] **Step 2: Run the tests and confirm the missing-module failure**
 
 ```powershell
 .\.venv\Scripts\python -m pytest backend\tests\catalog\test_registry.py -v
@@ -265,7 +265,7 @@ def test_rejects_unsupported_primary_pack_format() -> None:
 
 Expected: after adding only importable no-behavior stubs required by the global RED rule, the tests execute and fail their first behavioral assertion because no profile is loaded.
 
-- [ ] **Step 3: Define strict catalog models**
+- [x] **Step 3: Define strict catalog models**
 
 Create an empty `backend/src/aimctexturegen/catalog/__init__.py` and create `backend/src/aimctexturegen/catalog/models.py`:
 
@@ -297,7 +297,7 @@ class CatalogProfile(BaseModel):
     entries: tuple[CatalogEntry, ...]
 ```
 
-- [ ] **Step 4: Add the developer catalog fixture**
+- [x] **Step 4: Add the developer catalog fixture**
 
 Create `catalogs/java/dev-format-34.json`:
 
@@ -330,7 +330,7 @@ Create `catalogs/java/dev-format-34.json`:
 }
 ```
 
-- [ ] **Step 5: Implement deterministic profile loading**
+- [x] **Step 5: Implement deterministic profile loading**
 
 Create `backend/src/aimctexturegen/catalog/registry.py`:
 
@@ -373,7 +373,7 @@ class CatalogRegistry:
         return profile
 ```
 
-- [ ] **Step 6: Verify catalog tests and the complete backend suite**
+- [x] **Step 6: Verify catalog tests and the complete backend suite**
 
 ```powershell
 .\.venv\Scripts\python -m pytest backend\tests\catalog\test_registry.py -v
@@ -382,7 +382,7 @@ class CatalogRegistry:
 
 Expected: all tests pass.
 
-- [ ] **Step 7: Commit catalog contracts**
+- [x] **Step 7: Commit catalog contracts**
 
 ```powershell
 git add backend/src/aimctexturegen/catalog backend/tests/catalog catalogs/java
@@ -406,7 +406,7 @@ git commit -m "feat: add versioned Java catalog registry"
 - Produces: `JavaPackAdapter.inspect(source: Path) -> InspectedPack`
 - Raises: `PackValidationError(code: str, user_message: str)`
 
-- [ ] **Step 1: Add fixture helpers that create assets without Mojang content**
+- [x] **Step 1: Add fixture helpers that create assets without Mojang content**
 
 Create `backend/tests/packs/conftest.py`:
 
@@ -449,7 +449,7 @@ def one_pixel_png() -> bytes:
 
 Add `Pillow==12.3.0` to `backend/pyproject.toml` dependencies before running these tests.
 
-- [ ] **Step 2: Write inspection and safety tests**
+- [x] **Step 2: Write inspection and safety tests**
 
 Create `backend/tests/packs/test_java_adapter.py` with these cases:
 
@@ -515,7 +515,7 @@ def test_rejects_unsafe_zip_member(tmp_path: Path, unsafe_name: str) -> None:
 
 Also add tests for: missing `pack.mcmeta`, malformed JSON, missing/non-integer `pack_format`, two possible pack roots, case-folding duplicate paths, a valid directory source, and exactly one nested wrapper directory containing `pack.mcmeta`.
 
-- [ ] **Step 3: Run the tests and confirm the missing implementation**
+- [x] **Step 3: Run the tests and confirm the missing implementation**
 
 ```powershell
 .\.venv\Scripts\python -m pip install -e ".\backend[dev]"
@@ -524,7 +524,7 @@ Also add tests for: missing `pack.mcmeta`, malformed JSON, missing/non-integer `
 
 Expected: after adding only importable no-behavior stubs required by the global RED rule, the tests execute and fail their first behavioral assertion because inspection is not implemented.
 
-- [ ] **Step 4: Define immutable inspection models**
+- [x] **Step 4: Define immutable inspection models**
 
 Create `backend/src/aimctexturegen/packs/models.py`:
 
@@ -552,7 +552,7 @@ class InspectedPack(BaseModel):
     normalized_files: frozenset[str]
 ```
 
-- [ ] **Step 5: Implement validation before extraction**
+- [x] **Step 5: Implement validation before extraction**
 
 Create an empty `backend/src/aimctexturegen/packs/__init__.py`. In `java_adapter.py`, implement `PackValidationError`, path normalization, Windows reserved-name rejection, case-folding conflict detection, root discovery, metadata parsing, and `inspect`. Use `PurePosixPath` for archive members and `Path.resolve()` plus `is_relative_to()` for directory entries. Do not call `ZipFile.extractall`.
 
@@ -577,7 +577,7 @@ class JavaPackAdapter:
 
 Safety helpers must return normalized forward-slash paths, reject empty/dot-only file names, reject any `..` segment, reject absolute/drive/UNC forms, and reject these Windows device stems case-insensitively: `CON`, `PRN`, `AUX`, `NUL`, `COM1` through `COM9`, and `LPT1` through `LPT9`.
 
-- [ ] **Step 6: Run all pack and backend tests**
+- [x] **Step 6: Run all pack and backend tests**
 
 ```powershell
 .\.venv\Scripts\python -m pytest backend\tests\packs -v
@@ -586,7 +586,7 @@ Safety helpers must return normalized forward-slash paths, reject empty/dot-only
 
 Expected: all tests pass; test output contains no writes outside pytest temporary directories.
 
-- [ ] **Step 7: Commit Java pack inspection**
+- [x] **Step 7: Commit Java pack inspection**
 
 ```powershell
 git add backend/pyproject.toml backend/src/aimctexturegen/packs backend/tests/packs
@@ -599,6 +599,7 @@ git commit -m "feat: validate Java resource pack inputs"
 
 **Files:**
 - Create: `backend/src/aimctexturegen/projects/__init__.py`
+- Create: `backend/src/aimctexturegen/projects/_directory_guard.py`
 - Create: `backend/src/aimctexturegen/projects/models.py`
 - Create: `backend/src/aimctexturegen/projects/workspace.py`
 - Create: `backend/tests/projects/test_workspace.py`
@@ -609,7 +610,7 @@ git commit -m "feat: validate Java resource pack inputs"
 - Produces: `ProjectWorkspace.import_pack(source: Path, project_name: str) -> ProjectManifest`
 - Produces project paths: `project.json`, `source/imported-pack.zip`, and `pack/`
 
-- [ ] **Step 1: Write failing import tests**
+- [x] **Step 1: Write failing import tests**
 
 Create `backend/tests/projects/test_workspace.py` covering both ZIP and directory sources. The primary test must assert:
 
@@ -638,7 +639,14 @@ def test_import_creates_snapshot_and_working_copy(
 
 The same file must assert that failed validation leaves no project directory, directory import produces a deterministic local ZIP snapshot, and project names containing filesystem separators do not affect generated paths.
 
-- [ ] **Step 2: Run tests and verify the expected import failure**
+Security regression coverage must also use real Windows junctions to prove cleanup
+never follows a replaced temp directory and working-copy writes never traverse a
+replaced `pack/` directory. A controlled private-stage monkeypatch must prove a
+same-shape snapshot replacement prevents publication. Direct manifest tests must
+cover strict constants, coercion rejection, exact persisted keys, frozen instances,
+and timezone-aware timestamps.
+
+- [x] **Step 2: Run tests and verify the expected import failure**
 
 ```powershell
 .\.venv\Scripts\python -m pytest backend\tests\projects\test_workspace.py -v
@@ -646,35 +654,35 @@ The same file must assert that failed validation leaves no project directory, di
 
 Expected: after adding only importable no-behavior stubs required by the global RED rule, the tests execute and fail their first behavioral assertion because project import is not implemented.
 
-- [ ] **Step 3: Define the versioned project manifest**
+- [x] **Step 3: Define the versioned project manifest**
 
 Create `backend/src/aimctexturegen/projects/models.py` with a strict frozen `ProjectManifest` containing these exact fields:
 
 ```python
-from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import AwareDatetime, BaseModel, ConfigDict
 
 
 class ProjectManifest(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
-    schema_version: int
+    schema_version: Literal[1]
     project_id: UUID
     project_name: str
-    edition: str
+    edition: Literal["java"]
     java_pack_format: int
     supported_formats: tuple[int, int] | None
     catalog_id: str
     source_sha256: str
-    created_at: datetime
-    updated_at: datetime
+    created_at: AwareDatetime
+    updated_at: AwareDatetime
 ```
 
 Use `schema_version=1` and `edition="java"` in Phase 1.
 
-- [ ] **Step 4: Implement staged import**
+- [x] **Step 4: Implement staged import**
 
 Create `ProjectWorkspace`. `import_pack` must perform operations in this order:
 
@@ -686,7 +694,14 @@ Create `ProjectWorkspace`. `import_pack` must perform operations in this order:
 6. write UTF-8 `project.json` with `model_dump_json(indent=2)`;
 7. re-open and validate `project.json`;
 8. atomically rename the temporary project directory to `<project-id>`;
-9. on failure, delete only the verified `<project-id>.tmp` directory inside the configured project root.
+9. on failure, delete only the verified `<project-id>.tmp` directory inside the configured project root. Preserve its original Windows file identity, reject any junction/symlink/reparse point in the temp tree, never recurse through a resolved target, and fail closed if identity or reparse verification fails.
+
+Working-copy writes must be anchored to the original temp directory identity and
+reject reparse points in their ancestry. On Windows, hold native handles for the
+temp root, `pack/`, and each created ancestor without `FILE_SHARE_DELETE`; verify
+their file identity, final path and reparse attributes before any descendant or file
+open. Bind the retained snapshot to its file identity and SHA-256 while copying,
+then compare both again immediately before atomic publication.
 
 The constructor and method signatures must be:
 
@@ -710,7 +725,7 @@ class ProjectWorkspace:
 
 Reject an empty trimmed project name with `PackValidationError("INVALID_PROJECT_NAME", "项目名称不能为空")`.
 
-- [ ] **Step 5: Run workspace and regression tests**
+- [x] **Step 5: Run workspace and regression tests**
 
 ```powershell
 .\.venv\Scripts\python -m pytest backend\tests\projects -v
@@ -719,7 +734,7 @@ Reject an empty trimmed project name with `PackValidationError("INVALID_PROJECT_
 
 Expected: all tests pass; source hashes are unchanged; failed imports leave no final or temporary project directory.
 
-- [ ] **Step 6: Commit workspace import**
+- [x] **Step 6: Commit workspace import**
 
 ```powershell
 git add backend/src/aimctexturegen/projects backend/tests/projects
@@ -740,7 +755,7 @@ git commit -m "feat: import packs into isolated project workspaces"
 - Produces: `CoverageReport(catalog_id, catalog_status, covered_count, missing_count, unknown_paths, items)`
 - Produces: `classify_coverage(pack_root: Path, profile: CatalogProfile) -> CoverageReport`
 
-- [ ] **Step 1: Write failing coverage tests**
+- [x] **Step 1: Write failing coverage tests**
 
 Create a temporary working pack containing valid synthetic `stone.png`, an unknown square PNG, and no `deepslate.png`. Assert that `stone` is covered, `deepslate` is missing, the unknown file is preserved in `unknown_paths`, and a wrongly cased `Stone.png` does not cover the canonical lowercase path.
 
@@ -761,7 +776,7 @@ assert report.unknown_paths == (
 )
 ```
 
-- [ ] **Step 2: Run the focused test and confirm the missing function**
+- [x] **Step 2: Run the focused test and confirm the missing function**
 
 ```powershell
 .\.venv\Scripts\python -m pytest backend\tests\packs\test_coverage.py -v
@@ -769,7 +784,7 @@ assert report.unknown_paths == (
 
 Expected: after adding only importable no-behavior stubs required by the global RED rule, the test executes and fails its first behavioral assertion because coverage classification is not implemented.
 
-- [ ] **Step 3: Implement exact-path coverage**
+- [x] **Step 3: Implement exact-path coverage**
 
 Define frozen Pydantic report models and implement `classify_coverage` so it copies both `profile.catalog_id` and `profile.status` into `catalog_id` and `catalog_status`, then:
 
@@ -782,7 +797,7 @@ Define frozen Pydantic report models and implement `classify_coverage` so it cop
 
 Use `PIL.Image.verify()` for decode validation and reopen the image before reading dimensions; do not retain decoded pixel data.
 
-- [ ] **Step 4: Run coverage and all backend tests**
+- [x] **Step 4: Run coverage and all backend tests**
 
 ```powershell
 .\.venv\Scripts\python -m pytest backend\tests\packs\test_coverage.py -v
@@ -791,7 +806,7 @@ Use `PIL.Image.verify()` for decode validation and reopen the image before readi
 
 Expected: all tests pass and coverage results remain stable across repeated runs.
 
-- [ ] **Step 5: Commit coverage classification**
+- [x] **Step 5: Commit coverage classification**
 
 ```powershell
 git add backend/src/aimctexturegen/packs/coverage.py backend/tests/packs/test_coverage.py
@@ -816,7 +831,7 @@ git commit -m "feat: classify Java texture coverage"
 - Produces: `GET /api/projects/{project_id}/coverage`
 - Produces error JSON: `{"code", "stage", "user_message", "recommended_actions", "technical_details"}`
 
-- [ ] **Step 1: Write API contract tests**
+- [x] **Step 1: Write API contract tests**
 
 Use `TestClient`, a pytest temporary project root, and the synthetic ZIP factory. The successful import assertion must be:
 
@@ -837,7 +852,7 @@ assert body["catalog_id"] == "java-dev-format-34"
 
 Also assert a rejected unsafe ZIP returns HTTP 400 with `code="UNSAFE_PACK_PATH"`, and an unknown project returns HTTP 404 with `code="PROJECT_NOT_FOUND"`.
 
-- [ ] **Step 2: Run API tests and confirm route absence**
+- [x] **Step 2: Run API tests and confirm route absence**
 
 ```powershell
 .\.venv\Scripts\python -m pytest backend\tests\api\test_projects.py -v
@@ -845,17 +860,17 @@ Also assert a rejected unsafe ZIP returns HTTP 400 with `code="UNSAFE_PACK_PATH"
 
 Expected: the import request returns 404 because the route is not registered.
 
-- [ ] **Step 3: Add explicit application dependencies**
+- [x] **Step 3: Add explicit application dependencies**
 
 Define an `AppServices` dataclass containing `workspace`, `catalogs`, and `project_root`. Change `create_app` to accept `project_root: Path | None = None` and `catalog_root: Path | None = None`, construct services once, store them in `app.state.services`, and register the projects router. Tests pass temporary roots; runtime defaults resolve from the repository configuration, never from the current shell directory implicitly.
 
-- [ ] **Step 4: Implement routes with bounded uploads**
+- [x] **Step 4: Implement routes with bounded uploads**
 
 `POST /api/projects/import` must stream the upload to a temporary file under the configured project root, reject files over a named `MAX_IMPORT_BYTES` constant, call `ProjectWorkspace.import_pack`, and remove only that temporary upload in `finally`. The endpoint never accepts an arbitrary client filesystem path.
 
 The two GET endpoints load `project.json` from a UUID project directory and recompute coverage from the current working copy. Map known domain errors to the stable envelope; unexpected errors preserve technical details in logs but return a generic user message.
 
-- [ ] **Step 5: Run API, backend, and import immutability tests**
+- [x] **Step 5: Run API, backend, and import immutability tests**
 
 ```powershell
 .\.venv\Scripts\python -m pytest backend\tests\api -v
@@ -864,7 +879,7 @@ The two GET endpoints load `project.json` from a UUID project directory and reco
 
 Expected: all tests pass; temporary uploads are gone after success and failure; imported snapshots remain unchanged.
 
-- [ ] **Step 6: Commit the project API**
+- [x] **Step 6: Commit the project API**
 
 ```powershell
 git add backend/src/aimctexturegen/api backend/src/aimctexturegen/core backend/src/aimctexturegen/main.py backend/tests/api
@@ -892,7 +907,7 @@ git commit -m "feat: expose project import and coverage API"
 - Consumes: Phase 1 project API contracts
 - Produces: project-name input, ZIP picker, explicit import action, resource-format summary, covered/missing counts, missing-item list, unknown-path count, and readable error panel
 
-- [ ] **Step 1: Create pinned frontend metadata**
+- [x] **Step 1: Create pinned frontend metadata**
 
 Create `frontend/.node-version` containing `24.18.0`, the LTS patch verified when this plan was written. Then create `frontend/package.json`:
 
@@ -931,11 +946,11 @@ Create `frontend/.node-version` containing `24.18.0`, the LTS patch verified whe
 
 Run `node --version` first and require `v24.18.0` for the initial lockfile. Run `npm install` inside `frontend` and commit the resulting `package-lock.json`. Do not hand-edit the lockfile. If a pin cannot resolve, stop and update this dated plan with registry evidence instead of silently selecting another version.
 
-- [ ] **Step 2: Write the failing UI behavior test**
+- [x] **Step 2: Write the failing UI behavior test**
 
 Create `frontend/src/App.test.tsx` using `vi.stubGlobal("fetch", ...)`. The test must select a synthetic `File`, click the Chinese-labeled import button, and assert the rendered summary includes `资源格式 34`, `已覆盖 1`, `未覆盖 1`, and `Deepslate`. A second test returns the API error envelope and asserts `不安全的资源包路径` is visible.
 
-- [ ] **Step 3: Run the UI tests and verify the missing component**
+- [x] **Step 3: Run the UI tests and verify the missing component**
 
 ```powershell
 Push-Location frontend
@@ -945,7 +960,7 @@ Pop-Location
 
 Expected: after adding only compilable no-behavior stubs required by the global RED rule, the tests execute and fail because the expected imported-project summary is not rendered.
 
-- [ ] **Step 4: Implement a typed API client**
+- [x] **Step 4: Implement a typed API client**
 
 Create `frontend/src/api.ts` with exact TypeScript types for `ProjectManifest`, `CoverageItem`, `CoverageReport`, and `ApiError`. `CoverageReport.catalogStatus` must be the union `"development_fixture" | "production"` after JSON key conversion. Export:
 
@@ -956,7 +971,7 @@ export async function getCoverage(projectId: string): Promise<CoverageReport>
 
 `importProject` sends `FormData` with `project_name` and `pack`. Both functions parse the error envelope and throw an `ApiRequestError` carrying `code`, `userMessage`, `recommendedActions`, and `technicalDetails`.
 
-- [ ] **Step 5: Implement the accessible import screen**
+- [x] **Step 5: Implement the accessible import screen**
 
 `App.tsx` must use native form controls with associated labels, disable submission until a non-empty name and ZIP are selected, expose `aria-busy` during import, and render errors in an element with `role="alert"`. After import, fetch coverage and show:
 
@@ -968,7 +983,7 @@ export async function getCoverage(projectId: string): Promise<CoverageReport>
 
 Do not add generation controls, model settings, desktop APIs, or direct path fields in this phase.
 
-- [ ] **Step 6: Configure Vite and run tests/build**
+- [x] **Step 6: Configure Vite and run tests/build**
 
 Configure `/api` to proxy to `http://127.0.0.1:8000` during development and configure Vitest with `environment: "jsdom"` and a setup file that imports `@testing-library/jest-dom/vitest`.
 
@@ -983,7 +998,7 @@ Pop-Location
 
 Expected: UI tests pass and Vite produces `frontend/dist` without TypeScript errors.
 
-- [ ] **Step 7: Commit the frontend vertical slice**
+- [x] **Step 7: Commit the frontend vertical slice**
 
 ```powershell
 git add frontend
@@ -1004,7 +1019,7 @@ git commit -m "feat: add resource pack import UI"
 - Verifies the complete Phase 1 backend flow without GPU
 - Produces true development commands and Phase 2 handoff state
 
-- [ ] **Step 1: Add a full backend import-flow test**
+- [x] **Step 1: Add a full backend import-flow test**
 
 The integration test must create a synthetic ZIP, record its SHA-256, call the import endpoint, call the coverage endpoint, reopen `project.json`, reopen `source/imported-pack.zip`, and assert:
 
@@ -1014,20 +1029,20 @@ The integration test must create a synthetic ZIP, record its SHA-256, call the i
 - no file outside the pytest temporary project root changes;
 - no ComfyUI, CUDA, network, or model dependency is used.
 
-- [ ] **Step 2: Run the complete automated gate**
+- [x] **Step 2: Run the complete automated gate**
 
 ```powershell
-.\.venv\Scripts\python -m pytest backend\tests --cov=aimctexturegen --cov-report=term-missing
+.\.venv\Scripts\python -W error -m pytest backend\tests --cov=aimctexturegen --cov-report=term-missing
 Push-Location frontend
-npm test
-npm run build
+..\runtime\node-v24.18.0-win-x64\npm.cmd test
+..\runtime\node-v24.18.0-win-x64\npm.cmd run build
 Pop-Location
 git diff --check
 ```
 
 Expected: backend tests, frontend tests and frontend build pass; `git diff --check` prints nothing. Coverage percentage is recorded as evidence but Phase 1 does not impose an arbitrary numeric threshold.
 
-- [ ] **Step 3: Run the local browser smoke test**
+- [x] **Step 3: Run the local browser smoke test**
 
 In terminal one:
 
@@ -1039,21 +1054,36 @@ In terminal two:
 
 ```powershell
 Push-Location frontend
-npm run dev -- --host 127.0.0.1 --port 5173
+..\runtime\node-v24.18.0-win-x64\npm.cmd run dev -- --host 127.0.0.1 --port 5173
 ```
 
 Open `http://127.0.0.1:5173`, import a synthetic test ZIP, and verify the development-catalog warning, format 34, one covered item, one missing item, and the missing Deepslate path. Stop both processes after the smoke test.
 
-- [ ] **Step 4: Update living documentation from observed facts**
+Observed on 2026-07-21 with the in-app browser: the desktop and 375 px viewport both showed the development-catalog warning, format 34, one covered item, one missing item, and `assets/minecraft/textures/block/deepslate.png`. At 375 px the document scroll width equaled the viewport width, the result card remained readable, and the browser console reported no warnings or errors. Both local processes were stopped after the check.
+
+- [x] **Step 4: Update living documentation from observed facts**
 
 Update `README.md` with only commands that succeeded. Update `ONBOARDING.md` with the final test results, the last completed commit, and Phase 2 as the next work item. Mark every completed checkbox in this plan. Do not claim support for a production `pack_format` catalog while the profile status remains `development_fixture`.
 
-- [ ] **Step 5: Commit Phase 1 evidence and handoff**
+- [x] **Step 5: Commit Phase 1 evidence and handoff**
 
 ```powershell
 git add backend/tests/integration README.md ONBOARDING.md docs/superpowers/plans/2026-07-21-phase-1-foundation-and-import.md
 git commit -m "test: verify Phase 1 import flow"
 ```
+
+### Final-review hardening (2026-07-22)
+
+- [x] Replaced framework `UploadFile` parsing with a narrow incremental multipart parser that writes the ZIP directly to an identity-checked file under the configured project root. The whole-request and file limits remain independent and exact; a `>1 MiB` audited import proves that no external spool write occurs.
+- [x] Added central-directory and streamed-byte ZIP limits: 4096 members, 1 MiB `pack.mcmeta`, 256 MiB per member, 1 GiB total uncompressed bytes, and 200:1 maximum compression ratio. Encrypted members and compression other than stored/deflate are rejected before extraction.
+- [x] Converted normal-member CRC, truncation, encryption, and unsupported-compression failures during working-copy creation to stable `PackValidationError` results while preserving staged cleanup and the existing junction/TOCTOU guards.
+- [x] Limited project names to 128 Unicode code points in multipart parsing, workspace creation, the persisted manifest, and the React input; manifest bytes are checked against the 1 MiB read limit before publication.
+- [x] Made catalog JSON contracts strict and canonical/unique, including nonempty semantic-ID path segments, and hardened successful frontend response validation for UUID, SHA-256, RFC 3339 timestamps with an explicit timezone, formats, and counts.
+- [x] Bounded multipart boundary length, header count, individual field/value bytes, and aggregate per-part header bytes even under one-byte request fragmentation. The protocol matrix covers pack-first order plus missing, duplicate and unknown fields/headers.
+- [x] Mapped upload-destination write failures to stable `PROJECT_STORAGE_UNAVAILABLE` 500 responses with exact temporary-file cleanup, distinct from malformed multipart 400 responses.
+- [x] Added controlled lying-stream regressions proving working-copy extraction enforces actual streamed member and total byte limits rather than trusting ZIP declarations.
+- [x] Verified the current automated gate: backend `165 passed` at 86% coverage with `-W error`; frontend `21 passed`; Vite 8.1.5 build succeeded.
+- [x] Re-run the Windows desktop browser smoke manually after the multipart replacement. On 2026-07-22 the user imported the `>1 MiB` synthetic pack and verified correct rendering and results in a normal desktop window and at widths from 400 to 900 px. The 375 px check is not a product gate: v0.1 does not claim mobile-device support. Vite development-server MIME/charset notices, the Firefox `theme-color` compatibility notice, and an extension-owned `content.js` invalidation error were classified as external tooling messages rather than application runtime failures.
 
 ---
 
@@ -1063,13 +1093,6 @@ git commit -m "test: verify Phase 1 import flow"
 - **Placeholder scan:** This plan contains no `TBD`, implementation placeholders, or unnamed error-handling steps. Production catalog provenance and runtime/model pins are explicitly phase-gated decisions, not hidden work in Phase 1.
 - **Type consistency:** `CatalogRegistry`, `JavaPackAdapter`, `ProjectWorkspace`, `ProjectManifest`, and `CoverageReport` names are stable across tasks. API and frontend types consume those same persisted identifiers.
 
-## Execution Handoff
+## Phase 1 Handoff
 
-Plan complete and saved to `docs/superpowers/plans/2026-07-21-phase-1-foundation-and-import.md`.
-
-Execution options when implementation begins:
-
-1. **Subagent-Driven** — use `superpowers:subagent-driven-development` only when the user explicitly requests subagents or applicable repository instructions authorize them.
-2. **Inline Execution** — use `superpowers:executing-plans` in the current session with review checkpoints.
-
-Do not begin either option until the user explicitly asks to start implementation.
+Tasks 1–8 及 2026-07-22 最终审查修复的自动化验证、独立审查和用户手工 Windows 桌面浏览器 smoke 已全部完成，Phase 1 退出门禁全部通过。下一步是先编写并确认 Phase 2“确定性材质处理”的可执行计划；不得跳过规划直接接入 ComfyUI、CUDA、真实模型或生产目录。

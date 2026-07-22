@@ -4,10 +4,17 @@
 
 ## 当前状态
 
-- 仓库已初始化，当前分支为 `master`。
+- 当前实现位于 `codex/phase-1-foundation-import` 工作树分支。
 - MVP 产品设计已在提交 `026dec8` 中确认。
-- 文档体系正在建立；应用、测试、启动脚本和依赖清单尚未实现。
-- 当前没有可运行的 WebUI、FastAPI 服务或 ComfyUI 集成。
+- 已完成第一阶段任务 1：FastAPI 应用工厂、`GET /api/health` 健康契约、固定后端依赖清单和健康契约测试已实现。
+- 已完成第一阶段任务 2：严格且禁止数值/布尔强制转换的目录 Pydantic 契约、规范且唯一的 `semantic_id`/`relative_path`、明确标记为 `development_fixture` 的格式 34 开发目录，以及确定性的主 `pack_format` 选择已实现。
+- 已完成第一阶段任务 3：ZIP 与目录资源包的只读检查、严格不可变结果契约、安全路径和大小写/拓扑冲突校验、单一根目录识别、`pack.mcmeta` 主格式解析及稳定错误映射已实现。ZIP 在读取前限制 4096 个成员、1 MiB `pack.mcmeta`、256 MiB 单成员、1 GiB 总展开量和 200:1 压缩率，并拒绝加密成员与非 stored/deflate 压缩。
+- 已完成第一阶段任务 4：ZIP 与目录导入会先完成检查和目录配置解析，再通过 `<project-id>.tmp` 建立不可变 ZIP 快照、工作副本和经重新验证的 `project.json`，最后原子重命名；工作副本写入期间逐级持有不共享删除权限的 Windows 原生目录句柄并核对 file ID、最终路径和 reparse 属性，逐块复制还会核对实际单成员/总字节数并把 CRC、截断、加密和压缩错误转换为稳定资源包错误。项目名称上限为 128 个 Unicode code point，清单发布前确认序列化大小低于 1 MiB 读取边界。快照在发布前重新核对身份和 SHA-256，失败只清理身份未变化且不含 junction/symlink/reparse point 的本次临时目录。
+- 已完成第一阶段任务 5：覆盖分类以精确、保留大小写的相对路径比对工作副本；标准目录 PNG 必须可解码，损坏文件会产生显式验证错误；未知候选仅包含 `assets/*/textures/` 下可解码的方形 PNG，目录 junction/symlink 不会被遍历。
+- 已完成第一阶段任务 6：FastAPI 提供仅接受 multipart ZIP 上传的项目导入、规范 UUID 项目清单和实时覆盖端点；纯 ASGI 中间件先限制整个请求体，专用增量 multipart 解析器再从 `Request.stream()` 把 ZIP 直接写入项目根内的身份受检临时文件，不创建 Starlette 或系统临时目录 spool，并继续精确限制文件字节数、项目名长度、boundary、单字段、单值、单 part 头总量、头数量及重复/未知字段。按字节碎片输入、pack-first 顺序和缺失/重复/未知字段均有协议测试；目标文件写入失败稳定映射为 `PROJECT_STORAGE_UNAVAILABLE` 500 并精确清理，而畸形请求仍为 400。覆盖分类全过程持有项目根、项目、`pack/` 和清单文件的原生句柄，已知错误统一映射为稳定错误信封，意外异常只在日志保留技术详情；应用工厂支持显式注入服务和测试用大小限制。
+- 已完成第一阶段任务 7：React WebUI 提供单列 ZIP 导入和覆盖摘要，使用类型化 FastAPI 客户端，显示资源格式、开发目录警告、已覆盖/未覆盖计数、缺失可生成条目与未知文件计数；成功响应会验证规范 UUID、64 位十六进制 SHA-256、带 `Z` 或显式偏移的 RFC 3339 时间戳和非负整数格式/计数，项目名称与后端一致按 Unicode code point 限制为 128。稳定 API 错误、网络错误、非 JSON 响应和形状错误的成功 JSON 均显示可读警报，新导入开始时会清除旧摘要。若项目导入成功但覆盖请求失败，界面会保留已创建项目并只重试覆盖分析，避免重复导入。文件选择会按不区分大小写的 `.zip` 后缀校验，并通过输入关联的文字说明错误。
+- 已完成第一阶段任务 8：合成 ZIP 的完整 API 导入流会核对原输入、持久化哈希和不可变快照 SHA-256，重新打开快照 ZIP、`project.json` 与工作副本，并精确验证格式 34 开发目录的一项已覆盖和一项缺失。审计负载超过 1 MiB；应用导入和 API 流程运行在 `-B` 独立子进程中，audit hook 只允许项目根内写入并阻断外部网络与子进程事件，因此当前成功结果同时证明大上传未写入外部 spool。2026-07-22 用户已在正常 Windows 桌面窗口和 400–900 px 宽的窄桌面窗口完成当前 multipart 实现的手工复验，页面显示和导入结果均正确。375 px 不再是产品验收条件，v0.1 不声明移动端支持。
+- 前端固定 Node.js 24.18.0；首次 lockfile 和验证使用经 Node.js 官方 `SHASUMS256.txt` 校验的便携 Windows x64 ZIP，SHA-256 为 `0ae68406b42d7725661da979b1403ec9926da205c6770827f33aac9d8f26e821`。当前没有 ComfyUI 集成；FastAPI 应用可由 `aimctexturegen.main:create_app` 创建，运行时默认项目根和目录根从仓库位置解析，不依赖当前 PowerShell 目录。
 - 当前没有需要迁移的用户项目数据。
 
 ## 已确认边界
@@ -24,28 +31,37 @@
 
 ## 当前工作入口
 
-当前应执行 [第一阶段：基础设施与 Java 导入](docs/superpowers/plans/2026-07-21-phase-1-foundation-and-import.md)。这一阶段结束时应得到一个不依赖 GPU 的垂直切片：用户可导入安全的 Java 资源包，在 WebUI 中看到资源格式和基于测试目录配置计算的覆盖状态。
-
-第一阶段之外的工作顺序见 [MVP 实施路线](docs/superpowers/plans/2026-07-21-aimc-texturegen-mvp-roadmap.md)。不要提前接入真实模型或构建完整生产目录。
+第一阶段的自动化、独立审查和用户手工桌面浏览器门禁已全部通过。下一项工作是路线中的第二阶段“确定性材质处理”，先编写并确认可执行计划。不要提前接入真实模型或构建完整生产目录。
 
 ## 接手步骤
 
 1. 运行 `git status --short`，确认并保留当前未提交改动。
 2. 阅读 `AGENTS.md`、当前阶段计划和 MVP 设计规格。
-3. 找到当前阶段计划中第一个未勾选任务，只执行该任务定义的范围。
-4. 先运行该任务的基线测试，再按计划测试先行实现。
-5. 完成任务后更新计划复选框、本文件的当前状态和验证结果。
+3. 为第二阶段“确定性材质处理”编写可执行计划，并在实施前确认范围和验收条件。
+4. 第二阶段开始前重新运行当前自动化门禁，保留开发目录非生产的明确标记。
+5. 不要在第二阶段接入真实模型、ComfyUI 或生产目录。
 
 ## 当前可用验证
 
-当前仓库只有文档，可运行：
+当前可运行后端验证：
 
 ```powershell
+.\.venv\Scripts\python -W error -m pytest backend\tests\test_health.py -v
+.\.venv\Scripts\python -W error -m pytest backend\tests\catalog\test_registry.py -v
+.\.venv\Scripts\python -W error -m pytest backend\tests\packs\test_coverage.py -v
+.\.venv\Scripts\python -W error -m pytest backend\tests\packs -v
+.\.venv\Scripts\python -W error -m pytest backend\tests\projects -v
+.\.venv\Scripts\python -W error -m pytest backend\tests\api -v
+.\.venv\Scripts\python -W error -m pytest backend\tests --cov=aimctexturegen --cov-report=term-missing
+Push-Location frontend
+..\runtime\node-v24.18.0-win-x64\npm.cmd test
+..\runtime\node-v24.18.0-win-x64\npm.cmd run build
+Pop-Location
 git diff --check
 git status --short
 ```
 
-预期：`git diff --check` 无输出；`git status --short` 只显示当前有意创建或修改的文件。
+已于 2026-07-22 使用 Python 3.12.10 运行完整覆盖率门禁：165 passed、总覆盖率 86%，使用 `-W error` 且无警告。使用便携 Node.js 24.18.0 运行：前端为 1 个测试文件、21 个测试通过，Vite 8.1.5 生产构建成功。最终审查实现提交为 `13dea7f`（`fix: harden Phase 1 import boundaries`）和 `abdb64a`（`fix: harden multipart protocol limits`）。`git diff --check` 无输出；`git status --short` 只应显示当前有意创建或修改的文件。同日用户使用超过 1 MiB 的合成 ZIP 完成当前上传流程的手工桌面验收：正常窗口与 400–900 px 窄窗口显示正常。截图中 Vite 开发服务的 MIME/charset、Firefox `theme-color` 兼容性提示和浏览器扩展 `content.js` 失效信息均非应用自身运行时错误，不阻断本阶段验收。
 
 ## 需要在对应阶段确定的事项
 

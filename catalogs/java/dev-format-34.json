@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "catalog_id": "java-dev-format-34",
+  "status": "development_fixture",
+  "pack_formats": [34],
+  "entries": [
+    {
+      "semantic_id": "minecraft:stone",
+      "display_name": "Stone",
+      "category": "block",
+      "texture_role": "all",
+      "relative_path": "assets/minecraft/textures/block/stone.png",
+      "prompt_terms": ["stone block texture", "uniform natural stone"],
+      "mvp_eligible": true
+    },
+    {
+      "semantic_id": "minecraft:deepslate",
+      "display_name": "Deepslate",
+      "category": "block",
+      "texture_role": "all",
+      "relative_path": "assets/minecraft/textures/block/deepslate.png",
+      "prompt_terms": ["deepslate block texture", "dark layered stone"],
+      "mvp_eligible": true
+    }
+  ]
+}

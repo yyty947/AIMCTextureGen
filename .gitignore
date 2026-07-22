@@ -1,2 +1,13 @@
 .superpowers/
 .worktrees/
+.venv/
+__pycache__/
+.pytest_cache/
+.coverage
+htmlcov/
+frontend/node_modules/
+frontend/dist/
+*.tsbuildinfo
+runtime/
+/projects/
+*.log
