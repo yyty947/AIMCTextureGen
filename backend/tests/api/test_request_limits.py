@@ -9,8 +9,14 @@ import httpx
 import pytest
 import starlette.formparsers as starlette_formparsers
 from starlette.requests import ClientDisconnect
+from starlette.requests import Request
 
 from aimctexturegen.api import projects as projects_api
+from aimctexturegen.api import multipart_import as multipart_module
+from aimctexturegen.api.multipart_import import (
+    MultipartImportError,
+    parse_import_multipart,
+)
 from aimctexturegen.main import create_app
 
 
@@ -51,6 +57,40 @@ def multipart_body(
             f"--{boundary}--\r\n".encode(),
         ]
     )
+
+
+def multipart_parts_body(
+    parts: list[tuple[list[tuple[str, str]], bytes]],
+    *,
+    boundary: str = "aimc-boundary",
+) -> bytes:
+    chunks: list[bytes] = []
+    for headers, payload in parts:
+        chunks.append(f"--{boundary}\r\n".encode())
+        chunks.extend(f"{name}: {value}\r\n".encode() for name, value in headers)
+        chunks.append(b"\r\n")
+        chunks.append(payload)
+        chunks.append(b"\r\n")
+    chunks.append(f"--{boundary}--\r\n".encode())
+    return b"".join(chunks)
+
+
+def import_parts(pack: bytes, *, pack_first: bool = False):
+    project_name = (
+        [("Content-Disposition", 'form-data; name="project_name"')],
+        b"Synthetic Pack",
+    )
+    pack_part = (
+        [
+            (
+                "Content-Disposition",
+                'form-data; name="pack"; filename="source.zip"',
+            ),
+            ("Content-Type", "application/zip"),
+        ],
+        pack,
+    )
+    return [pack_part, project_name] if pack_first else [project_name, pack_part]
 
 
 async def invoke_asgi(
@@ -433,3 +473,199 @@ def test_real_disconnect_uses_no_framework_spool_and_cleans_project_upload(
     assert response_body["technical_details"] is None
     assert receive_calls == 2
     assert not project_root.exists() or list(project_root.iterdir()) == []
+
+
+def test_pack_first_and_byte_fragmented_body_imports_successfully(
+    tmp_path: Path,
+) -> None:
+    pack = zip_payload()
+    body = multipart_parts_body(import_parts(pack, pack_first=True))
+    app = create_app(
+        project_root=tmp_path / "projects",
+        catalog_root=CATALOG_ROOT,
+        max_import_body_bytes=len(body),
+        max_import_bytes=len(pack),
+    )
+
+    status_code, response_body, _ = asyncio.run(
+        invoke_asgi(
+            app,
+            body_chunks=[bytes([value]) for value in body],
+            headers=[
+                (b"content-type", b"multipart/form-data; boundary=aimc-boundary"),
+                (b"content-length", str(len(body)).encode()),
+            ],
+        )
+    )
+
+    assert status_code == 201
+    assert response_body["project_name"] == "Synthetic Pack"
+
+
+@pytest.mark.parametrize(
+    "parts",
+    [
+        import_parts(zip_payload())[:1],
+        import_parts(zip_payload())[1:],
+        import_parts(zip_payload()) + [import_parts(zip_payload())[0]],
+        import_parts(zip_payload()) + [import_parts(zip_payload())[1]],
+        import_parts(zip_payload())
+        + [
+            (
+                [("Content-Disposition", 'form-data; name="unknown"')],
+                b"unexpected",
+            )
+        ],
+        [
+            (
+                [
+                    ("Content-Disposition", 'form-data; name="project_name"'),
+                    ("Content-Disposition", 'form-data; name="project_name"'),
+                ],
+                b"Synthetic Pack",
+            ),
+            import_parts(zip_payload())[1],
+        ],
+    ],
+    ids=[
+        "missing-pack",
+        "missing-project-name",
+        "duplicate-project-name",
+        "duplicate-pack",
+        "unknown-field",
+        "duplicate-header",
+    ],
+)
+def test_protocol_matrix_rejects_missing_duplicate_unknown_and_duplicate_headers(
+    tmp_path: Path,
+    parts,
+) -> None:
+    body = multipart_parts_body(parts)
+    app = create_app(
+        project_root=tmp_path / "projects",
+        catalog_root=CATALOG_ROOT,
+        max_import_body_bytes=len(body),
+    )
+
+    status_code, response_body, _ = asyncio.run(
+        invoke_asgi(
+            app,
+            body_chunks=[bytes([value]) for value in body],
+            headers=[(b"content-type", b"multipart/form-data; boundary=aimc-boundary")],
+        )
+    )
+
+    assert status_code == 400
+    assert response_body["code"] == "INVALID_MULTIPART"
+    assert not (tmp_path / "projects").exists() or list(
+        (tmp_path / "projects").iterdir()
+    ) == []
+
+
+@pytest.mark.parametrize(
+    ("constant_name", "limit", "boundary"),
+    [
+        ("MAX_MULTIPART_BOUNDARY_BYTES", 8, "boundary9"),
+        ("MAX_MULTIPART_HEADERS_PER_PART", 1, "aimc-boundary"),
+        ("MAX_MULTIPART_HEADER_FIELD_BYTES", 8, "aimc-boundary"),
+        ("MAX_MULTIPART_HEADER_VALUE_BYTES", 16, "aimc-boundary"),
+        ("MAX_MULTIPART_PART_HEADER_BYTES", 32, "aimc-boundary"),
+    ],
+)
+def test_fragmented_multipart_limits_reject_each_header_and_boundary_dimension(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    constant_name: str,
+    limit: int,
+    boundary: str,
+) -> None:
+    monkeypatch.setattr(multipart_module, constant_name, limit, raising=False)
+    body = multipart_parts_body(import_parts(zip_payload()), boundary=boundary)
+    app = create_app(
+        project_root=tmp_path / "projects",
+        catalog_root=CATALOG_ROOT,
+        max_import_body_bytes=len(body),
+    )
+
+    status_code, response_body, _ = asyncio.run(
+        invoke_asgi(
+            app,
+            body_chunks=[bytes([value]) for value in body],
+            headers=[
+                (
+                    b"content-type",
+                    f"multipart/form-data; boundary={boundary}".encode(),
+                )
+            ],
+        )
+    )
+
+    assert status_code == 400
+    assert response_body["code"] == "INVALID_MULTIPART"
+
+
+def test_destination_write_oserror_is_storage_failure_not_malformed_request() -> None:
+    pack = zip_payload()
+    body = multipart_body(pack)
+    messages = [{"type": "http.request", "body": body, "more_body": False}]
+
+    async def receive():
+        return messages.pop(0)
+
+    request = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/api/projects/import",
+            "headers": [
+                (b"content-type", b"multipart/form-data; boundary=aimc-boundary")
+            ],
+        },
+        receive,
+    )
+
+    class FailingDestination(io.BytesIO):
+        def write(self, _payload: bytes) -> int:
+            raise OSError("forced disk failure")
+
+    with pytest.raises(MultipartImportError) as raised:
+        asyncio.run(parse_import_multipart(request, FailingDestination(), len(pack)))
+
+    assert raised.value.status_code == 500
+    assert raised.value.code == "PROJECT_STORAGE_UNAVAILABLE"
+
+
+def test_api_maps_destination_write_failure_and_cleans_exact_upload(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_write(_destination, _chunk) -> None:
+        raise OSError("forced disk failure")
+
+    monkeypatch.setattr(
+        multipart_module,
+        "_write_upload_chunk",
+        fail_write,
+        raising=False,
+    )
+    pack = zip_payload()
+    project_root = tmp_path / "projects"
+    app = create_app(
+        project_root=project_root,
+        catalog_root=CATALOG_ROOT,
+        max_import_body_bytes=len(pack) + 4096,
+    )
+
+    response = asyncio.run(
+        request_app(
+            app,
+            "POST",
+            "/api/projects/import",
+            data={"project_name": "Storage Failure"},
+            files={"pack": ("source.zip", pack, "application/zip")},
+        )
+    )
+
+    assert response.status_code == 500
+    assert response.json()["code"] == "PROJECT_STORAGE_UNAVAILABLE"
+    assert list(project_root.iterdir()) == []

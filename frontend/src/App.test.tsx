@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -277,20 +277,42 @@ describe("资源包导入与覆盖摘要", () => {
     expect(await screen.findByText("资源格式 34")).toBeInTheDocument();
   });
 
-  it("项目名称输入暴露与后端一致的长度上限", () => {
+  it("项目名称按 Unicode code point 与后端一致计数", async () => {
+    mockSuccessfulImport();
     render(<App />);
+    const input = screen.getByLabelText("项目名称");
+    const fileInput = screen.getByLabelText("ZIP 资源包");
+    const button = screen.getByRole("button", { name: "导入并分析" });
+    const user = userEvent.setup();
 
-    expect(screen.getByLabelText("项目名称")).toHaveAttribute("maxLength", "128");
+    expect(input).toHaveAttribute("maxLength", "256");
+    fireEvent.change(input, { target: { value: "😀".repeat(128) } });
+    await user.upload(
+      fileInput,
+      new File(["zip"], "pack.zip", { type: "application/zip" }),
+    );
+    expect(button).toBeEnabled();
+
+    fireEvent.change(input, { target: { value: "😀".repeat(129) } });
+    expect(button).toBeDisabled();
+
+    fireEvent.change(input, { target: { value: "a".repeat(128) } });
+    expect(button).toBeEnabled();
+    fireEvent.change(input, { target: { value: "a".repeat(129) } });
+    expect(button).toBeDisabled();
   });
 
   it.each([
     ["非规范 UUID", { ...manifest, project_id: projectId.toUpperCase() }],
     ["错误 SHA-256", { ...manifest, source_sha256: "not-a-hash" }],
     ["不可解析时间", { ...manifest, created_at: "not-a-time" }],
+    ["无时区时间", { ...manifest, created_at: "2026-07-21T10:00:00" }],
+    ["非 RFC3339 时间", { ...manifest, created_at: "2026-07-21 10:00:00Z" }],
     ["小数资源格式", { ...manifest, java_pack_format: 34.5 }],
     ["负数资源格式", { ...manifest, java_pack_format: -1 }],
   ])("拒绝%s的成功项目响应", async (_label, invalidManifest) => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(invalidManifest, 201)));
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(invalidManifest, 201));
+    vi.stubGlobal("fetch", fetchMock);
     render(<App />);
     const user = await completeForm();
 
@@ -299,6 +321,7 @@ describe("资源包导入与覆盖摘要", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "本地服务返回了无法识别的响应",
     );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it.each([

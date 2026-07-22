@@ -23,7 +23,12 @@ export default function App() {
   const [coverage, setCoverage] = useState<CoverageReport | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
 
-  const canImport = projectName.trim().length > 0 && pack !== null;
+  const trimmedProjectName = projectName.trim();
+  const projectNameLength = Array.from(trimmedProjectName).length;
+  const canImport =
+    projectNameLength > 0 &&
+    projectNameLength <= MAX_PROJECT_NAME_LENGTH &&
+    pack !== null;
   const isBusy = activeRequest !== "idle";
   const needsCoverageRetry = manifest !== null && coverage === null;
 
@@ -38,7 +43,7 @@ export default function App() {
     setManifest(null);
     setCoverage(null);
     try {
-      const imported = await importProject(projectName.trim(), pack);
+      const imported = await importProject(trimmedProjectName, pack);
       setManifest(imported);
       const report = await getCoverage(imported.projectId);
       setCoverage(report);
@@ -113,7 +118,7 @@ export default function App() {
               name="project-name"
               type="text"
               autoComplete="off"
-              maxLength={MAX_PROJECT_NAME_LENGTH}
+              maxLength={MAX_PROJECT_NAME_LENGTH * 2}
               disabled={isBusy || needsCoverageRetry}
               value={projectName}
               onChange={(event) => setProjectName(event.currentTarget.value)}

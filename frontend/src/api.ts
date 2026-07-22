@@ -224,8 +224,10 @@ function requireSha256(value: unknown): string {
 
 function requireTimestamp(value: unknown): string {
   const timestamp = requireString(value);
-  if (!Number.isFinite(Date.parse(timestamp))) {
-    throw new TypeError("Expected a parseable timestamp response field");
+  const rfc3339 =
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
+  if (!rfc3339.test(timestamp) || !Number.isFinite(Date.parse(timestamp))) {
+    throw new TypeError("Expected an RFC3339 timestamp response field");
   }
   return timestamp;
 }

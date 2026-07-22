@@ -22,8 +22,11 @@ class CatalogEntry(BaseModel):
     @field_validator("semantic_id")
     @classmethod
     def validate_semantic_id(cls, value: str) -> str:
-        if not _SEMANTIC_ID.fullmatch(value) or ".." in value.split(":", 1)[1].split("/"):
+        if not _SEMANTIC_ID.fullmatch(value):
             raise ValueError("semantic_id must be a canonical namespaced identifier")
+        path_segments = value.split(":", 1)[1].split("/")
+        if any(segment in {"", ".", ".."} for segment in path_segments):
+            raise ValueError("semantic_id path must use canonical nonempty segments")
         return value
 
     @field_validator("relative_path")

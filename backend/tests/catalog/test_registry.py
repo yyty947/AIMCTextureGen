@@ -115,6 +115,11 @@ def test_catalog_entry_rejects_integer_boolean() -> None:
     [
         ("semantic_id", "Minecraft:Stone"),
         ("semantic_id", "stone"),
+        ("semantic_id", "minecraft:/stone"),
+        ("semantic_id", "minecraft:stone/"),
+        ("semantic_id", "minecraft:stone//variant"),
+        ("semantic_id", "minecraft:stone/./variant"),
+        ("semantic_id", "minecraft:stone/../variant"),
         ("relative_path", "assets\\minecraft\\stone.png"),
         ("relative_path", "assets/minecraft/textures/block/../stone.png"),
         ("relative_path", "Assets/minecraft/textures/block/stone.png"),

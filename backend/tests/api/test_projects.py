@@ -597,3 +597,43 @@ def test_corrupt_crc_in_normal_member_maps_to_stable_import_error(
         stage="importing",
     )
     assert list(project_root.iterdir()) == []
+
+
+@pytest.mark.parametrize(
+    ("project_name", "expected_status"),
+    [
+        ("x" * 128, 201),
+        ("x" * 129, 400),
+        ("😀" * 128, 201),
+        ("😀" * 129, 400),
+    ],
+    ids=[
+        "128-ascii-code-points",
+        "129-ascii-code-points",
+        "128-non-bmp-code-points",
+        "129-non-bmp-code-points",
+    ],
+)
+def test_project_name_api_counts_code_points(
+    tmp_path: Path,
+    api_pack_zip_factory: Callable[[str, dict[str, bytes], int], Path],
+    project_name: str,
+    expected_status: int,
+) -> None:
+    source = api_pack_zip_factory("unicode-name.zip", {})
+    project_root = tmp_path / "projects"
+    client = build_client(project_root)
+
+    with source.open("rb") as upload:
+        response = client.post(
+            "/api/projects/import",
+            data={"project_name": project_name},
+            files={"pack": ("unicode-name.zip", upload, "application/zip")},
+        )
+
+    assert response.status_code == expected_status
+    if expected_status == 201:
+        assert response.json()["project_name"] == project_name
+    else:
+        assert response.json()["code"] == "INVALID_PROJECT_NAME"
+        assert list(project_root.iterdir()) == []

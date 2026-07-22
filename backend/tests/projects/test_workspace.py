@@ -239,6 +239,22 @@ def test_project_name_length_boundary_and_oversize_rejection(
     assert [path.name for path in projects_root.iterdir()] == [str(accepted.project_id)]
 
 
+def test_workspace_counts_non_bmp_project_name_as_code_points(
+    tmp_path: Path,
+    pack_zip_factory: Callable[[str, dict[str, bytes], int], Path],
+) -> None:
+    source = pack_zip_factory("unicode-name.zip", {})
+    projects_root = tmp_path / "projects"
+    workspace = build_workspace(projects_root)
+
+    accepted = workspace.import_pack(source, "😀" * 128)
+    assert accepted.project_name == "😀" * 128
+
+    with pytest.raises(PackValidationError) as raised:
+        workspace.import_pack(source, "😀" * 129)
+    assert raised.value.code == "INVALID_PROJECT_NAME"
+
+
 class _DeletingAdapter(JavaPackAdapter):
     def inspect(self, source: Path):
         inspected = super().inspect(source)
@@ -510,8 +526,68 @@ def test_project_manifest_rejects_extra_fields_and_is_frozen() -> None:
 
 
 def test_project_manifest_rejects_oversize_project_name() -> None:
+    accepted = _manifest_values()
+    accepted["project_name"] = "x" * 128
+    assert ProjectManifest.model_validate(accepted).project_name == "x" * 128
+
     values = _manifest_values()
     values["project_name"] = "x" * 129
 
     with pytest.raises(ValidationError):
         ProjectManifest.model_validate(values)
+
+
+def test_project_manifest_counts_non_bmp_project_name_as_code_points() -> None:
+    accepted = _manifest_values()
+    accepted["project_name"] = "😀" * 128
+    assert ProjectManifest.model_validate(accepted).project_name == "😀" * 128
+
+    rejected = _manifest_values()
+    rejected["project_name"] = "😀" * 129
+    with pytest.raises(ValidationError):
+        ProjectManifest.model_validate(rejected)
+
+
+class _LyingMemberStream:
+    def __init__(self, chunks: list[bytes]) -> None:
+        self._chunks = iter(chunks)
+
+    def read(self, _size: int = -1) -> bytes:
+        return next(self._chunks, b"")
+
+
+def test_bounded_copy_enforces_actual_member_bytes_not_declared_size(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(workspace_module, "MAX_ZIP_MEMBER_BYTES", 8)
+    info = zipfile.ZipInfo("lying.bin")
+    info.file_size = 1
+
+    with pytest.raises(PackValidationError) as raised:
+        workspace_module._copy_zip_member_bounded(
+            _LyingMemberStream([b"x" * 9]),
+            io.BytesIO(),
+            info,
+            0,
+        )
+
+    assert raised.value.code == "ZIP_MEMBER_TOO_LARGE"
+
+
+def test_bounded_copy_enforces_actual_total_bytes_not_declared_size(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(workspace_module, "MAX_ZIP_MEMBER_BYTES", 100)
+    monkeypatch.setattr(workspace_module, "MAX_ZIP_TOTAL_UNCOMPRESSED_BYTES", 10)
+    info = zipfile.ZipInfo("lying-total.bin")
+    info.file_size = 1
+
+    with pytest.raises(PackValidationError) as raised:
+        workspace_module._copy_zip_member_bounded(
+            _LyingMemberStream([b"xyz"]),
+            io.BytesIO(),
+            info,
+            8,
+        )
+
+    assert raised.value.code == "ZIP_TOTAL_SIZE_EXCEEDED"

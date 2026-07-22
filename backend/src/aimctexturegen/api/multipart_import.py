@@ -10,6 +10,11 @@ from aimctexturegen.projects.models import MAX_PROJECT_NAME_LENGTH
 
 
 MAX_PROJECT_NAME_UTF8_BYTES = MAX_PROJECT_NAME_LENGTH * 4
+MAX_MULTIPART_BOUNDARY_BYTES = 200
+MAX_MULTIPART_HEADERS_PER_PART = 8
+MAX_MULTIPART_HEADER_FIELD_BYTES = 128
+MAX_MULTIPART_HEADER_VALUE_BYTES = 1024
+MAX_MULTIPART_PART_HEADER_BYTES = 4096
 
 
 class MultipartImportError(ValueError):
@@ -41,6 +46,8 @@ class _MultipartImportParser:
         self._header_field = bytearray()
         self._header_value = bytearray()
         self._headers: dict[bytes, bytes] = {}
+        self._header_count = 0
+        self._part_header_bytes = 0
         self._part_kind: Literal["project_name", "pack"] | None = None
         self._project_name = bytearray()
         self._upload_bytes = 0
@@ -64,22 +71,40 @@ class _MultipartImportParser:
 
     def on_part_begin(self) -> None:
         self._headers = {}
+        self._header_count = 0
+        self._part_header_bytes = 0
         self._part_kind = None
         self._part_complete = False
 
     def on_header_field(self, data: bytes, start: int, end: int) -> None:
-        self._header_field.extend(data[start:end])
+        chunk = data[start:end]
+        if len(self._header_field) + len(chunk) > MAX_MULTIPART_HEADER_FIELD_BYTES:
+            raise _invalid_multipart()
+        self._add_part_header_bytes(len(chunk))
+        self._header_field.extend(chunk)
 
     def on_header_value(self, data: bytes, start: int, end: int) -> None:
-        self._header_value.extend(data[start:end])
+        chunk = data[start:end]
+        if len(self._header_value) + len(chunk) > MAX_MULTIPART_HEADER_VALUE_BYTES:
+            raise _invalid_multipart()
+        self._add_part_header_bytes(len(chunk))
+        self._header_value.extend(chunk)
 
     def on_header_end(self) -> None:
+        self._header_count += 1
+        if self._header_count > MAX_MULTIPART_HEADERS_PER_PART:
+            raise _invalid_multipart()
         name = bytes(self._header_field).lower()
         if not name or name in self._headers:
             raise _invalid_multipart()
         self._headers[name] = bytes(self._header_value)
         self._header_field.clear()
         self._header_value.clear()
+
+    def _add_part_header_bytes(self, count: int) -> None:
+        self._part_header_bytes += count
+        if self._part_header_bytes > MAX_MULTIPART_PART_HEADER_BYTES:
+            raise _invalid_multipart()
 
     def on_headers_finished(self) -> None:
         disposition, options = parse_options_header(
@@ -121,7 +146,10 @@ class _MultipartImportParser:
                 status_code=413,
                 stage="uploading",
             )
-        self._destination.write(chunk)
+        try:
+            _write_upload_chunk(self._destination, chunk)
+        except OSError as error:
+            raise _storage_unavailable() from error
 
     def on_part_end(self) -> None:
         if self._part_kind is None:
@@ -157,7 +185,12 @@ async def parse_import_multipart(
     destination: BinaryIO,
     max_import_bytes: int,
 ) -> ParsedImport:
-    content_type, options = parse_options_header(request.headers.get("content-type"))
+    try:
+        content_type, options = parse_options_header(
+            request.headers.get("content-type")
+        )
+    except (TypeError, ValueError) as error:
+        raise _invalid_multipart() from error
     if content_type != b"multipart/form-data":
         raise MultipartImportError(
             "INVALID_REQUEST",
@@ -166,11 +199,16 @@ async def parse_import_multipart(
             stage="request_validation",
         )
     boundary = options.get(b"boundary")
-    if not boundary:
+    if not boundary or len(boundary) > MAX_MULTIPART_BOUNDARY_BYTES:
         raise _invalid_multipart()
     state = _MultipartImportParser(destination, max_import_bytes)
     try:
-        parser = MultipartParser(boundary, state.callbacks)
+        parser = MultipartParser(
+            boundary,
+            state.callbacks,
+            max_header_count=MAX_MULTIPART_HEADERS_PER_PART,
+            max_header_size=MAX_MULTIPART_PART_HEADER_BYTES,
+        )
         async for chunk in request.stream():
             parser.write(chunk)
         parser.finalize()
@@ -196,4 +234,19 @@ def _invalid_project_name() -> MultipartImportError:
         f"项目名称必须为 1 到 {MAX_PROJECT_NAME_LENGTH} 个字符",
         status_code=400,
         stage="importing",
+    )
+
+
+def _write_upload_chunk(destination: BinaryIO, chunk: bytes) -> None:
+    written = destination.write(chunk)
+    if written != len(chunk):
+        raise OSError("Temporary upload write was incomplete")
+
+
+def _storage_unavailable() -> MultipartImportError:
+    return MultipartImportError(
+        "PROJECT_STORAGE_UNAVAILABLE",
+        "无法写入项目存储目录",
+        status_code=500,
+        stage="uploading",
     )
