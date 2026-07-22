@@ -1077,9 +1077,12 @@ git commit -m "test: verify Phase 1 import flow"
 - [x] Replaced framework `UploadFile` parsing with a narrow incremental multipart parser that writes the ZIP directly to an identity-checked file under the configured project root. The whole-request and file limits remain independent and exact; a `>1 MiB` audited import proves that no external spool write occurs.
 - [x] Added central-directory and streamed-byte ZIP limits: 4096 members, 1 MiB `pack.mcmeta`, 256 MiB per member, 1 GiB total uncompressed bytes, and 200:1 maximum compression ratio. Encrypted members and compression other than stored/deflate are rejected before extraction.
 - [x] Converted normal-member CRC, truncation, encryption, and unsupported-compression failures during working-copy creation to stable `PackValidationError` results while preserving staged cleanup and the existing junction/TOCTOU guards.
-- [x] Limited project names to 128 characters in multipart parsing, workspace creation, the persisted manifest, and the React input; manifest bytes are checked against the 1 MiB read limit before publication.
-- [x] Made catalog JSON contracts strict and canonical/unique, and hardened successful frontend response validation for UUID, SHA-256, timestamps, formats, and counts.
-- [x] Verified the current automated gate: backend `138 passed` at 86% coverage with `-W error`; frontend `19 passed`; Vite 8.1.5 build succeeded.
+- [x] Limited project names to 128 Unicode code points in multipart parsing, workspace creation, the persisted manifest, and the React input; manifest bytes are checked against the 1 MiB read limit before publication.
+- [x] Made catalog JSON contracts strict and canonical/unique, including nonempty semantic-ID path segments, and hardened successful frontend response validation for UUID, SHA-256, RFC 3339 timestamps with an explicit timezone, formats, and counts.
+- [x] Bounded multipart boundary length, header count, individual field/value bytes, and aggregate per-part header bytes even under one-byte request fragmentation. The protocol matrix covers pack-first order plus missing, duplicate and unknown fields/headers.
+- [x] Mapped upload-destination write failures to stable `PROJECT_STORAGE_UNAVAILABLE` 500 responses with exact temporary-file cleanup, distinct from malformed multipart 400 responses.
+- [x] Added controlled lying-stream regressions proving working-copy extraction enforces actual streamed member and total byte limits rather than trusting ZIP declarations.
+- [x] Verified the current automated gate: backend `165 passed` at 86% coverage with `-W error`; frontend `21 passed`; Vite 8.1.5 build succeeded.
 - [ ] Re-run the desktop and 375 px browser smoke manually after the multipart replacement. The 2026-07-21 observation above is historical and does not close this changed-flow gate.
 
 ---
