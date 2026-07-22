@@ -1083,7 +1083,7 @@ git commit -m "test: verify Phase 1 import flow"
 - [x] Mapped upload-destination write failures to stable `PROJECT_STORAGE_UNAVAILABLE` 500 responses with exact temporary-file cleanup, distinct from malformed multipart 400 responses.
 - [x] Added controlled lying-stream regressions proving working-copy extraction enforces actual streamed member and total byte limits rather than trusting ZIP declarations.
 - [x] Verified the current automated gate: backend `165 passed` at 86% coverage with `-W error`; frontend `21 passed`; Vite 8.1.5 build succeeded.
-- [ ] Re-run the desktop and 375 px browser smoke manually after the multipart replacement. The 2026-07-21 observation above is historical and does not close this changed-flow gate.
+- [x] Re-run the Windows desktop browser smoke manually after the multipart replacement. On 2026-07-22 the user imported the `>1 MiB` synthetic pack and verified correct rendering and results in a normal desktop window and at widths from 400 to 900 px. The 375 px check is not a product gate: v0.1 does not claim mobile-device support. Vite development-server MIME/charset notices, the Firefox `theme-color` compatibility notice, and an extension-owned `content.js` invalidation error were classified as external tooling messages rather than application runtime failures.
 
 ---
 
@@ -1095,4 +1095,4 @@ git commit -m "test: verify Phase 1 import flow"
 
 ## Phase 1 Handoff
 
-Tasks 1–8 及 2026-07-22 最终审查修复的自动化验证已完成。由于 multipart 上传路径发生变化，Phase 1 仍等待用户重新执行桌面与 375 px 手工浏览器 smoke；通过前不得声称当前退出门禁全部完成。通过后下一步是先编写并确认 Phase 2“确定性材质处理”的可执行计划；不得跳过规划直接接入 ComfyUI、CUDA、真实模型或生产目录。
+Tasks 1–8 及 2026-07-22 最终审查修复的自动化验证、独立审查和用户手工 Windows 桌面浏览器 smoke 已全部完成，Phase 1 退出门禁全部通过。下一步是先编写并确认 Phase 2“确定性材质处理”的可执行计划；不得跳过规划直接接入 ComfyUI、CUDA、真实模型或生产目录。
