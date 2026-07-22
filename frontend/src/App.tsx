@@ -2,6 +2,7 @@ import { useState, type ChangeEvent, type FormEvent } from "react";
 
 import {
   ApiRequestError,
+  MAX_PROJECT_NAME_LENGTH,
   getCoverage,
   importProject,
   type ApiError,
@@ -112,6 +113,7 @@ export default function App() {
               name="project-name"
               type="text"
               autoComplete="off"
+              maxLength={MAX_PROJECT_NAME_LENGTH}
               disabled={isBusy || needsCoverageRetry}
               value={projectName}
               onChange={(event) => setProjectName(event.currentTarget.value)}

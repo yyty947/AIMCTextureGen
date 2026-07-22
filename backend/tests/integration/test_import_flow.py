@@ -35,8 +35,9 @@ def _create_synthetic_pack(path: Path) -> tuple[bytes, dict[str, bytes]]:
     expected_members = {
         "pack.mcmeta": metadata,
         STONE_PATH: _png_bytes(),
+        "audit-spool-regression.bin": bytes(range(256)) * 4097,
     }
-    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_STORED) as archive:
         for member_name, payload in expected_members.items():
             archive.writestr(member_name, payload)
     return path.read_bytes(), expected_members
@@ -105,6 +106,7 @@ def test_phase_1_import_flow_is_isolated_and_preserves_source(
     sentinel = tmp_path / "outside-project-root.txt"
     sentinel.write_text("must remain unchanged", encoding="utf-8")
     source_bytes, expected_members = _create_synthetic_pack(source)
+    assert len(source_bytes) > 1024 * 1024
     source_hash = sha256(source_bytes).hexdigest()
     outside_before = _file_hashes_outside(tmp_path, project_root)
 

@@ -5,13 +5,17 @@ import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Annotated, BinaryIO
+from typing import BinaryIO
 from uuid import UUID
 
-from fastapi import APIRouter, File, Form, Request, UploadFile, status
+from fastapi import APIRouter, Request, status
 from pydantic import ValidationError
 
 from aimctexturegen.catalog.registry import UnsupportedPackFormat
+from aimctexturegen.api.multipart_import import (
+    MultipartImportError,
+    parse_import_multipart,
+)
 from aimctexturegen.core.errors import ApiProblem
 from aimctexturegen.packs.coverage import (
     CoverageReport,
@@ -26,14 +30,13 @@ from aimctexturegen.projects._directory_guard import (
     is_reparse_point,
     matches_directory_identity,
 )
-from aimctexturegen.projects.models import ProjectManifest
+from aimctexturegen.projects.models import MAX_PROJECT_MANIFEST_BYTES, ProjectManifest
 
 
 MAX_IMPORT_BYTES = 512 * 1024 * 1024
 MAX_MULTIPART_OVERHEAD_BYTES = 1024 * 1024
 MAX_IMPORT_BODY_BYTES = MAX_IMPORT_BYTES + MAX_MULTIPART_OVERHEAD_BYTES
-UPLOAD_CHUNK_BYTES = 1024 * 1024
-MAX_MANIFEST_BYTES = 1024 * 1024
+MAX_MANIFEST_BYTES = MAX_PROJECT_MANIFEST_BYTES
 _UPLOAD_PREFIX = ".import-upload-"
 _UPLOAD_SUFFIX = ".zip"
 _LOGGER = logging.getLogger(__name__)
@@ -50,8 +53,6 @@ FileIdentity = tuple[int, int]
 )
 async def import_project(
     request: Request,
-    project_name: Annotated[str, Form()],
-    pack: Annotated[UploadFile, File()],
 ) -> ProjectManifest:
     services = request.app.state.services
     temporary_path: Path | None = None
@@ -65,8 +66,8 @@ async def import_project(
             project_root_identity,
         )
         with os.fdopen(descriptor, "w+b") as temporary_file:
-            await _copy_bounded_upload(
-                pack,
+            parsed = await parse_import_multipart(
+                request,
                 temporary_file,
                 request.app.state.max_import_bytes,
             )
@@ -79,9 +80,21 @@ async def import_project(
                 temporary_path,
                 temporary_identity,
             )
-            return services.workspace.import_pack(temporary_path, project_name)
+            return services.workspace.import_pack(
+                temporary_path,
+                parsed.project_name,
+            )
     except ApiProblem:
         raise
+    except MultipartImportError as error:
+        raise ApiProblem(
+            status_code=error.status_code,
+            code=error.code,
+            stage=error.stage,
+            user_message=error.user_message,
+            recommended_actions=("检查项目名称和 ZIP 文件后重新提交",),
+            technical_details=None,
+        ) from error
     except PackValidationError as error:
         raise _pack_problem(error) from error
     except UnsupportedPackFormat as error:
@@ -100,10 +113,6 @@ async def import_project(
         _LOGGER.exception("Unexpected project import failure")
         raise _internal_problem("importing") from error
     finally:
-        try:
-            await pack.close()
-        except Exception:
-            _LOGGER.exception("Unable to close uploaded project file")
         if (
             temporary_path is not None
             and temporary_identity is not None
@@ -250,26 +259,6 @@ def _coverage_for_manifest(services, manifest, pack_root: Path) -> CoverageRepor
             recommended_actions=("检查项目工作副本，或重新导入原始资源包",),
             technical_details=None,
         ) from error
-
-
-async def _copy_bounded_upload(
-    pack: UploadFile,
-    destination: BinaryIO,
-    max_import_bytes: int,
-) -> None:
-    total = 0
-    while chunk := await pack.read(UPLOAD_CHUNK_BYTES):
-        total += len(chunk)
-        if total > max_import_bytes:
-            raise ApiProblem(
-                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
-                code="IMPORT_TOO_LARGE",
-                stage="uploading",
-                user_message="上传的资源包超过允许大小",
-                recommended_actions=("选择更小的 ZIP 资源包后重试",),
-                technical_details=None,
-            )
-        destination.write(chunk)
 
 
 def _ensure_project_root(project_root: Path) -> FileIdentity:

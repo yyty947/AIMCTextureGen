@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from aimctexturegen.packs.java_adapter import JavaPackAdapter, PackValidationError
+import aimctexturegen.packs.java_adapter as adapter_module
 
 
 def _metadata(pack_format: object = 34) -> str:
@@ -395,3 +396,129 @@ def test_rejects_unsupported_source(tmp_path: Path) -> None:
         JavaPackAdapter().inspect(source)
 
     assert raised.value.code == "UNSUPPORTED_SOURCE"
+
+
+def _central_header_offset(payload: bytearray, member_name: str) -> int:
+    offset = 0
+    encoded_name = member_name.encode()
+    while True:
+        offset = payload.find(b"PK\x01\x02", offset)
+        assert offset >= 0
+        filename_length = struct.unpack_from("<H", payload, offset + 28)[0]
+        name = bytes(payload[offset + 46 : offset + 46 + filename_length])
+        if name == encoded_name:
+            return offset
+        offset += 46 + filename_length
+
+
+def _patch_central_sizes(
+    path: Path,
+    member_name: str,
+    *,
+    compressed: int | None = None,
+    uncompressed: int | None = None,
+) -> None:
+    payload = bytearray(path.read_bytes())
+    offset = _central_header_offset(payload, member_name)
+    if compressed is not None:
+        struct.pack_into("<I", payload, offset + 20, compressed)
+    if uncompressed is not None:
+        struct.pack_into("<I", payload, offset + 24, uncompressed)
+    path.write_bytes(payload)
+
+
+def test_rejects_archive_member_count_before_reading_payloads(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(adapter_module, "MAX_ZIP_MEMBERS", 3, raising=False)
+    source = tmp_path / "too-many.zip"
+    with zipfile.ZipFile(source, "w") as archive:
+        archive.writestr("pack.mcmeta", _metadata())
+        archive.writestr("one.bin", b"1")
+        archive.writestr("two.bin", b"2")
+        archive.writestr("three.bin", b"3")
+
+    with pytest.raises(PackValidationError) as raised:
+        JavaPackAdapter().inspect(source)
+
+    assert raised.value.code == "ZIP_MEMBER_COUNT_EXCEEDED"
+
+
+def test_rejects_oversize_metadata_from_central_directory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(adapter_module, "MAX_PACK_METADATA_BYTES", 64, raising=False)
+    source = tmp_path / "metadata-too-large.zip"
+    with zipfile.ZipFile(source, "w") as archive:
+        archive.writestr("pack.mcmeta", _metadata())
+    _patch_central_sizes(source, "pack.mcmeta", uncompressed=65)
+
+    with pytest.raises(PackValidationError) as raised:
+        JavaPackAdapter().inspect(source)
+
+    assert raised.value.code == "PACK_METADATA_TOO_LARGE"
+
+
+def test_rejects_oversize_member_and_total_expansion_from_metadata(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "expansion.zip"
+    with zipfile.ZipFile(source, "w") as archive:
+        archive.writestr("pack.mcmeta", _metadata())
+        archive.writestr("one.bin", b"1")
+        archive.writestr("two.bin", b"2")
+
+    monkeypatch.setattr(adapter_module, "MAX_ZIP_MEMBER_BYTES", 64, raising=False)
+    _patch_central_sizes(source, "one.bin", compressed=65, uncompressed=65)
+    with pytest.raises(PackValidationError) as member_error:
+        JavaPackAdapter().inspect(source)
+    assert member_error.value.code == "ZIP_MEMBER_TOO_LARGE"
+
+    monkeypatch.setattr(adapter_module, "MAX_ZIP_MEMBER_BYTES", 128, raising=False)
+    monkeypatch.setattr(
+        adapter_module,
+        "MAX_ZIP_TOTAL_UNCOMPRESSED_BYTES",
+        100,
+        raising=False,
+    )
+    _patch_central_sizes(source, "one.bin", compressed=51, uncompressed=51)
+    _patch_central_sizes(source, "two.bin", compressed=51, uncompressed=51)
+    with pytest.raises(PackValidationError) as total_error:
+        JavaPackAdapter().inspect(source)
+    assert total_error.value.code == "ZIP_TOTAL_SIZE_EXCEEDED"
+
+
+def test_rejects_high_compression_ratio(tmp_path: Path) -> None:
+    source = tmp_path / "ratio.zip"
+    with zipfile.ZipFile(source, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("pack.mcmeta", _metadata())
+        archive.writestr("highly-compressible.bin", b"0" * (2 * 1024 * 1024))
+
+    with pytest.raises(PackValidationError) as raised:
+        JavaPackAdapter().inspect(source)
+
+    assert raised.value.code == "ZIP_COMPRESSION_RATIO_EXCEEDED"
+
+
+def test_rejects_encrypted_member_flag_with_stable_error(tmp_path: Path) -> None:
+    source = tmp_path / "encrypted-flag.zip"
+    with zipfile.ZipFile(source, "w") as archive:
+        archive.writestr("pack.mcmeta", _metadata())
+        archive.writestr("encrypted.bin", b"not really encrypted")
+    payload = bytearray(source.read_bytes())
+    with zipfile.ZipFile(source) as archive:
+        info = archive.getinfo("encrypted.bin")
+    local_flags = struct.unpack_from("<H", payload, info.header_offset + 6)[0]
+    struct.pack_into("<H", payload, info.header_offset + 6, local_flags | 1)
+    central = _central_header_offset(payload, "encrypted.bin")
+    central_flags = struct.unpack_from("<H", payload, central + 8)[0]
+    struct.pack_into("<H", payload, central + 8, central_flags | 1)
+    source.write_bytes(payload)
+
+    with pytest.raises(PackValidationError) as raised:
+        JavaPackAdapter().inspect(source)
+
+    assert raised.value.code == "ENCRYPTED_ZIP_MEMBER"

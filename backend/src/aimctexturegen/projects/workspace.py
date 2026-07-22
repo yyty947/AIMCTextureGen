@@ -2,6 +2,7 @@ import os
 import shutil
 import stat
 import zipfile
+import zlib
 from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path, PurePosixPath
@@ -10,8 +11,12 @@ from uuid import UUID, uuid4
 
 from aimctexturegen.catalog.models import CatalogProfile
 from aimctexturegen.catalog.registry import CatalogRegistry
-from aimctexturegen.packs.java_adapter import JavaPackAdapter
-from aimctexturegen.packs.java_adapter import PackValidationError
+from aimctexturegen.packs.java_adapter import (
+    MAX_ZIP_MEMBER_BYTES,
+    MAX_ZIP_TOTAL_UNCOMPRESSED_BYTES,
+    JavaPackAdapter,
+    PackValidationError,
+)
 from aimctexturegen.packs.models import InspectedPack
 from aimctexturegen.projects._directory_guard import (
     DirectoryGuardError,
@@ -21,7 +26,11 @@ from aimctexturegen.projects._directory_guard import (
     is_reparse_point,
     matches_directory_identity,
 )
-from aimctexturegen.projects.models import ProjectManifest
+from aimctexturegen.projects.models import (
+    MAX_PROJECT_MANIFEST_BYTES,
+    MAX_PROJECT_NAME_LENGTH,
+    ProjectManifest,
+)
 
 
 _COPY_BUFFER_BYTES = 1024 * 1024
@@ -41,9 +50,17 @@ class ProjectWorkspace:
         self._catalogs = catalogs
 
     def import_pack(self, source: Path, project_name: str) -> ProjectManifest:
+        normalized_project_name = project_name.strip()
+        if not normalized_project_name:
+            raise PackValidationError("INVALID_PROJECT_NAME", "项目名称不能为空")
+        if len(normalized_project_name) > MAX_PROJECT_NAME_LENGTH:
+            raise PackValidationError(
+                "INVALID_PROJECT_NAME",
+                f"项目名称必须为 1 到 {MAX_PROJECT_NAME_LENGTH} 个字符",
+            )
         inspected = self._adapter.inspect(source.resolve())
         profile = self._catalogs.for_pack_format(inspected.metadata.pack_format)
-        return self._create_project(inspected, profile, project_name.strip())
+        return self._create_project(inspected, profile, normalized_project_name)
 
     def _create_project(
         self,
@@ -106,10 +123,13 @@ class ProjectWorkspace:
                 )
                 manifest_path = temporary_root / "project.json"
                 _require_directory_identity(temporary_root, temporary_identity)
-                manifest_path.write_text(
-                    manifest.model_dump_json(indent=2),
-                    encoding="utf-8",
-                )
+                manifest_payload = manifest.model_dump_json(indent=2).encode("utf-8")
+                if len(manifest_payload) > MAX_PROJECT_MANIFEST_BYTES:
+                    raise PackValidationError(
+                        "INVALID_PROJECT_MANIFEST",
+                        "项目清单超过允许大小",
+                    )
+                manifest_path.write_bytes(manifest_payload)
                 validated_manifest = ProjectManifest.model_validate_json(
                     manifest_path.read_text(encoding="utf-8"),
                     strict=True,
@@ -187,6 +207,7 @@ class ProjectWorkspace:
                     if not info.is_dir()
                     and not info.filename.endswith(("/", "\\"))
                 }
+                total_copied = 0
                 for relative_name in sorted(inspected.normalized_files):
                     archive_name = _under_pack_root(
                         relative_name,
@@ -206,14 +227,31 @@ class ProjectWorkspace:
                         relative_name,
                     )
                     directory_guards.ensure_parent(destination.parent)
-                    with archive.open(info) as source_file, destination.open(
-                        "xb"
-                    ) as destination_file:
-                        shutil.copyfileobj(
+                    try:
+                        source_file = archive.open(info)
+                    except NotImplementedError as error:
+                        raise PackValidationError(
+                            "UNSUPPORTED_ZIP_COMPRESSION",
+                            "ZIP 资源包使用了不支持的压缩方式",
+                        ) from error
+                    except RuntimeError as error:
+                        raise PackValidationError(
+                            "ENCRYPTED_ZIP_MEMBER",
+                            "ZIP 资源包包含加密文件，无法导入",
+                        ) from error
+                    except (zipfile.BadZipFile, EOFError, OSError) as error:
+                        raise PackValidationError(
+                            "CORRUPT_ZIP_MEMBER",
+                            "ZIP 资源包中的文件已损坏或截断",
+                        ) from error
+                    with source_file, destination.open("xb") as destination_file:
+                        copied = _copy_zip_member_bounded(
                             source_file,
                             destination_file,
-                            length=_COPY_BUFFER_BYTES,
+                            info,
+                            total_copied,
                         )
+                    total_copied += copied
                     _verify_destination_ancestry(
                         temporary_root,
                         temporary_identity,
@@ -232,6 +270,11 @@ class ProjectWorkspace:
             raise PackValidationError(
                 "UNSUPPORTED_ZIP_COMPRESSION",
                 "ZIP 资源包使用了不支持的压缩方式",
+            ) from error
+        except (zipfile.BadZipFile, EOFError, zlib.error) as error:
+            raise PackValidationError(
+                "CORRUPT_ZIP_MEMBER",
+                "ZIP 资源包中的文件已损坏或截断",
             ) from error
 
     def _remove_verified_temporary_directory(
@@ -259,6 +302,53 @@ def _copy_file_and_hash(source: Path, destination: Path) -> str:
             destination_file.write(chunk)
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _copy_zip_member_bounded(
+    source_file: BinaryIO,
+    destination_file: BinaryIO,
+    info: zipfile.ZipInfo,
+    total_before: int,
+) -> int:
+    copied = 0
+    while True:
+        try:
+            chunk = source_file.read(_COPY_BUFFER_BYTES)
+        except NotImplementedError as error:
+            raise PackValidationError(
+                "UNSUPPORTED_ZIP_COMPRESSION",
+                "ZIP 资源包使用了不支持的压缩方式",
+            ) from error
+        except RuntimeError as error:
+            raise PackValidationError(
+                "ENCRYPTED_ZIP_MEMBER",
+                "ZIP 资源包包含加密文件，无法导入",
+            ) from error
+        except (zipfile.BadZipFile, EOFError, OSError, zlib.error) as error:
+            raise PackValidationError(
+                "CORRUPT_ZIP_MEMBER",
+                "ZIP 资源包中的文件已损坏或截断",
+            ) from error
+        if not chunk:
+            break
+        copied += len(chunk)
+        if copied > MAX_ZIP_MEMBER_BYTES:
+            raise PackValidationError(
+                "ZIP_MEMBER_TOO_LARGE",
+                "ZIP 资源包中的单个文件超过允许大小",
+            )
+        if total_before + copied > MAX_ZIP_TOTAL_UNCOMPRESSED_BYTES:
+            raise PackValidationError(
+                "ZIP_TOTAL_SIZE_EXCEEDED",
+                "ZIP 资源包展开后的总大小超过允许范围",
+            )
+        destination_file.write(chunk)
+    if copied != info.file_size:
+        raise PackValidationError(
+            "CORRUPT_ZIP_MEMBER",
+            "ZIP 资源包中的文件大小与目录记录不一致",
+        )
+    return copied
 
 
 def _capture_regular_file_identity(path: Path) -> FileIdentity:

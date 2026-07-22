@@ -17,7 +17,7 @@ from pydantic import ValidationError
 import aimctexturegen.projects.workspace as workspace_module
 from aimctexturegen.catalog.registry import CatalogRegistry
 from aimctexturegen.packs.java_adapter import JavaPackAdapter, PackValidationError
-from aimctexturegen.projects.models import ProjectManifest
+from aimctexturegen.projects.models import MAX_PROJECT_MANIFEST_BYTES, ProjectManifest
 from aimctexturegen.projects.workspace import ProjectWorkspace
 
 
@@ -106,6 +106,7 @@ def test_import_creates_snapshot_and_working_copy(
     assert source_hash_before == sha256(source.read_bytes()).hexdigest()
     assert not list((tmp_path / "projects").glob("*.tmp"))
     manifest_document = json.loads((project_root / "project.json").read_text("utf-8"))
+    assert (project_root / "project.json").stat().st_size < MAX_PROJECT_MANIFEST_BYTES
     assert set(manifest_document) == {
         "schema_version",
         "project_id",
@@ -218,6 +219,24 @@ def test_empty_trimmed_project_name_is_rejected_before_creating_root(
     assert raised.value.code == "INVALID_PROJECT_NAME"
     assert raised.value.user_message == "项目名称不能为空"
     assert not projects_root.exists()
+
+
+def test_project_name_length_boundary_and_oversize_rejection(
+    tmp_path: Path,
+    pack_zip_factory: Callable[[str, dict[str, bytes], int], Path],
+) -> None:
+    source = pack_zip_factory("source.zip", {})
+    projects_root = tmp_path / "projects"
+    workspace = build_workspace(projects_root)
+
+    accepted = workspace.import_pack(source, "x" * 128)
+    assert accepted.project_name == "x" * 128
+
+    with pytest.raises(PackValidationError) as raised:
+        workspace.import_pack(source, "x" * 129)
+
+    assert raised.value.code == "INVALID_PROJECT_NAME"
+    assert [path.name for path in projects_root.iterdir()] == [str(accepted.project_id)]
 
 
 class _DeletingAdapter(JavaPackAdapter):
@@ -410,6 +429,36 @@ def test_snapshot_replacement_before_copy_prevents_publication(
     assert not list(projects_root.iterdir())
 
 
+def _corrupt_stored_member_crc(path: Path, member_name: str) -> None:
+    with zipfile.ZipFile(path) as archive:
+        info = archive.getinfo(member_name)
+    payload = bytearray(path.read_bytes())
+    filename_length = int.from_bytes(
+        payload[info.header_offset + 26 : info.header_offset + 28], "little"
+    )
+    extra_length = int.from_bytes(
+        payload[info.header_offset + 28 : info.header_offset + 30], "little"
+    )
+    data_offset = info.header_offset + 30 + filename_length + extra_length
+    payload[data_offset] ^= 0x01
+    path.write_bytes(payload)
+
+
+def test_corrupt_crc_in_normal_member_is_stable_and_cleans_stage(
+    tmp_path: Path,
+    pack_zip_factory: Callable[[str, dict[str, bytes], int], Path],
+) -> None:
+    source = pack_zip_factory("corrupt-member.zip", {"assets/data.bin": b"payload"})
+    _corrupt_stored_member_crc(source, "assets/data.bin")
+    projects_root = tmp_path / "projects"
+
+    with pytest.raises(PackValidationError) as raised:
+        build_workspace(projects_root).import_pack(source, "Corrupt member")
+
+    assert raised.value.code == "CORRUPT_ZIP_MEMBER"
+    assert list(projects_root.iterdir()) == []
+
+
 def _manifest_values() -> dict[str, object]:
     timestamp = datetime.now(timezone.utc)
     return {
@@ -458,3 +507,11 @@ def test_project_manifest_rejects_extra_fields_and_is_frozen() -> None:
     manifest = ProjectManifest.model_validate(_manifest_values())
     with pytest.raises(ValidationError):
         manifest.project_name = "mutation rejected"
+
+
+def test_project_manifest_rejects_oversize_project_name() -> None:
+    values = _manifest_values()
+    values["project_name"] = "x" * 129
+
+    with pytest.raises(ValidationError):
+        ProjectManifest.model_validate(values)

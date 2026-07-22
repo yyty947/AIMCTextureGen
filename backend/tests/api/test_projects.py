@@ -539,3 +539,61 @@ def test_unsupported_pack_format_maps_to_stable_import_error(
         code="UNSUPPORTED_PACK_FORMAT",
         stage="importing",
     )
+
+
+def test_project_name_length_is_enforced_before_project_staging(
+    tmp_path: Path,
+    api_pack_zip_factory: Callable[[str, dict[str, bytes], int], Path],
+) -> None:
+    source = api_pack_zip_factory("name-limit.zip", {})
+    project_root = tmp_path / "projects"
+    client = build_client(project_root)
+    with source.open("rb") as upload:
+        response = client.post(
+            "/api/projects/import",
+            data={"project_name": "x" * 129},
+            files={"pack": ("name-limit.zip", upload, "application/zip")},
+        )
+
+    assert_stable_error(
+        response,
+        status_code=400,
+        code="INVALID_PROJECT_NAME",
+        stage="importing",
+    )
+    assert list(project_root.iterdir()) == []
+
+
+def test_corrupt_crc_in_normal_member_maps_to_stable_import_error(
+    tmp_path: Path,
+    api_pack_zip_factory: Callable[[str, dict[str, bytes], int], Path],
+) -> None:
+    source = api_pack_zip_factory("corrupt-member.zip", {"assets/data.bin": b"payload"})
+    with zipfile.ZipFile(source) as archive:
+        info = archive.getinfo("assets/data.bin")
+    payload = bytearray(source.read_bytes())
+    name_length = int.from_bytes(
+        payload[info.header_offset + 26 : info.header_offset + 28], "little"
+    )
+    extra_length = int.from_bytes(
+        payload[info.header_offset + 28 : info.header_offset + 30], "little"
+    )
+    payload[info.header_offset + 30 + name_length + extra_length] ^= 1
+    source.write_bytes(payload)
+    project_root = tmp_path / "projects"
+    client = build_client(project_root)
+
+    with source.open("rb") as upload:
+        response = client.post(
+            "/api/projects/import",
+            data={"project_name": "Corrupt member"},
+            files={"pack": ("corrupt-member.zip", upload, "application/zip")},
+        )
+
+    assert_stable_error(
+        response,
+        status_code=400,
+        code="CORRUPT_ZIP_MEMBER",
+        stage="importing",
+    )
+    assert list(project_root.iterdir()) == []

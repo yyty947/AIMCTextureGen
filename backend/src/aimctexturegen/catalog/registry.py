@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 
 from aimctexturegen.catalog.models import CatalogProfile
@@ -29,7 +28,7 @@ class CatalogRegistry:
         profiles = []
         for path in sorted(root.glob("*.json")):
             profiles.append(
-                CatalogProfile.model_validate(json.loads(path.read_text("utf-8")))
+                CatalogProfile.model_validate_json(path.read_bytes(), strict=True)
             )
         return tuple(profiles)
 

@@ -14,6 +14,13 @@ _WINDOWS_DEVICE_STEMS = frozenset(
     | {f"lpt{number}" for number in range(1, 10)}
 )
 _WINDOWS_INVALID_CHARACTERS = frozenset('<>:"|?*')
+MAX_ZIP_MEMBERS = 4096
+MAX_PACK_METADATA_BYTES = 1024 * 1024
+MAX_ZIP_MEMBER_BYTES = 256 * 1024 * 1024
+MAX_ZIP_TOTAL_UNCOMPRESSED_BYTES = 1024 * 1024 * 1024
+MAX_ZIP_COMPRESSION_RATIO = 200
+ZIP_READ_CHUNK_BYTES = 1024 * 1024
+_SUPPORTED_ZIP_COMPRESSION = frozenset({zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED})
 
 
 class PackValidationError(ValueError):
@@ -37,9 +44,11 @@ class JavaPackAdapter:
         resolved_source = source.resolve()
         try:
             with zipfile.ZipFile(resolved_source) as archive:
+                infos = archive.infolist()
+                _validate_zip_expansion_metadata(infos)
                 members = []
                 files: dict[str, zipfile.ZipInfo] = {}
-                for info in archive.infolist():
+                for info in infos:
                     is_directory = info.is_dir() or info.filename.endswith(("/", "\\"))
                     normalized = _normalize_member_path(
                         info.filename, is_directory=is_directory
@@ -51,8 +60,18 @@ class JavaPackAdapter:
                 _validate_case_folding(members)
                 pack_root = _discover_pack_root(files)
                 metadata_path = _under_root("pack.mcmeta", pack_root)
+                metadata_info = files[metadata_path]
+                if metadata_info.file_size > MAX_PACK_METADATA_BYTES:
+                    raise PackValidationError(
+                        "PACK_METADATA_TOO_LARGE",
+                        "pack.mcmeta 超过允许大小",
+                    )
                 try:
-                    metadata_payload = archive.read(files[metadata_path])
+                    metadata_payload = _read_zip_member_bounded(
+                        archive,
+                        metadata_info,
+                        MAX_PACK_METADATA_BYTES,
+                    )
                 except NotImplementedError as error:
                     raise PackValidationError(
                         "UNSUPPORTED_ZIP_COMPRESSION",
@@ -113,7 +132,21 @@ class JavaPackAdapter:
         pack_root = _discover_pack_root(files)
         metadata_path = _under_root("pack.mcmeta", pack_root)
         try:
-            metadata_payload = files[metadata_path].read_bytes()
+            metadata_file = files[metadata_path]
+            if metadata_file.stat().st_size > MAX_PACK_METADATA_BYTES:
+                raise PackValidationError(
+                    "PACK_METADATA_TOO_LARGE",
+                    "pack.mcmeta 超过允许大小",
+                )
+            with metadata_file.open("rb") as source_file:
+                metadata_payload = source_file.read(MAX_PACK_METADATA_BYTES + 1)
+            if len(metadata_payload) > MAX_PACK_METADATA_BYTES:
+                raise PackValidationError(
+                    "PACK_METADATA_TOO_LARGE",
+                    "pack.mcmeta 超过允许大小",
+                )
+        except PackValidationError:
+            raise
         except (KeyError, OSError) as error:
             raise PackValidationError(
                 "INVALID_PACK_METADATA", "无法读取 pack.mcmeta"
@@ -126,6 +159,67 @@ class JavaPackAdapter:
             metadata=_parse_metadata(metadata_payload),
             normalized_files=_relative_pack_files(files, pack_root),
         )
+
+
+def _validate_zip_expansion_metadata(infos: list[zipfile.ZipInfo]) -> None:
+    if len(infos) > MAX_ZIP_MEMBERS:
+        raise PackValidationError(
+            "ZIP_MEMBER_COUNT_EXCEEDED",
+            "ZIP 资源包包含过多文件",
+        )
+    total_uncompressed = 0
+    for info in infos:
+        if info.flag_bits & 1:
+            raise PackValidationError(
+                "ENCRYPTED_ZIP_MEMBER",
+                "ZIP 资源包包含加密文件，无法导入",
+            )
+        if info.compress_type not in _SUPPORTED_ZIP_COMPRESSION:
+            raise PackValidationError(
+                "UNSUPPORTED_ZIP_COMPRESSION",
+                "ZIP 资源包使用了不支持的压缩方式",
+            )
+        if info.file_size > MAX_ZIP_MEMBER_BYTES:
+            raise PackValidationError(
+                "ZIP_MEMBER_TOO_LARGE",
+                "ZIP 资源包中的单个文件超过允许大小",
+            )
+        total_uncompressed += info.file_size
+        if total_uncompressed > MAX_ZIP_TOTAL_UNCOMPRESSED_BYTES:
+            raise PackValidationError(
+                "ZIP_TOTAL_SIZE_EXCEEDED",
+                "ZIP 资源包展开后的总大小超过允许范围",
+            )
+        if info.file_size:
+            if info.compress_size == 0 or (
+                info.file_size / info.compress_size > MAX_ZIP_COMPRESSION_RATIO
+            ):
+                raise PackValidationError(
+                    "ZIP_COMPRESSION_RATIO_EXCEEDED",
+                    "ZIP 资源包包含压缩率异常的文件",
+                )
+
+
+def _read_zip_member_bounded(
+    archive: zipfile.ZipFile,
+    info: zipfile.ZipInfo,
+    limit: int,
+) -> bytes:
+    payload = bytearray()
+    with archive.open(info) as source_file:
+        while chunk := source_file.read(min(ZIP_READ_CHUNK_BYTES, limit + 1)):
+            payload.extend(chunk)
+            if len(payload) > limit:
+                raise PackValidationError(
+                    "PACK_METADATA_TOO_LARGE",
+                    "pack.mcmeta 超过允许大小",
+                )
+    if len(payload) != info.file_size:
+        raise PackValidationError(
+            "INVALID_PACK_METADATA",
+            "无法读取 pack.mcmeta",
+        )
+    return bytes(payload)
 
 
 def _normalize_member_path(raw_name: str, *, is_directory: bool) -> str:

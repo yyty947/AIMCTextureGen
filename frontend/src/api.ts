@@ -54,6 +54,8 @@ export class ApiRequestError extends Error implements ApiError {
   }
 }
 
+export const MAX_PROJECT_NAME_LENGTH = 128;
+
 export async function importProject(
   projectName: string,
   pack: File,
@@ -68,15 +70,15 @@ export async function importProject(
   });
   return parseSuccessfulResponse(payload, (data): ProjectManifest => ({
     schemaVersion: requireLiteralOne(data.schema_version),
-    projectId: requireString(data.project_id),
+    projectId: requireCanonicalUuid(data.project_id),
     projectName: requireString(data.project_name),
     edition: requireJava(data.edition),
-    javaPackFormat: requireNumber(data.java_pack_format),
+    javaPackFormat: requireNonnegativeInteger(data.java_pack_format),
     supportedFormats: parseSupportedFormats(data.supported_formats),
     catalogId: requireString(data.catalog_id),
-    sourceSha256: requireString(data.source_sha256),
-    createdAt: requireString(data.created_at),
-    updatedAt: requireString(data.updated_at),
+    sourceSha256: requireSha256(data.source_sha256),
+    createdAt: requireTimestamp(data.created_at),
+    updatedAt: requireTimestamp(data.updated_at),
   }));
 }
 
@@ -87,8 +89,8 @@ export async function getCoverage(projectId: string): Promise<CoverageReport> {
   return parseSuccessfulResponse(payload, (data): CoverageReport => ({
     catalogId: requireString(data.catalog_id),
     catalogStatus: requireCatalogStatus(data.catalog_status),
-    coveredCount: requireNumber(data.covered_count),
-    missingCount: requireNumber(data.missing_count),
+    coveredCount: requireNonnegativeInteger(data.covered_count),
+    missingCount: requireNonnegativeInteger(data.missing_count),
     unknownPaths: requireArray(data.unknown_paths).map(requireString),
     items: requireArray(data.items).map(parseCoverageItem),
   }));
@@ -197,11 +199,35 @@ function requireString(value: unknown): string {
   return value;
 }
 
-function requireNumber(value: unknown): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    throw new TypeError("Expected a numeric response field");
+function requireNonnegativeInteger(value: unknown): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+    throw new TypeError("Expected a nonnegative integer response field");
   }
   return value;
+}
+
+function requireCanonicalUuid(value: unknown): string {
+  const uuid = requireString(value);
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(uuid)) {
+    throw new TypeError("Expected a canonical UUID response field");
+  }
+  return uuid;
+}
+
+function requireSha256(value: unknown): string {
+  const digest = requireString(value);
+  if (!/^[0-9a-f]{64}$/.test(digest)) {
+    throw new TypeError("Expected a SHA-256 response field");
+  }
+  return digest;
+}
+
+function requireTimestamp(value: unknown): string {
+  const timestamp = requireString(value);
+  if (!Number.isFinite(Date.parse(timestamp))) {
+    throw new TypeError("Expected a parseable timestamp response field");
+  }
+  return timestamp;
 }
 
 function requireBoolean(value: unknown): boolean {
@@ -251,5 +277,8 @@ function parseSupportedFormats(
   if (formats.length !== 2) {
     throw new TypeError("Expected a two-value supported format range");
   }
-  return [requireNumber(formats[0]), requireNumber(formats[1])];
+  return [
+    requireNonnegativeInteger(formats[0]),
+    requireNonnegativeInteger(formats[1]),
+  ];
 }

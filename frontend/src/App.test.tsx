@@ -277,6 +277,51 @@ describe("资源包导入与覆盖摘要", () => {
     expect(await screen.findByText("资源格式 34")).toBeInTheDocument();
   });
 
+  it("项目名称输入暴露与后端一致的长度上限", () => {
+    render(<App />);
+
+    expect(screen.getByLabelText("项目名称")).toHaveAttribute("maxLength", "128");
+  });
+
+  it.each([
+    ["非规范 UUID", { ...manifest, project_id: projectId.toUpperCase() }],
+    ["错误 SHA-256", { ...manifest, source_sha256: "not-a-hash" }],
+    ["不可解析时间", { ...manifest, created_at: "not-a-time" }],
+    ["小数资源格式", { ...manifest, java_pack_format: 34.5 }],
+    ["负数资源格式", { ...manifest, java_pack_format: -1 }],
+  ])("拒绝%s的成功项目响应", async (_label, invalidManifest) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(invalidManifest, 201)));
+    render(<App />);
+    const user = await completeForm();
+
+    await user.click(screen.getByRole("button", { name: "导入并分析" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "本地服务返回了无法识别的响应",
+    );
+  });
+
+  it.each([
+    ["负数覆盖计数", { ...coverage, covered_count: -1 }],
+    ["小数缺失计数", { ...coverage, missing_count: 1.5 }],
+  ])("拒绝%s的成功覆盖响应", async (_label, invalidCoverage) => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(jsonResponse(manifest, 201))
+        .mockResolvedValueOnce(jsonResponse(invalidCoverage)),
+    );
+    render(<App />);
+    const user = await completeForm();
+
+    await user.click(screen.getByRole("button", { name: "导入并分析" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "本地服务返回了无法识别的响应",
+    );
+  });
+
   it("新的导入失败时不保留上一次的覆盖摘要", async () => {
     vi.stubGlobal(
       "fetch",

@@ -8,7 +8,6 @@ from typing import Any
 import httpx
 import pytest
 import starlette.formparsers as starlette_formparsers
-from starlette.datastructures import UploadFile
 from starlette.requests import ClientDisconnect
 
 from aimctexturegen.api import projects as projects_api
@@ -367,7 +366,7 @@ def test_request_receive_failure_closes_parser_files_and_creates_no_project(
     assert not project_root.exists() or list(project_root.iterdir()) == []
 
 
-def test_real_disconnect_closes_partial_parser_spools_before_app_returns(
+def test_real_disconnect_uses_no_framework_spool_and_cleans_project_upload(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -417,7 +416,7 @@ def test_real_disconnect_closes_partial_parser_spools_before_app_returns(
         for spool in created_spools:
             spool.close()
 
-    assert created_spools
+    assert created_spools == []
     assert spools_closed_before_return
     assert result is not None
     status_code, response_body, receive_calls = result
@@ -434,35 +433,3 @@ def test_real_disconnect_closes_partial_parser_spools_before_app_returns(
     assert response_body["technical_details"] is None
     assert receive_calls == 2
     assert not project_root.exists() or list(project_root.iterdir()) == []
-
-
-def test_upload_read_failure_removes_exact_temporary_file(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    pack = zip_payload()
-    project_root = tmp_path / "projects"
-    app = create_app(
-        project_root=project_root,
-        catalog_root=CATALOG_ROOT,
-        max_import_body_bytes=len(pack) + 4096,
-    )
-
-    async def fail_read(_upload: UploadFile, _size: int = -1) -> bytes:
-        raise OSError("forced parsed-upload read failure")
-
-    monkeypatch.setattr(UploadFile, "read", fail_read)
-
-    response = asyncio.run(
-        request_app(
-            app,
-            "POST",
-            "/api/projects/import",
-            data={"project_name": "Read Failure"},
-            files={"pack": ("source.zip", pack, "application/zip")},
-        )
-    )
-
-    assert response.status_code == 500
-    assert response.json()["code"] == "INTERNAL_ERROR"
-    assert list(project_root.iterdir()) == []
