@@ -45,7 +45,7 @@
 
 ## 模块边界
 
-- `JavaPackAdapter`：解析 `pack.mcmeta`、检查包结构、扫描路径和计算覆盖状态；不依赖 AI。
+- `JavaPackAdapter`：解析 `pack.mcmeta`、检查包结构和扫描路径；不依赖 AI。覆盖状态由 `packs/coverage.py` 的 `classify_coverage` 计算，同样不依赖 AI。
 - `CatalogRegistry`：加载和验证按资源格式维护的材质路径元数据；不读取原版图像。
 - `ProjectWorkspace`：创建项目、保存只读快照、维护工作副本和可迁移 JSON；不负责生成推理。
 - `TextureProcessor`：网格吸附、预览和 seam score；不依赖 FastAPI 或 ComfyUI。

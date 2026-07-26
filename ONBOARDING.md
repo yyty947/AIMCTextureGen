@@ -1,10 +1,10 @@
 # AIMCTextureGen 当前交接
 
-最后核对日期：2026-07-21
+最后核对日期：2026-07-26
 
 ## 当前状态
 
-- 当前实现位于 `codex/phase-1-foundation-import` 工作树分支。
+- Phase 1 实现已通过合并提交 `3f6c352` 合入 `master`，阶段分支与 worktree 已删除；MIT LICENSE 由 `3eb153e`（GitHub 网页端提交）加入。当前唯一分支为 `master`。
 - MVP 产品设计已在提交 `026dec8` 中确认。
 - 已完成第一阶段任务 1：FastAPI 应用工厂、`GET /api/health` 健康契约、固定后端依赖清单和健康契约测试已实现。
 - 已完成第一阶段任务 2：严格且禁止数值/布尔强制转换的目录 Pydantic 契约、规范且唯一的 `semantic_id`/`relative_path`、明确标记为 `development_fixture` 的格式 34 开发目录，以及确定性的主 `pack_format` 选择已实现。
@@ -15,7 +15,7 @@
 - 已完成第一阶段任务 7：React WebUI 提供单列 ZIP 导入和覆盖摘要，使用类型化 FastAPI 客户端，显示资源格式、开发目录警告、已覆盖/未覆盖计数、缺失可生成条目与未知文件计数；成功响应会验证规范 UUID、64 位十六进制 SHA-256、带 `Z` 或显式偏移的 RFC 3339 时间戳和非负整数格式/计数，项目名称与后端一致按 Unicode code point 限制为 128。稳定 API 错误、网络错误、非 JSON 响应和形状错误的成功 JSON 均显示可读警报，新导入开始时会清除旧摘要。若项目导入成功但覆盖请求失败，界面会保留已创建项目并只重试覆盖分析，避免重复导入。文件选择会按不区分大小写的 `.zip` 后缀校验，并通过输入关联的文字说明错误。
 - 已完成第一阶段任务 8：合成 ZIP 的完整 API 导入流会核对原输入、持久化哈希和不可变快照 SHA-256，重新打开快照 ZIP、`project.json` 与工作副本，并精确验证格式 34 开发目录的一项已覆盖和一项缺失。审计负载超过 1 MiB；应用导入和 API 流程运行在 `-B` 独立子进程中，audit hook 只允许项目根内写入并阻断外部网络与子进程事件，因此当前成功结果同时证明大上传未写入外部 spool。2026-07-22 用户已在正常 Windows 桌面窗口和 400–900 px 宽的窄桌面窗口完成当前 multipart 实现的手工复验，页面显示和导入结果均正确。375 px 不再是产品验收条件，v0.1 不声明移动端支持。
 - 前端固定 Node.js 24.18.0；首次 lockfile 和验证使用经 Node.js 官方 `SHASUMS256.txt` 校验的便携 Windows x64 ZIP，SHA-256 为 `0ae68406b42d7725661da979b1403ec9926da205c6770827f33aac9d8f26e821`。当前没有 ComfyUI 集成；FastAPI 应用可由 `aimctexturegen.main:create_app` 创建，运行时默认项目根和目录根从仓库位置解析，不依赖当前 PowerShell 目录。
-- 当前没有需要迁移的用户项目数据。
+- 当前没有需要迁移的用户项目数据；本地 `projects/` 下可能存在 2026-07-22 手工验收残留项目（已被 `.gitignore` 忽略，可安全删除）。
 
 ## 已确认边界
 
@@ -43,6 +43,13 @@
 
 ## 当前可用验证
 
+`master` 检出不自带 `.venv`。首次接手先用 Python 3.12 创建（系统默认 Python 版本更高时必须用 `py -3.12`）：
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\python -m pip install -e ".\backend[dev]"
+```
+
 当前可运行后端验证：
 
 ```powershell
@@ -61,7 +68,7 @@ git diff --check
 git status --short
 ```
 
-已于 2026-07-22 使用 Python 3.12.10 运行完整覆盖率门禁：165 passed、总覆盖率 86%，使用 `-W error` 且无警告。使用便携 Node.js 24.18.0 运行：前端为 1 个测试文件、21 个测试通过，Vite 8.1.5 生产构建成功。最终审查实现提交为 `13dea7f`（`fix: harden Phase 1 import boundaries`）和 `abdb64a`（`fix: harden multipart protocol limits`）。`git diff --check` 无输出；`git status --short` 只应显示当前有意创建或修改的文件。同日用户使用超过 1 MiB 的合成 ZIP 完成当前上传流程的手工桌面验收：正常窗口与 400–900 px 窄窗口显示正常。截图中 Vite 开发服务的 MIME/charset、Firefox `theme-color` 兼容性提示和浏览器扩展 `content.js` 失效信息均非应用自身运行时错误，不阻断本阶段验收。
+已于 2026-07-26 在 `master` 检出与新建 `.venv`（Python 3.12.10）复跑完整覆盖率门禁：165 passed、总覆盖率 86%，使用 `-W error` 且无警告。使用便携 Node.js 24.18.0 运行：前端为 1 个测试文件、21 个测试通过，Vite 8.1.5 生产构建成功。最终审查实现提交为 `13dea7f`（`fix: harden Phase 1 import boundaries`）和 `abdb64a`（`fix: harden multipart protocol limits`）。`git diff --check` 无输出；`git status --short` 只应显示当前有意创建或修改的文件。同日用户使用超过 1 MiB 的合成 ZIP 完成当前上传流程的手工桌面验收：正常窗口与 400–900 px 窄窗口显示正常。截图中 Vite 开发服务的 MIME/charset、Firefox `theme-color` 兼容性提示和浏览器扩展 `content.js` 失效信息均非应用自身运行时错误，不阻断本阶段验收。
 
 ## 需要在对应阶段确定的事项
 

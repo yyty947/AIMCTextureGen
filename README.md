@@ -30,6 +30,13 @@ MVP 不做 Java/基岩版转换、跨版本转换、Minecraft JAR 扫描、原�
 
 ## 当前开发验证
 
+仓库 `.venv` 需用 Python 3.12 创建（系统默认 Python 版本更高时必须用 `py -3.12`）：
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\python -m pip install -e ".\backend[dev]"
+```
+
 在已准备好仓库 `.venv` 和 `runtime/node-v24.18.0-win-x64` 的工作树中，以下 PowerShell 命令已实际通过：
 
 ```powershell
@@ -41,7 +48,7 @@ Pop-Location
 git diff --check
 ```
 
-2026-07-22 的当前结果为后端 165 个测试通过、总覆盖率 86%，前端 1 个测试文件中的 21 个测试通过，Vite 生产构建成功；用户手工桌面浏览器 smoke 也已通过。`runtime/`、`.venv/`、`frontend/node_modules/` 和 `frontend/dist/` 都是本地忽略产物，不应提交。
+2026-07-26 在 master 检出与新建 `.venv`（Python 3.12.10）上的复跑结果为后端 165 个测试通过、总覆盖率 86%，前端 1 个测试文件中的 21 个测试通过，Vite 生产构建成功；2026-07-22 的用户手工桌面浏览器 smoke 也已通过。`runtime/`、`.venv/`、`frontend/node_modules/` 和 `frontend/dist/` 都是本地忽略产物，不应提交。
 
 ## 核心边界
 
@@ -54,7 +61,7 @@ git diff --check
 
 ## 开发与许可状态
 
-项目尚未选择并发布仓库许可证。在许可证文件加入前，不应假定仓库内容已授予再分发或衍生使用许可。模型、节点和第三方代码各自受其原始许可证约束，首次公开发布前必须完成第三方许可清单与复核。
+仓库代码使用 [MIT License](LICENSE)，于 2026-07-22 加入。模型、节点和第三方代码不适用该许可证，各自受其原始许可证约束，首次公开发布前必须完成第三方许可清单与复核。
 
 AIMCTextureGen 是非官方项目，与 Mojang Studios 或 Microsoft 没有隶属、赞助或认可关系。“Minecraft”仅用于说明兼容对象。
 
