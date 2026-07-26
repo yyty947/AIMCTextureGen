@@ -15,7 +15,7 @@ def test_texture_already_within_limit_is_returned_unchanged(image_from_rows):
     rows = [[(0, 0, 0), (255, 255, 255)], [(0, 0, 0), (255, 255, 255)]]
     texture = image_from_rows(rows)
     limited = limit_palette(texture, 4)
-    assert list(limited.getdata()) == list(texture.getdata())
+    assert list(limited.get_flattened_data()) == list(texture.get_flattened_data())
     assert limited is not texture
 
 
@@ -28,7 +28,7 @@ def test_median_cut_two_clusters_is_exact(image_from_rows):
     limited = limit_palette(image_from_rows(rows), 2)
     # Box split at the pixel-count midpoint; representatives are weighted
     # lower medians: dark -> (0, 0, 0), light -> (240, 240, 240).
-    assert list(limited.getdata()) == [
+    assert list(limited.get_flattened_data()) == [
         (0, 0, 0),
         (0, 0, 0),
         (240, 240, 240),
@@ -42,7 +42,7 @@ def test_result_never_exceeds_limit(image_from_rows):
         for g in range(8)
     ]
     limited = limit_palette(image_from_rows(rows), 5)
-    assert len(set(limited.getdata())) <= 5
+    assert len(set(limited.get_flattened_data())) <= 5
 
 
 def test_limit_palette_is_deterministic(image_from_rows):
@@ -52,12 +52,12 @@ def test_limit_palette_is_deterministic(image_from_rows):
     ]
     first = limit_palette(image_from_rows(rows), 8)
     second = limit_palette(image_from_rows(rows), 8)
-    assert list(first.getdata()) == list(second.getdata())
+    assert list(first.get_flattened_data()) == list(second.get_flattened_data())
 
 
 def test_input_texture_is_not_mutated(image_from_rows):
     rows = [[(0, 0, 0), (10, 10, 10)], [(250, 250, 250), (240, 240, 240)]]
     texture = image_from_rows(rows)
-    before = list(texture.getdata())
+    before = list(texture.get_flattened_data())
     limit_palette(texture, 2)
-    assert list(texture.getdata()) == before
+    assert list(texture.get_flattened_data()) == before

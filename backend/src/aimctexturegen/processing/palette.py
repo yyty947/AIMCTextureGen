@@ -95,7 +95,7 @@ def _nearest(color: tuple[int, int, int], palette: list[tuple[int, int, int]]):
 def limit_palette(texture: Image.Image, max_colors: int) -> Image.Image:
     if max_colors < 2:
         raise ProcessingError("INVALID_PALETTE_LIMIT", "调色板颜色上限必须至少为 2")
-    histogram = Counter(texture.getdata())
+    histogram = Counter(texture.get_flattened_data())
     if len(histogram) <= max_colors:
         return texture.copy()
 
@@ -112,5 +112,5 @@ def limit_palette(texture: Image.Image, max_colors: int) -> Image.Image:
     palette = [_box_color(box) for box in boxes]
     mapping = {color: _nearest(color, palette) for color in histogram}
     limited = Image.new("RGB", texture.size)
-    limited.putdata([mapping[color] for color in texture.getdata()])
+    limited.putdata([mapping[color] for color in texture.get_flattened_data()])
     return limited

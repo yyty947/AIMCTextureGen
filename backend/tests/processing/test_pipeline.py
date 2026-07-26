@@ -31,7 +31,7 @@ def test_pipeline_writes_all_artifacts_and_report(tmp_path, image_from_rows, png
     final = Image.open(output / "candidate-0.png")
     assert final.size == (16, 16)
     expected = [color for row in cell_colors for color in row]
-    assert list(final.getdata()) == expected
+    assert list(final.get_flattened_data()) == expected
 
     assert (output / "candidate-0-nn.png").exists()
     assert (output / "candidate-0-tile.png").exists()
@@ -45,7 +45,7 @@ def test_pipeline_writes_all_artifacts_and_report(tmp_path, image_from_rows, png
     assert report.output.path == "candidate-0.png"
     assert report.grid_snap.cell_pixels == 2
     assert report.palette.limit is None and report.palette.method is None
-    assert report.palette.unique_colors == len(set(final.getdata()))
+    assert report.palette.unique_colors == len(set(final.get_flattened_data()))
     assert report.previews.nearest_neighbor.path == "candidate-0-nn.png"
     assert report.previews.tile_3x3.path == "candidate-0-tile.png"
 
@@ -88,10 +88,10 @@ def test_palette_limit_is_applied_and_reported(tmp_path, image_from_rows, png_pa
     output = tmp_path / "out"
     report = process_candidate(source, output, stem="c", resolution=16, palette_limit=8)
     final = Image.open(output / "c.png")
-    assert len(set(final.getdata())) <= 8
+    assert len(set(final.get_flattened_data())) <= 8
     assert report.palette.limit == 8
     assert report.palette.method == "median-cut"
-    assert report.palette.unique_colors == len(set(final.getdata()))
+    assert report.palette.unique_colors == len(set(final.get_flattened_data()))
 
 
 def test_seam_scores_in_report_match_final_texture(tmp_path, image_from_rows, png_path):

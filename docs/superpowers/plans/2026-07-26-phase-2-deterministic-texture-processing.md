@@ -605,15 +605,15 @@ def test_identity_when_canvas_side_equals_resolution(image_from_rows):
     rows = [[(1, 2, 3), (4, 5, 6)], [(7, 8, 9), (10, 11, 12)]]
     canvas = image_from_rows(rows)
     snapped = snap_to_grid(canvas, 2)
-    assert list(snapped.getdata()) == list(canvas.getdata())
+    assert list(snapped.get_flattened_data()) == list(canvas.get_flattened_data())
 
 
 def test_input_canvas_is_not_mutated(image_from_rows):
     rows = [[(10, 0, 0), (20, 0, 0)], [(30, 0, 0), (40, 0, 0)]]
     canvas = image_from_rows(rows)
-    before = list(canvas.getdata())
+    before = list(canvas.get_flattened_data())
     snap_to_grid(canvas, 1)
-    assert list(canvas.getdata()) == before
+    assert list(canvas.get_flattened_data()) == before
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -833,7 +833,7 @@ def test_preview_upscales_to_512(image_from_rows, resolution, scale):
 def test_nearest_neighbor_introduces_no_new_colors(image_from_rows):
     texture = _two_tone(image_from_rows, 16)
     preview = nearest_neighbor_preview(texture)
-    assert set(preview.getdata()) == set(texture.getdata())
+    assert set(preview.get_flattened_data()) == set(texture.get_flattened_data())
 
 
 def test_preview_blocks_are_exact_pixel_replication(image_from_rows):
@@ -857,7 +857,7 @@ def test_tile_3x3_repeats_texture_and_upscales(image_from_rows):
     for tile_x in range(3):
         for tile_y in range(3):
             assert pixels[tile_x * PREVIEW_TARGET_SIDE, tile_y * PREVIEW_TARGET_SIDE] == (0, 0, 0)
-    assert set(tiled.getdata()) == set(texture.getdata())
+    assert set(tiled.get_flattened_data()) == set(texture.get_flattened_data())
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -951,7 +951,7 @@ def test_texture_already_within_limit_is_returned_unchanged(image_from_rows):
     rows = [[(0, 0, 0), (255, 255, 255)], [(0, 0, 0), (255, 255, 255)]]
     texture = image_from_rows(rows)
     limited = limit_palette(texture, 4)
-    assert list(limited.getdata()) == list(texture.getdata())
+    assert list(limited.get_flattened_data()) == list(texture.get_flattened_data())
     assert limited is not texture
 
 
@@ -964,7 +964,7 @@ def test_median_cut_two_clusters_is_exact(image_from_rows):
     limited = limit_palette(image_from_rows(rows), 2)
     # Box split at the pixel-count midpoint; representatives are weighted
     # lower medians: dark -> (0, 0, 0), light -> (240, 240, 240).
-    assert list(limited.getdata()) == [
+    assert list(limited.get_flattened_data()) == [
         (0, 0, 0),
         (0, 0, 0),
         (240, 240, 240),
@@ -978,7 +978,7 @@ def test_result_never_exceeds_limit(image_from_rows):
         for g in range(8)
     ]
     limited = limit_palette(image_from_rows(rows), 5)
-    assert len(set(limited.getdata())) <= 5
+    assert len(set(limited.get_flattened_data())) <= 5
 
 
 def test_limit_palette_is_deterministic(image_from_rows):
@@ -988,15 +988,15 @@ def test_limit_palette_is_deterministic(image_from_rows):
     ]
     first = limit_palette(image_from_rows(rows), 8)
     second = limit_palette(image_from_rows(rows), 8)
-    assert list(first.getdata()) == list(second.getdata())
+    assert list(first.get_flattened_data()) == list(second.get_flattened_data())
 
 
 def test_input_texture_is_not_mutated(image_from_rows):
     rows = [[(0, 0, 0), (10, 10, 10)], [(250, 250, 250), (240, 240, 240)]]
     texture = image_from_rows(rows)
-    before = list(texture.getdata())
+    before = list(texture.get_flattened_data())
     limit_palette(texture, 2)
-    assert list(texture.getdata()) == before
+    assert list(texture.get_flattened_data()) == before
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -1106,7 +1106,7 @@ def _nearest(color: tuple[int, int, int], palette: list[tuple[int, int, int]]):
 def limit_palette(texture: Image.Image, max_colors: int) -> Image.Image:
     if max_colors < 2:
         raise ProcessingError("INVALID_PALETTE_LIMIT", "调色板颜色上限必须至少为 2")
-    histogram = Counter(texture.getdata())
+    histogram = Counter(texture.get_flattened_data())
     if len(histogram) <= max_colors:
         return texture.copy()
 
@@ -1123,7 +1123,7 @@ def limit_palette(texture: Image.Image, max_colors: int) -> Image.Image:
     palette = [_box_color(box) for box in boxes]
     mapping = {color: _nearest(color, palette) for color in histogram}
     limited = Image.new("RGB", texture.size)
-    limited.putdata([mapping[color] for color in texture.getdata()])
+    limited.putdata([mapping[color] for color in texture.get_flattened_data()])
     return limited
 ```
 
@@ -1190,7 +1190,7 @@ def test_pipeline_writes_all_artifacts_and_report(tmp_path, image_from_rows, png
     final = Image.open(output / "candidate-0.png")
     assert final.size == (16, 16)
     expected = [color for row in cell_colors for color in row]
-    assert list(final.getdata()) == expected
+    assert list(final.get_flattened_data()) == expected
 
     assert (output / "candidate-0-nn.png").exists()
     assert (output / "candidate-0-tile.png").exists()
@@ -1204,7 +1204,7 @@ def test_pipeline_writes_all_artifacts_and_report(tmp_path, image_from_rows, png
     assert report.output.path == "candidate-0.png"
     assert report.grid_snap.cell_pixels == 2
     assert report.palette.limit is None and report.palette.method is None
-    assert report.palette.unique_colors == len(set(final.getdata()))
+    assert report.palette.unique_colors == len(set(final.get_flattened_data()))
     assert report.previews.nearest_neighbor.path == "candidate-0-nn.png"
     assert report.previews.tile_3x3.path == "candidate-0-tile.png"
 
@@ -1247,10 +1247,10 @@ def test_palette_limit_is_applied_and_reported(tmp_path, image_from_rows, png_pa
     output = tmp_path / "out"
     report = process_candidate(source, output, stem="c", resolution=16, palette_limit=8)
     final = Image.open(output / "c.png")
-    assert len(set(final.getdata())) <= 8
+    assert len(set(final.get_flattened_data())) <= 8
     assert report.palette.limit == 8
     assert report.palette.method == "median-cut"
-    assert report.palette.unique_colors == len(set(final.getdata()))
+    assert report.palette.unique_colors == len(set(final.get_flattened_data()))
 
 
 def test_seam_scores_in_report_match_final_texture(tmp_path, image_from_rows, png_path):
@@ -1413,7 +1413,7 @@ def process_candidate(
             method="per-channel-median-low", cell_pixels=canvas.width // resolution
         ),
         palette=PaletteInfo(
-            unique_colors=len(set(final.getdata())),
+            unique_colors=len(set(final.get_flattened_data())),
             limit=palette_limit,
             method="median-cut" if palette_limit is not None else None,
         ),

@@ -49,12 +49,12 @@ def test_identity_when_canvas_side_equals_resolution(image_from_rows):
     rows = [[(1, 2, 3), (4, 5, 6)], [(7, 8, 9), (10, 11, 12)]]
     canvas = image_from_rows(rows)
     snapped = snap_to_grid(canvas, 2)
-    assert list(snapped.getdata()) == list(canvas.getdata())
+    assert list(snapped.get_flattened_data()) == list(canvas.get_flattened_data())
 
 
 def test_input_canvas_is_not_mutated(image_from_rows):
     rows = [[(10, 0, 0), (20, 0, 0)], [(30, 0, 0), (40, 0, 0)]]
     canvas = image_from_rows(rows)
-    before = list(canvas.getdata())
+    before = list(canvas.get_flattened_data())
     snap_to_grid(canvas, 1)
-    assert list(canvas.getdata()) == before
+    assert list(canvas.get_flattened_data()) == before

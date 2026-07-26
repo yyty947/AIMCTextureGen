@@ -26,7 +26,7 @@ def test_preview_upscales_to_512(image_from_rows, resolution, scale):
 def test_nearest_neighbor_introduces_no_new_colors(image_from_rows):
     texture = _two_tone(image_from_rows, 16)
     preview = nearest_neighbor_preview(texture)
-    assert set(preview.getdata()) == set(texture.getdata())
+    assert set(preview.get_flattened_data()) == set(texture.get_flattened_data())
 
 
 def test_preview_blocks_are_exact_pixel_replication(image_from_rows):
@@ -50,4 +50,4 @@ def test_tile_3x3_repeats_texture_and_upscales(image_from_rows):
     for tile_x in range(3):
         for tile_y in range(3):
             assert pixels[tile_x * PREVIEW_TARGET_SIDE, tile_y * PREVIEW_TARGET_SIDE] == (0, 0, 0)
-    assert set(tiled.getdata()) == set(texture.getdata())
+    assert set(tiled.get_flattened_data()) == set(texture.get_flattened_data())

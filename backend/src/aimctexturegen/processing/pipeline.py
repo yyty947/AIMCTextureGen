@@ -79,7 +79,7 @@ def process_candidate(
             method="per-channel-median-low", cell_pixels=canvas.width // resolution
         ),
         palette=PaletteInfo(
-            unique_colors=len(set(final.getdata())),
+            unique_colors=len(set(final.get_flattened_data())),
             limit=palette_limit,
             method="median-cut" if palette_limit is not None else None,
         ),
