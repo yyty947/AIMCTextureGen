@@ -16,6 +16,7 @@
 - 已完成第一阶段任务 8：合成 ZIP 的完整 API 导入流会核对原输入、持久化哈希和不可变快照 SHA-256，重新打开快照 ZIP、`project.json` 与工作副本，并精确验证格式 34 开发目录的一项已覆盖和一项缺失。审计负载超过 1 MiB；应用导入和 API 流程运行在 `-B` 独立子进程中，audit hook 只允许项目根内写入并阻断外部网络与子进程事件，因此当前成功结果同时证明大上传未写入外部 spool。2026-07-22 用户已在正常 Windows 桌面窗口和 400–900 px 宽的窄桌面窗口完成当前 multipart 实现的手工复验，页面显示和导入结果均正确。375 px 不再是产品验收条件，v0.1 不声明移动端支持。
 - 前端固定 Node.js 24.18.0；首次 lockfile 和验证使用经 Node.js 官方 `SHASUMS256.txt` 校验的便携 Windows x64 ZIP，SHA-256 为 `0ae68406b42d7725661da979b1403ec9926da205c6770827f33aac9d8f26e821`。当前没有 ComfyUI 集成；FastAPI 应用可由 `aimctexturegen.main:create_app` 创建，运行时默认项目根和目录根从仓库位置解析，不依赖当前 PowerShell 目录。
 - 当前没有需要迁移的用户项目数据；本地 `projects/` 下可能存在 2026-07-22 手工验收残留项目（已被 `.gitignore` 忽略，可安全删除）。
+- 第二阶段“确定性材质处理”已在分支 `codex/phase-2-texture-processing`（尚未合并入 `master`）实现完成，新增 `backend/src/aimctexturegen/processing/`：`models.py`（`ProcessingReport` 报告契约，`schema_version` 1、`ALGORITHM_VERSION` 1、`SCORE_DECIMALS` 6、确定性 `dump_report_json`）、`errors.py`（`ProcessingError`）、`validation.py`（仅接受 RGB 或完全不透明 RGBA、正方形且边长可被 16/32/64 整除的画布）、`grid_snap.py`（逐格逐通道下位中位数网格吸附）、`seam.py`（归一化环绕缝隙分数）、`previews.py`（512px 最近邻预览与 1536px 3x3 平铺预览）、`palette.py`（确定性 median-cut 调色板限制）、`pipeline.py`（`process_candidate` 编排，原子 temp + `os.replace` 写入）；对应测试位于 `backend/tests/processing/`，含子进程隔离门禁（验证导入图中无 fastapi/torch/comfy/numpy）。实现期间两处计划偏差已同步进 `docs/superpowers/plans/2026-07-26-phase-2-deterministic-texture-processing.md`：Pillow 12.3 弃用 `Image.getdata()`，全部调用点改用 `get_flattened_data()`（提交 `3d53e97`）；新增的 `backend/tests/processing/test_models.py` 与既有 `backend/tests/packs/test_models.py` 同名，导致合并后 pytest 单次收集 `backend\tests` 时报 `import file mismatch`，已重命名为 `test_report_models.py`（提交 `672c666`）。
 
 ## 已确认边界
 
@@ -31,15 +32,15 @@
 
 ## 当前工作入口
 
-第一阶段的自动化、独立审查和用户手工桌面浏览器门禁已全部通过。下一项工作是路线中的第二阶段“确定性材质处理”，先编写并确认可执行计划。不要提前接入真实模型或构建完整生产目录。
+第二阶段“确定性材质处理”的自动化门禁已在分支 `codex/phase-2-texture-processing` 上全部通过。下一步是评审后将该分支合并入 `master`，随后按路线图撰写第三阶段“持久任务与项目恢复”的可执行计划。不要提前接入真实模型或构建完整生产目录。
 
 ## 接手步骤
 
 1. 运行 `git status --short`，确认并保留当前未提交改动。
-2. 阅读 `AGENTS.md`、当前阶段计划和 MVP 设计规格。
-3. 为第二阶段“确定性材质处理”编写可执行计划，并在实施前确认范围和验收条件。
-4. 第二阶段开始前重新运行当前自动化门禁，保留开发目录非生产的明确标记。
-5. 不要在第二阶段接入真实模型、ComfyUI 或生产目录。
+2. 阅读 `AGENTS.md`、路线图和第二阶段计划文档，确认 `codex/phase-2-texture-processing` 已按计划评审通过。
+3. 评审通过后将 `codex/phase-2-texture-processing` 合并入 `master`（需用户确认后才可合并/推送）。
+4. 合并后为第三阶段“持久任务与项目恢复”编写可执行计划，并在实施前确认范围和验收条件。
+5. 不要在第三阶段接入真实模型、ComfyUI 或生产目录，除非路线图已明确该阶段范围包含它们。
 
 ## 当前可用验证
 
@@ -68,7 +69,7 @@ git diff --check
 git status --short
 ```
 
-已于 2026-07-26 在 `master` 检出与新建 `.venv`（Python 3.12.10）复跑完整覆盖率门禁：165 passed、总覆盖率 86%，使用 `-W error` 且无警告。使用便携 Node.js 24.18.0 运行：前端为 1 个测试文件、21 个测试通过，Vite 8.1.5 生产构建成功。最终审查实现提交为 `13dea7f`（`fix: harden Phase 1 import boundaries`）和 `abdb64a`（`fix: harden multipart protocol limits`）。`git diff --check` 无输出；`git status --short` 只应显示当前有意创建或修改的文件。同日用户使用超过 1 MiB 的合成 ZIP 完成当前上传流程的手工桌面验收：正常窗口与 400–900 px 窄窗口显示正常。截图中 Vite 开发服务的 MIME/charset、Firefox `theme-color` 兼容性提示和浏览器扩展 `content.js` 失效信息均非应用自身运行时错误，不阻断本阶段验收。
+已于 2026-07-26 在 `codex/phase-2-texture-processing` 分支（提交 `672c666`，`.venv` Python 3.12.10）复跑完整覆盖率门禁：217 passed（第一阶段 165 项 + 第二阶段 `processing/` 52 项），总覆盖率 88%，使用 `-W error` 且无警告。`processing/` 各模块覆盖率：`errors.py`、`grid_snap.py`、`models.py`、`pipeline.py`、`previews.py`、`seam.py`、`validation.py` 均 100%，`palette.py` 97%（87 语句、3 未覆盖）。`git diff --check` 无输出；`git status --short frontend` 与 `git diff master..HEAD --stat -- frontend` 均无输出，第二阶段未改动前端，前端命令未重新执行，第一阶段记录的 Node.js 24.18.0、1 个测试文件 21 个测试通过、Vite 生产构建成功仍为最后已知结果。
 
 ## 需要在对应阶段确定的事项
 
