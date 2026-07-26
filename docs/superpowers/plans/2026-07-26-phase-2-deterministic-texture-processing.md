@@ -43,7 +43,7 @@ backend/src/aimctexturegen/processing/previews.py   Nearest-neighbor + 3x3 tile 
 backend/src/aimctexturegen/processing/palette.py    Deterministic median-cut palette limit
 backend/src/aimctexturegen/processing/pipeline.py   process_candidate orchestration + file writes
 backend/tests/processing/conftest.py                Synthetic image builders
-backend/tests/processing/test_models.py             Report schema and serialization tests
+backend/tests/processing/test_report_models.py      Report schema and serialization tests
 backend/tests/processing/test_validation.py         Mode/shape policy tests
 backend/tests/processing/test_grid_snap.py          Median snap tests
 backend/tests/processing/test_seam.py               Seam score tests
@@ -87,7 +87,7 @@ git commit -m "docs: add Phase 2 deterministic texture processing plan"
 **Files:**
 - Create: `backend/src/aimctexturegen/processing/__init__.py` (empty)
 - Create: `backend/src/aimctexturegen/processing/models.py`
-- Create: `backend/tests/processing/test_models.py`
+- Create: `backend/tests/processing/test_report_models.py`
 
 Do not create `__init__.py` under `backend/tests/` — the existing suite discovers tests without package markers.
 
@@ -104,7 +104,7 @@ Do not create `__init__.py` under `backend/tests/` — the existing suite discov
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `backend/tests/processing/test_models.py`:
+Create `backend/tests/processing/test_report_models.py`:
 
 ```python
 import pydantic
@@ -214,7 +214,7 @@ def test_palette_limit_must_be_at_least_two_when_present():
 
 - [ ] **Step 2: Run tests to verify they fail for the right reason**
 
-Run: `.\.venv\Scripts\python -m pytest backend\tests\processing\test_models.py -v`
+Run: `.\.venv\Scripts\python -m pytest backend\tests\processing\test_report_models.py -v`
 Expected: collection error `ModuleNotFoundError: No module named 'aimctexturegen.processing'` — a setup failure, not RED. Create the empty `backend/src/aimctexturegen/processing/__init__.py` and an empty `models.py`, rerun, and confirm the failure becomes an `ImportError` naming the missing symbols. For a pure data-model module the interface itself is the behavior, so proceed to Step 3; after Step 4 passes, verify the tests assert real behavior by temporarily removing `sort_keys=True` from `dump_report_json`, confirming `test_dump_is_sorted_compact_utf8_with_trailing_newline` fails, then restoring it.
 
 - [ ] **Step 3: Write the implementation**
@@ -300,7 +300,7 @@ def dump_report_json(report: ProcessingReport) -> bytes:
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `.\.venv\Scripts\python -m pytest backend\tests\processing\test_models.py -v`
+Run: `.\.venv\Scripts\python -m pytest backend\tests\processing\test_report_models.py -v`
 Expected: all PASS.
 
 - [ ] **Step 5: Commit**
