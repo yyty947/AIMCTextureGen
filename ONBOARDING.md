@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-- Phase 1 实现已通过合并提交 `3f6c352` 合入 `master`，阶段分支与 worktree 已删除；MIT LICENSE 由 `3eb153e`（GitHub 网页端提交）加入。当前唯一分支为 `master`。
+- Phase 1 实现已通过合并提交 `3f6c352` 合入 `master`，阶段分支与 worktree 已删除；MIT LICENSE 由 `3eb153e`（GitHub 网页端提交）加入。
 - MVP 产品设计已在提交 `026dec8` 中确认。
 - 已完成第一阶段任务 1：FastAPI 应用工厂、`GET /api/health` 健康契约、固定后端依赖清单和健康契约测试已实现。
 - 已完成第一阶段任务 2：严格且禁止数值/布尔强制转换的目录 Pydantic 契约、规范且唯一的 `semantic_id`/`relative_path`、明确标记为 `development_fixture` 的格式 34 开发目录，以及确定性的主 `pack_format` 选择已实现。
