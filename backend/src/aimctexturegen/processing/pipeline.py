@@ -1,13 +1,17 @@
+"""Deterministic candidate processing and artifact publication."""
+
 from __future__ import annotations
 
 import hashlib
 import os
+import stat
 from pathlib import Path
 
 import PIL
 from PIL import Image
 
 from .grid_snap import snap_to_grid
+from .errors import ProcessingError
 from .models import (
     ALGORITHM_VERSION,
     GridSnapInfo,
@@ -27,8 +31,36 @@ from .validation import load_rgb_canvas
 
 def _replace_into(directory: Path, name: str, writer) -> None:
     temporary = directory / f"{name}.tmp"
-    writer(temporary)
-    os.replace(temporary, directory / name)
+    pending_error = False
+    try:
+        writer(temporary)
+        os.replace(temporary, directory / name)
+    except BaseException:
+        pending_error = True
+        raise
+    finally:
+        try:
+            _remove_temporary_file(directory, temporary)
+        except OSError:
+            if not pending_error:
+                raise
+
+
+def _remove_temporary_file(directory: Path, temporary: Path) -> None:
+    """Remove only an unchanged regular temporary file below ``directory``."""
+    if temporary.parent != directory:
+        return
+    try:
+        metadata = temporary.lstat()
+    except FileNotFoundError:
+        return
+    file_attributes = getattr(metadata, "st_file_attributes", 0)
+    if not stat.S_ISREG(metadata.st_mode) or file_attributes & stat.FILE_ATTRIBUTE_REPARSE_POINT:
+        return
+    try:
+        temporary.unlink()
+    except FileNotFoundError:
+        return
 
 
 def _write_png(image: Image.Image, directory: Path, name: str) -> ImageRef:
@@ -51,6 +83,16 @@ def process_candidate(
     palette_limit: int | None = None,
 ) -> ProcessingReport:
     """Run the deterministic Phase 2 pipeline for one raw candidate."""
+    if resolution not in (16, 32, 64):
+        raise ProcessingError("INVALID_RESOLUTION", "目标分辨率必须是 16、32 或 64")
+    if (
+        not stem
+        or stem in {".", ".."}
+        or "/" in stem
+        or "\\" in stem
+        or "\x00" in stem
+    ):
+        raise ProcessingError("INVALID_OUTPUT_STEM", "候选文件名无效")
     canvas, input_mode = load_rgb_canvas(source, resolution)
     snapped = snap_to_grid(canvas, resolution)
     final = limit_palette(snapped, palette_limit) if palette_limit is not None else snapped

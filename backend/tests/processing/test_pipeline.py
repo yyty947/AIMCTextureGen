@@ -1,8 +1,11 @@
 import hashlib
 
+import pytest
 from PIL import Image
 
+from aimctexturegen.processing.errors import ProcessingError
 from aimctexturegen.processing.models import ProcessingReport
+from aimctexturegen.processing import pipeline
 from aimctexturegen.processing.pipeline import process_candidate
 
 
@@ -107,3 +110,60 @@ def test_seam_scores_in_report_match_final_texture(tmp_path, image_from_rows, pn
         vertical,
         average,
     )
+
+
+@pytest.mark.parametrize(
+    ("resolution", "stem", "expected_code"),
+    [
+        (48, "candidate", "INVALID_RESOLUTION"),
+        (16, "", "INVALID_OUTPUT_STEM"),
+        (16, "../candidate", "INVALID_OUTPUT_STEM"),
+        (16, "folder/candidate", "INVALID_OUTPUT_STEM"),
+        (16, "folder\\candidate", "INVALID_OUTPUT_STEM"),
+    ],
+)
+def test_pipeline_rejects_invalid_output_values_before_creating_directory(
+    tmp_path, resolution, stem, expected_code
+):
+    output = tmp_path / "out"
+
+    with pytest.raises(ProcessingError) as error:
+        process_candidate(
+            tmp_path / "not-decoded.png", output, stem=stem, resolution=resolution
+        )
+
+    assert error.value.code == expected_code
+    assert not output.exists()
+
+
+def test_pipeline_accepts_opaque_rgba_and_records_original_mode(tmp_path, png_path):
+    source = png_path(Image.new("RGBA", (32, 32), (10, 20, 30, 255)))
+
+    report = process_candidate(source, tmp_path / "out", stem="c", resolution=16)
+
+    assert report.input_mode == "RGBA"
+    with Image.open(tmp_path / "out" / "c.png") as final:
+        assert final.mode == "RGB"
+
+
+def test_pipeline_removes_temporary_file_when_replacement_fails(
+    tmp_path, image_from_rows, png_path, monkeypatch
+):
+    source, _cells = _cell_canvas(image_from_rows, png_path)
+    output = tmp_path / "out"
+    original_replace = pipeline.os.replace
+    replacements = 0
+
+    def fail_second_replacement(source_path, destination_path):
+        nonlocal replacements
+        replacements += 1
+        if replacements == 2:
+            raise OSError("replace blocked")
+        original_replace(source_path, destination_path)
+
+    monkeypatch.setattr(pipeline.os, "replace", fail_second_replacement)
+
+    with pytest.raises(OSError, match="replace blocked"):
+        process_candidate(source, output, stem="c", resolution=16)
+
+    assert not list(output.glob("*.tmp"))

@@ -93,6 +93,7 @@ def _nearest(color: tuple[int, int, int], palette: list[tuple[int, int, int]]):
 
 
 def limit_palette(texture: Image.Image, max_colors: int) -> Image.Image:
+    """Reduce an RGB texture to a deterministic median-cut palette."""
     if max_colors < 2:
         raise ProcessingError("INVALID_PALETTE_LIMIT", "调色板颜色上限必须至少为 2")
     histogram = Counter(texture.get_flattened_data())

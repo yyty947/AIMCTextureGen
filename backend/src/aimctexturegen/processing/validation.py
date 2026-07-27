@@ -1,3 +1,5 @@
+"""Candidate image decoding and RGB canvas validation for processing."""
+
 from __future__ import annotations
 
 from pathlib import Path
