@@ -9,7 +9,7 @@ from aimctexturegen.core.relative_paths import validate_project_relative_path
         "pack.mcmeta",
         "assets/minecraft/textures/block/stone.png",
         "uploads/structure-references/参考.png",
-        "namespace:variant/file.png",
+        "namespace-variant/file.png",
     ],
 )
 def test_valid_project_relative_paths_are_returned_unchanged(value: str) -> None:
@@ -34,6 +34,16 @@ def test_valid_project_relative_paths_are_returned_unchanged(value: str) -> None
         "//server/share/file.png",
         "//?/C:/device/file.png",
         "assets/minecraft/\x00stone.png",
+        "assets/CON/file.png",
+        "assets/NUL.txt",
+        "assets/com9.bin",
+        "assets/Lpt1/file.png",
+        "assets/stone.png:stream",
+        "assets/trailing./file.png",
+        "assets/trailing-space /file.png",
+        "assets/control\x01/file.png",
+        "assets/question?/file.png",
+        "assets/star*/file.png",
     ],
 )
 def test_unsafe_or_noncanonical_project_relative_paths_are_rejected(

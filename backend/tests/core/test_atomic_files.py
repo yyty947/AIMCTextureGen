@@ -43,6 +43,62 @@ def test_validator_failure_preserves_existing_destination_byte_exactly(
     assert not (tmp_path / "state.json.tmp").exists()
 
 
+def test_validator_cannot_substitute_unvalidated_temporary_bytes(
+    tmp_path: Path,
+) -> None:
+    destination = tmp_path / "state.json"
+    destination.write_bytes(b"original")
+    temporary = tmp_path / "state.json.tmp"
+    attacker = tmp_path / "attacker.tmp"
+
+    def substitute_after_validation(payload: bytes) -> None:
+        assert payload == b"validated"
+        attacker.write_bytes(b"UNVALIDATED")
+        os.replace(attacker, temporary)
+
+    with pytest.raises(AtomicWriteError, match="validation"):
+        atomic_replace_bytes(destination, b"validated", substitute_after_validation)
+
+    assert destination.read_bytes() == b"original"
+    assert not temporary.exists()
+
+
+def test_validator_cannot_overwrite_validated_temporary_bytes(
+    tmp_path: Path,
+) -> None:
+    destination = tmp_path / "state.json"
+    destination.write_bytes(b"original")
+    temporary = tmp_path / "state.json.tmp"
+
+    def overwrite_after_validation(payload: bytes) -> None:
+        assert payload == b"validated"
+        handle = atomic_files_module._create_file(
+            str(temporary),
+            atomic_files_module._GENERIC_WRITE,
+            atomic_files_module._FILE_SHARE_READ
+            | atomic_files_module._FILE_SHARE_WRITE
+            | 0x00000004,
+            None,
+            3,
+            atomic_files_module._FILE_ATTRIBUTE_NORMAL,
+            None,
+        )
+        if handle == atomic_files_module._INVALID_HANDLE_VALUE:
+            atomic_files_module._raise_windows_error(temporary)
+        descriptor = atomic_files_module.msvcrt.open_osfhandle(
+            handle,
+            os.O_WRONLY | os.O_BINARY,
+        )
+        with os.fdopen(descriptor, "wb") as attacker:
+            attacker.write(b"UNVALIDATED")
+
+    with pytest.raises(AtomicWriteError, match="validation"):
+        atomic_replace_bytes(destination, b"validated", overwrite_after_validation)
+
+    assert destination.read_bytes() == b"original"
+    assert not temporary.exists()
+
+
 def test_successful_replacement_is_byte_exact_and_leaves_no_temporary_file(
     tmp_path: Path,
 ) -> None:
@@ -83,7 +139,7 @@ def test_fsync_failure_removes_only_the_created_temporary_file(
     assert not (tmp_path / "state.json.tmp").exists()
 
 
-def test_replace_failure_removes_only_the_created_temporary_file(
+def test_publication_failure_removes_only_the_created_temporary_file(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -92,10 +148,10 @@ def test_replace_failure_removes_only_the_created_temporary_file(
     unrelated = tmp_path / "unrelated.tmp"
     unrelated.write_bytes(b"keep")
 
-    def fail_replace(_source: Path, _destination: Path) -> None:
-        raise OSError("forced replace failure")
+    def fail_publish(_handle: int, _destination: Path) -> None:
+        raise OSError("forced publication failure")
 
-    monkeypatch.setattr(atomic_files_module.os, "replace", fail_replace)
+    monkeypatch.setattr(atomic_files_module, "_publish_open_file", fail_publish)
 
     with pytest.raises(AtomicWriteError, match="replace"):
         atomic_replace_bytes(destination, b"new", lambda _payload: None)

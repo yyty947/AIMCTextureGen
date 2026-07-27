@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-import re
-
-
-_WINDOWS_DRIVE_PREFIX = re.compile(r"^[A-Za-z]:")
+_WINDOWS_DEVICE_STEMS = frozenset(
+    {"con", "prn", "aux", "nul"}
+    | {f"com{number}" for number in range(1, 10)}
+    | {f"lpt{number}" for number in range(1, 10)}
+)
+_WINDOWS_INVALID_CHARACTERS = frozenset('<>:"|?*')
 
 
 def validate_project_relative_path(value: str) -> str:
@@ -19,9 +21,17 @@ def validate_project_relative_path(value: str) -> str:
         or value.endswith("/")
         or "\\" in value
         or "\x00" in value
-        or _WINDOWS_DRIVE_PREFIX.match(value)
     ):
         raise ValueError("invalid project-relative path")
-    if any(segment in {"", ".", ".."} for segment in value.split("/")):
-        raise ValueError("invalid project-relative path")
+    for segment in value.split("/"):
+        if (
+            segment in {"", ".", ".."}
+            or any(character in _WINDOWS_INVALID_CHARACTERS for character in segment)
+            or any(ord(character) < 32 for character in segment)
+            or segment.endswith((" ", "."))
+        ):
+            raise ValueError("invalid project-relative path")
+        device_stem = segment.split(".", maxsplit=1)[0].casefold()
+        if device_stem in _WINDOWS_DEVICE_STEMS:
+            raise ValueError("invalid Windows device path")
     return value

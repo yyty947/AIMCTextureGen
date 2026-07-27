@@ -202,7 +202,7 @@ frontend/src/App.tsx
 - Adds errors: `INVALID_RESOLUTION`, `INVALID_OUTPUT_STEM`.
 - Preserves Phase 2 algorithm and report versions.
 
-- [ ] **Step 1: Add failing validation and cleanup tests**
+- [x] **Step 1: Add failing validation and cleanup tests**
 
 Add tests that call `process_candidate` with resolution `48`, stems `""`,
 `"../candidate"`, `"folder/candidate"`, and `"folder\\candidate"`. Each must
@@ -222,7 +222,7 @@ Monkeypatch `os.replace` to fail on the second artifact and assert that no
 `*.tmp` file remains. Existing successfully replaced files may remain; Phase 3
 does not add a cross-file transaction to the Phase 2 pipeline.
 
-- [ ] **Step 2: Run the tests and confirm RED**
+- [x] **Step 2: Run the tests and confirm RED**
 
 Run:
 
@@ -233,7 +233,7 @@ Run:
 Expected: invalid values fail too late or with Pydantic errors, the RGBA test
 passes only after it is added, and failed replacement leaves a temp file.
 
-- [ ] **Step 3: Add preflight validation and reliable temp cleanup**
+- [x] **Step 3: Add preflight validation and reliable temp cleanup**
 
 At the top of `process_candidate`, before decoding or creating directories:
 
@@ -258,7 +258,7 @@ write/replace error.
 Add concise module and public-function docstrings to the processing files that
 still lack them. Do not change any numeric or palette behavior.
 
-- [ ] **Step 4: Run Phase 2 and full backend gates**
+- [x] **Step 4: Run Phase 2 and full backend gates**
 
 ```powershell
 .\.venv\Scripts\python -W error -m pytest backend\tests\processing -v
@@ -267,7 +267,7 @@ still lack them. Do not change any numeric or palette behavior.
 
 Expected: all tests pass with no warnings.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add backend/src/aimctexturegen/processing backend/tests/processing
@@ -296,13 +296,13 @@ git commit -m "fix: close deferred Phase 2 processing guards"
   `ProjectSummary`, and `dump_project_manifest(manifest) -> bytes`.
 - `bool` is `True` only when schema 1 was migrated.
 
-- [ ] **Step 1: Write failing atomic-file tests**
+- [x] **Step 1: Write failing atomic-file tests**
 
 Cover:
 
 - validator failure leaves the original destination byte-identical;
 - successful replacement is byte-exact and leaves no `.tmp`;
-- writer or `os.replace` failure removes only the exact temporary regular file;
+- writer or publication failure removes only the exact temporary regular file;
 - a stale bounded regular `.tmp` is removed before the new write;
 - an existing temporary symlink/junction/reparse point is rejected and never
   followed or removed.
@@ -315,22 +315,24 @@ Run:
 
 Expected: import failure naming `aimctexturegen.core.atomic_files`.
 
-- [ ] **Step 2: Implement validated atomic replacement**
+- [x] **Step 2: Implement validated atomic replacement**
 
 `atomic_replace_bytes` must:
 
 1. require an existing plain parent directory;
 2. use `<destination-name>.tmp`;
 3. remove an existing bounded regular temp file, but reject an unsafe one;
-4. write with `"xb"`, flush, and `os.fsync`;
+4. create exclusively (`"xb"` semantics), flush, and `os.fsync`;
 5. read the bounded payload back and call `validator`;
-6. call `os.replace(temp, destination)`;
+6. on Windows, keep a read-only-sharing handle open through validation and
+   publish that exact handle with `SetFileInformationByHandle(FileRenameInfo)`;
+   the portable fallback rechecks identity immediately before `os.replace`;
 7. remove the exact temp regular file in `finally`.
 
 The helper raises `AtomicWriteError`; it does not import FastAPI or translate
 user-facing errors.
 
-- [ ] **Step 3: Write failing schema and migration tests**
+- [x] **Step 3: Write failing schema and migration tests**
 
 Use strict tests for schema-2 defaults and types:
 
@@ -352,18 +354,19 @@ absolute/reference paths containing `..`, and extra fields.
 Assert a new import writes schema 2 directly with resolution `16`, parallelism
 `1`, and no style references.
 
-- [ ] **Step 4: Implement shared relative-path syntax**
+- [x] **Step 4: Implement shared relative-path syntax**
 
 `validate_project_relative_path` accepts only nonempty forward-slash paths
 whose segments are neither empty, `.` nor `..`. It rejects leading slashes,
-backslashes, drive/UNC/device prefixes, NUL, and trailing slashes. It performs
-syntax validation only; callers that read files must still hold the containing
-directory identity and verify an ordinary non-reparse file.
+backslashes, drive/UNC/device prefixes, NUL, trailing slashes, Windows-invalid
+characters and controls, trailing dots/spaces, and reserved device stems. It
+performs syntax validation only; callers that read files must still hold the
+containing directory identity and verify an ordinary non-reparse file.
 
-Use this validator in project and job Pydantic models so the two contracts
-cannot drift.
+Use this validator in project models and in the job Pydantic models added by
+Task 4 so the two contracts cannot drift.
 
-- [ ] **Step 5: Implement strict project models**
+- [x] **Step 5: Implement strict project models**
 
 Keep the current schema-1 model as `ProjectManifestV1`. Define schema 2 with
 the existing fields plus:
@@ -388,7 +391,7 @@ absolute path or source hash.
 Update `ProjectWorkspace` to write schema 2 directly and validate the exact
 bytes before publishing the project.
 
-- [ ] **Step 6: Run focused and full project tests**
+- [x] **Step 6: Run focused and full project tests**
 
 ```powershell
 .\.venv\Scripts\python -m pytest backend\tests\core backend\tests\projects -v
@@ -396,7 +399,7 @@ bytes before publishing the project.
 
 Expected: all pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```powershell
 git add backend/src/aimctexturegen/core backend/src/aimctexturegen/projects backend/tests/core backend/tests/projects

@@ -18,7 +18,8 @@
 - 当前没有需要迁移的用户项目数据；本地 `projects/` 下可能存在 2026-07-22 手工验收残留项目（已被 `.gitignore` 忽略，可安全删除）。
 - 第二阶段“确定性材质处理”已通过合并提交 `4f5ba49` 合入 `master`，新增 `backend/src/aimctexturegen/processing/`：`models.py`（`ProcessingReport` 报告契约，`schema_version` 1、`ALGORITHM_VERSION` 1、`SCORE_DECIMALS` 6、确定性 `dump_report_json`）、`errors.py`（`ProcessingError`）、`validation.py`（仅接受 RGB 或完全不透明 RGBA、正方形且边长可被 16/32/64 整除的画布）、`grid_snap.py`（逐格逐通道下位中位数网格吸附）、`seam.py`（归一化环绕缝隙分数）、`previews.py`（512px 最近邻预览与 1536px 3x3 平铺预览）、`palette.py`（确定性 median-cut 调色板限制）、`pipeline.py`（`process_candidate` 编排，原子 temp + `os.replace` 写入）；对应测试位于 `backend/tests/processing/`，含子进程隔离门禁（验证导入图中无 fastapi/torch/comfy/numpy）。实现期间两处计划偏差已同步进 `docs/superpowers/plans/2026-07-26-phase-2-deterministic-texture-processing.md`：Pillow 12.3 弃用 `Image.getdata()`，全部调用点改用 `get_flattened_data()`（提交 `3d53e97`）；新增的 `backend/tests/processing/test_models.py` 与既有 `backend/tests/packs/test_models.py` 同名，导致合并后 pytest 单次收集 `backend\tests` 时报 `import file mismatch`，已重命名为 `test_report_models.py`（提交 `672c666`）。
 - 第二阶段计划中的历史完成项已全部勾选，并补充合并门禁与五项延后清理说明，不再与本文件的完成状态冲突。
-- 第三阶段可执行计划已在 `codex/phase-3-durable-jobs` 分支写入并完成自审：`docs/superpowers/plans/2026-07-27-phase-3-durable-jobs-and-recovery.md`；当前只完成计划，没有开始第三阶段业务实现。计划固定以项目 JSON/图片为可迁移真相、SQLite 为可删除重建索引，并覆盖项目清单 schema 1 到 2 的原子迁移、四 seed 任务记录、候选状态、取消/重试谱系、启动恢复和只读任务历史 UI。
+- 第三阶段 Task 1 已由提交 `a89c924` 完成：补齐 Phase 2 的分辨率/文件名预检、失败临时文件清理、RGBA 端到端覆盖和处理模块文档。
+- 第三阶段 Task 2 已由提交 `d4ee5cf` 实现并完成第一轮评审加固：项目清单严格区分 schema 1/2，schema 1 可保持原字段和双时间戳迁移到 schema 2；新导入直接写入默认分辨率 16、并行度 1、空风格参考的 schema 2。共享项目相对路径语法现在同时拒绝 Windows 非法字符、控制字符、尾随点/空格和设备名。清单原子替换在 Windows 上从写入、`fsync`、回读验证到发布始终绑定同一不共享删除权限的文件句柄，再通过 `SetFileInformationByHandle` 发布，验证回调无法把同名未验证文件换入。
 
 ## 已确认边界
 
@@ -34,13 +35,13 @@
 
 ## 当前工作入口
 
-当前工作分支为 `codex/phase-3-durable-jobs`。第三阶段“持久任务与项目恢复”的可执行计划已经完成并自审，实施入口是 `docs/superpowers/plans/2026-07-27-phase-3-durable-jobs-and-recovery.md`。先审阅计划中的锁定数据模型、状态转换、索引重建和恢复语义；确认后从 Task 1 的第二阶段延后清理开始按测试先行实施。第三阶段不接入真实模型、ComfyUI 或生产目录。
+当前工作分支为 `codex/phase-3-durable-jobs`。第三阶段 Task 1 和 Task 2 已完成；下一项是 Task 3“安全项目仓储与服务边界”，负责把 schema-1 打开/原子迁移、项目列表和覆盖业务从 API 路由移入仓储/服务。继续只执行 `docs/superpowers/plans/2026-07-27-phase-3-durable-jobs-and-recovery.md`，不接入真实模型、ComfyUI 或生产目录。
 
 ## 接手步骤
 
 1. 运行 `git status --short`，确认并保留当前未提交改动。
 2. 阅读 `AGENTS.md`、路线图、第二阶段计划和第三阶段可执行计划，了解已合并的 processing 契约以及即将建立的持久化接口。
-3. 在实施前审阅并确认第三阶段计划；确认后只执行一个阶段计划，从 Task 1 开始逐项完成 RED → GREEN → commit。
+3. 从 Task 3 开始继续逐项完成 RED → GREEN → commit；不要重复 Task 1/2 或提前执行后续任务。
 4. 不要在第三阶段接入真实模型、ComfyUI 或生产目录，也不要采用候选或导出资源包。
 
 ## 当前可用验证
@@ -71,6 +72,8 @@ git status --short
 ```
 
 已于 2026-07-26 在合并后的 `master`（合并提交 `4f5ba49`，`.venv` Python 3.12.10）复跑门禁：后端 217 passed（第一阶段 165 项 + 第二阶段 `processing/` 52 项），使用 `-W error` 且无警告；前端 1 个测试文件 21 个测试通过，Vite 生产构建成功（本次已在合并结果上重新执行）。覆盖率基线记录自阶段分支提交 `672c666` 的带覆盖率门禁：总覆盖率 88%，`processing/` 各模块中 `errors.py`、`grid_snap.py`、`models.py`、`pipeline.py`、`previews.py`、`seam.py`、`validation.py` 均 100%，`palette.py` 97%（87 语句、3 未覆盖）。`git diff --check` 无输出。
+
+2026-07-27 第三阶段 Task 2 第一轮评审修复后，`.\.venv\Scripts\python -W error -m pytest backend\tests\core backend\tests\projects -v` 为 91 passed。额外完整后端回归为 287 passed、3 failed；三项失败均是 Task 3 明确接管的旧 API 测试夹具仍直接用 schema 1 构造当前 `ProjectManifest`，当前不把完整后端门禁记为通过。
 
 ## 需要在对应阶段确定的事项
 
