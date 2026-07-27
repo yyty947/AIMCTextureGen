@@ -513,6 +513,8 @@ git commit -m "refactor: move project persistence behind services"
 **Interfaces:**
 - Produces: `JobRequest`, `JobStateRecord`, `CandidateRecord`, `JobFailure`,
   `JobSummary`, `CreateJobCommand`.
+- Produces: `validate_job_pair(request: JobRequest, state: JobStateRecord)
+  -> None` for cross-file ID, seed and candidate-index consistency.
 - Produces: `transition_job_state`, `transition_candidate_state`,
   `cancel_state`, and `recover_interrupted_state`.
 - Produces: deterministic `dump_job_request` and `dump_job_state`.
@@ -566,7 +568,9 @@ CandidateStatus = Literal[
 `JobFailure` uses `code`, `stage`, `user_message`,
 `recommended_actions: tuple[str, ...]`, `technical_details: str | None`, and
 `log_reference: str | None`. Dumps are sorted, compact UTF-8 JSON with a
-trailing newline.
+trailing newline. `validate_job_pair` requires equal project/job IDs and exactly
+four candidate records whose indices and seeds match the request tuple in
+order; `JobStore.load` must call it before returning a job.
 
 - [ ] **Step 3: Write the state-machine matrix tests**
 
@@ -1064,10 +1068,13 @@ Ask the user to:
 
 1. start FastAPI and Vite using the documented development commands;
 2. import a synthetic Java pack and note its project ID;
-3. restart both services and open the same project from “已有项目” without
+3. use the exact PowerShell `Invoke-RestMethod` command supplied by this task
+   to create one queued job through `POST /api/projects/{project-id}/jobs`;
+   the command must use a covered synthetic style-reference path and a missing
+   eligible target from the imported pack;
+4. restart both services and open the same project from “已有项目” without
    re-importing;
-4. confirm coverage and empty/history content remain visible;
-5. inspect any interrupted-job row and confirm the recovery explanation;
+5. confirm coverage and the queued job-history row remain visible;
 6. repeat at a normal desktop width and at representative 400 px, 600 px and
    900 px window widths;
 7. confirm no horizontal page overflow, clipped controls, application-origin
@@ -1075,7 +1082,9 @@ Ask the user to:
 
 Pass criteria: all steps succeed; browser-extension errors and Vite development
 MIME warnings remain third-party/development noise unless they originate from
-application code.
+application code. `JOB_INTERRUPTED` presentation remains an automated component
+and restart-integration assertion; the manual procedure does not edit job JSON
+or expose an internal transition endpoint merely to manufacture that state.
 
 - [ ] **Step 4: Update handoff documents**
 
