@@ -452,9 +452,12 @@ Move the bounded regular-file read and handle/path identity checks from
 `MAX_PROJECT_MANIFEST_BYTES`, `load_project_manifest`, and
 `atomic_replace_bytes`. A migrated manifest is replaced while the project
 directory identity is held. Repository manifest writers are serialized, and
-the atomic migration validator rechecks that the destination identity and
-bytes still match the schema-1 read; a concurrent replacement is preserved
-and reported as `PROJECT_MANIFEST_CONFLICT`.
+the process lock is only an optimization. Correctness comes from conditional
+atomic replacement: on Windows it holds a destination handle that denies write
+sharing across the compare/publish window, verifies the handle/path identity
+and exact schema-1 bytes, then publishes by source handle with POSIX rename
+semantics. A replacement after validator completion is preserved and reported
+as `PROJECT_MANIFEST_CONFLICT`.
 
 `list_manifests` scans only direct children whose name equals `str(UUID(name))`.
 Return both valid manifests and typed issues so startup recovery can report
