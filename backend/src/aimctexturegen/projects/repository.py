@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import stat
+import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -29,6 +30,7 @@ from aimctexturegen.projects.models import (
 
 
 _FileIdentity = tuple[int, int]
+_MANIFEST_MIGRATION_LOCK = threading.Lock()
 
 
 class ProjectRepositoryError(Exception):
@@ -99,12 +101,13 @@ class ProjectRepository:
                         with hold_directory_identity(
                             project_root
                         ) as project_identity:
-                            manifest = self._load_and_migrate(
-                                project_id,
-                                project_root,
-                                root_identity,
-                                project_identity,
-                            )
+                            with _MANIFEST_MIGRATION_LOCK:
+                                manifest = self._load_and_migrate(
+                                    project_id,
+                                    project_root,
+                                    root_identity,
+                                    project_identity,
+                                )
                             opened = OpenedProject(
                                 manifest=manifest,
                                 root=project_root,
@@ -194,7 +197,7 @@ class ProjectRepository:
         project_identity: FileIdentity,
     ) -> ProjectManifest:
         manifest_path = project_root / "project.json"
-        payload = self._read_bounded_manifest(
+        payload, observed_identity = self._read_bounded_manifest(
             manifest_path,
             project_root,
             root_identity,
@@ -213,10 +216,29 @@ class ProjectRepository:
         if len(replacement) > MAX_PROJECT_MANIFEST_BYTES:
             raise _repository_error("CORRUPT_PROJECT_MANIFEST")
 
+        conflict_detected = False
+
         def validate_replacement(readback: bytes) -> None:
+            nonlocal conflict_detected
             loaded, still_migrated = load_project_manifest(readback)
             if still_migrated or loaded != manifest:
                 raise ValueError("migrated project manifest changed during write")
+            try:
+                current_payload, current_identity = self._read_bounded_manifest(
+                    manifest_path,
+                    project_root,
+                    root_identity,
+                    project_identity,
+                )
+            except ProjectRepositoryError:
+                conflict_detected = True
+                raise
+            if (
+                current_identity != observed_identity
+                or current_payload != payload
+            ):
+                conflict_detected = True
+                raise _repository_error("PROJECT_MANIFEST_CONFLICT")
 
         self._require_identity(self._root, root_identity, "UNSAFE_PROJECT_ROOT")
         self._require_identity(
@@ -231,6 +253,8 @@ class ProjectRepository:
                 validate_replacement,
             )
         except AtomicWriteError as error:
+            if conflict_detected:
+                raise _repository_error("PROJECT_MANIFEST_CONFLICT") from error
             raise _repository_error("PROJECT_STORAGE_UNAVAILABLE") from error
         self._require_identity(self._root, root_identity, "UNSAFE_PROJECT_ROOT")
         self._require_identity(
@@ -246,7 +270,7 @@ class ProjectRepository:
         project_root: Path,
         root_identity: FileIdentity,
         project_identity: FileIdentity,
-    ) -> bytes:
+    ) -> tuple[bytes, _FileIdentity]:
         try:
             path_status = os.lstat(manifest_path)
             if (
@@ -284,7 +308,7 @@ class ProjectRepository:
                     or is_reparse_point(manifest_path, final_status)
                 ):
                     raise OSError("project manifest changed while reading")
-                return payload
+                return payload, expected_identity
         except ProjectRepositoryError:
             raise
         except OSError as error:
@@ -321,5 +345,6 @@ def _repository_error(code: str) -> ProjectRepositoryError:
         "UNSAFE_PROJECT_ROOT": "项目存储目录不安全",
         "UNSAFE_PROJECT_PATH": "项目目录不安全",
         "PROJECT_STORAGE_UNAVAILABLE": "无法安全更新项目清单",
+        "PROJECT_MANIFEST_CONFLICT": "项目清单已被其他操作更新",
     }
     return ProjectRepositoryError(code, messages[code])

@@ -104,6 +104,8 @@ async def import_project(
                 f"pack_format={error.pack_format}; supported={supported}"
             ),
         ) from error
+    except (ProjectRepositoryError, ProjectServiceError) as error:
+        raise _project_domain_problem(error, "importing") from error
     except Exception as error:
         _LOGGER.exception("Unexpected project import failure")
         raise _internal_problem("importing") from error
@@ -405,6 +407,8 @@ def _project_domain_problem(
         actions = ("检查项目工作副本，或重新导入原始资源包",)
     elif error.code == "CORRUPT_PROJECT_MANIFEST":
         actions = ("从备份恢复项目，或重新导入原始资源包",)
+    elif error.code == "INDEX_UNAVAILABLE" and stage == "importing":
+        actions = ("项目已成功保存；请从项目列表重新打开，或重启应用重建索引",)
     return ApiProblem(
         status_code=status_code,
         code=error.code,

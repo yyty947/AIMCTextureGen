@@ -16,6 +16,7 @@ from PIL import Image
 from fastapi import FastAPI
 
 import aimctexturegen.main as main_module
+import aimctexturegen.projects.service as project_service_module
 from aimctexturegen.catalog.registry import CatalogRegistry
 from aimctexturegen.main import create_app
 from aimctexturegen.projects.models import ProjectManifest
@@ -526,6 +527,53 @@ def test_unexpected_import_error_is_logged_but_not_leaked_and_temp_is_removed(
     assert body["technical_details"] is None
     assert secret not in response.text
     assert list(project_root.iterdir()) == []
+
+
+def test_import_maps_index_failure_after_persisting_project(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    api_pack_zip_factory: Callable[[str, dict[str, bytes], int], Path],
+) -> None:
+    source = api_pack_zip_factory("index-failure.zip", {})
+    project_root = tmp_path / "projects"
+    client = build_client(project_root)
+
+    def fail_upsert(_index, _manifest):
+        raise OSError("injected index upsert failure")
+
+    def fail_rebuild(_index):
+        raise OSError("injected index rebuild failure")
+
+    monkeypatch.setattr(
+        project_service_module.RepositoryProjectIndex,
+        "upsert_project",
+        fail_upsert,
+    )
+    monkeypatch.setattr(
+        project_service_module.RepositoryProjectIndex,
+        "rebuild",
+        fail_rebuild,
+    )
+
+    with source.open("rb") as upload:
+        response = client.post(
+            "/api/projects/import",
+            data={"project_name": "Persisted despite index failure"},
+            files={"pack": ("index-failure.zip", upload, "application/zip")},
+        )
+
+    body = assert_stable_error(
+        response,
+        status_code=500,
+        code="INDEX_UNAVAILABLE",
+        stage="importing",
+    )
+    assert body["recommended_actions"] == [
+        "项目已成功保存；请从项目列表重新打开，或重启应用重建索引"
+    ]
+    persisted = list(project_root.iterdir())
+    assert len(persisted) == 1
+    assert (persisted[0] / "project.json").is_file()
 
 
 def test_open_upload_handle_blocks_replacement_and_cleanup_stays_scoped(

@@ -140,6 +140,44 @@ def test_open_migrates_schema_1_once_without_changing_source_or_pack(
     }
 
 
+def test_schema_1_migration_preserves_concurrent_newer_manifest(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    projects_root = tmp_path / "projects"
+    project_id = UUID("12121212-1212-4212-8212-121212121212")
+    project_root = _write_project(
+        projects_root,
+        _manifest(project_id),
+        schema_1=True,
+    )
+    concurrent_manifest = _manifest(project_id).model_copy(
+        update={
+            "project_name": "Concurrent",
+            "default_resolution": 64,
+        }
+    )
+    concurrent_payload = dump_project_manifest(concurrent_manifest)
+    real_replace = repository_module.atomic_replace_bytes
+
+    def replace_destination_before_publication(destination, payload, validator):
+        destination.write_bytes(concurrent_payload)
+        return real_replace(destination, payload, validator)
+
+    monkeypatch.setattr(
+        repository_module,
+        "atomic_replace_bytes",
+        replace_destination_before_publication,
+    )
+
+    with pytest.raises(ProjectRepositoryError) as captured:
+        with ProjectRepository(projects_root).open(project_id):
+            pass
+
+    assert captured.value.code == "PROJECT_MANIFEST_CONFLICT"
+    assert (project_root / "project.json").read_bytes() == concurrent_payload
+
+
 def test_list_manifests_is_deterministic_and_does_not_follow_unsafe_entries(
     tmp_path: Path,
 ) -> None:
