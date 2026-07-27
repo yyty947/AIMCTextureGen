@@ -11,6 +11,7 @@ from uuid import UUID, uuid4
 
 from aimctexturegen.catalog.models import CatalogProfile
 from aimctexturegen.catalog.registry import CatalogRegistry
+from aimctexturegen.core.atomic_files import atomic_replace_bytes
 from aimctexturegen.packs.java_adapter import (
     MAX_ZIP_MEMBER_BYTES,
     MAX_ZIP_TOTAL_UNCOMPRESSED_BYTES,
@@ -30,6 +31,8 @@ from aimctexturegen.projects.models import (
     MAX_PROJECT_MANIFEST_BYTES,
     MAX_PROJECT_NAME_LENGTH,
     ProjectManifest,
+    dump_project_manifest,
+    load_project_manifest,
 )
 
 
@@ -110,7 +113,7 @@ class ProjectWorkspace:
 
                 timestamp = datetime.now(timezone.utc)
                 manifest = ProjectManifest(
-                    schema_version=1,
+                    schema_version=2,
                     project_id=project_id,
                     project_name=project_name,
                     edition="java",
@@ -120,20 +123,33 @@ class ProjectWorkspace:
                     source_sha256=source_hash,
                     created_at=timestamp,
                     updated_at=timestamp,
+                    default_resolution=16,
+                    default_parallelism=1,
+                    style_references=(),
                 )
                 manifest_path = temporary_root / "project.json"
                 _require_directory_identity(temporary_root, temporary_identity)
-                manifest_payload = manifest.model_dump_json(indent=2).encode("utf-8")
+                manifest_payload = dump_project_manifest(manifest)
                 if len(manifest_payload) > MAX_PROJECT_MANIFEST_BYTES:
                     raise PackValidationError(
                         "INVALID_PROJECT_MANIFEST",
                         "项目清单超过允许大小",
                     )
-                manifest_path.write_bytes(manifest_payload)
-                validated_manifest = ProjectManifest.model_validate_json(
-                    manifest_path.read_text(encoding="utf-8"),
-                    strict=True,
+
+                validated_manifests: list[ProjectManifest] = []
+
+                def validate_manifest(payload: bytes) -> None:
+                    loaded, migrated = load_project_manifest(payload)
+                    if migrated or loaded != manifest:
+                        raise ValueError("new project manifest changed during write")
+                    validated_manifests.append(loaded)
+
+                atomic_replace_bytes(
+                    manifest_path,
+                    manifest_payload,
+                    validate_manifest,
                 )
+                validated_manifest = validated_manifests[0]
                 _verify_snapshot_binding(
                     snapshot,
                     snapshot_file,
