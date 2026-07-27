@@ -76,7 +76,7 @@ def write_project(project_root: Path, project_id: UUID) -> None:
     (project_directory / "pack").mkdir(parents=True)
     timestamp = datetime.now(timezone.utc)
     manifest = ProjectManifest(
-        schema_version=1,
+        schema_version=2,
         project_id=project_id,
         project_name="Canonical Project",
         edition="java",
@@ -86,6 +86,9 @@ def write_project(project_root: Path, project_id: UUID) -> None:
         source_sha256="0" * 64,
         created_at=timestamp,
         updated_at=timestamp,
+        default_resolution=16,
+        default_parallelism=1,
+        style_references=(),
     )
     (project_directory / "project.json").write_text(
         manifest.model_dump_json(indent=2),

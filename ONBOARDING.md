@@ -20,6 +20,7 @@
 - 第二阶段计划中的历史完成项已全部勾选，并补充合并门禁与五项延后清理说明，不再与本文件的完成状态冲突。
 - 第三阶段 Task 1 已由提交 `a89c924` 完成：补齐 Phase 2 的分辨率/文件名预检、失败临时文件清理、RGBA 端到端覆盖和处理模块文档。
 - 第三阶段 Task 2 已由提交 `d4ee5cf` 实现并完成第一轮评审加固：项目清单严格区分 schema 1/2，schema 1 可保持原字段和双时间戳迁移到 schema 2；新导入直接写入默认分辨率 16、并行度 1、空风格参考的 schema 2。共享项目相对路径语法现在同时拒绝 Windows 非法字符、控制字符、尾随点/空格和设备名。清单原子替换在 Windows 上从写入、`fsync`、回读验证到发布始终绑定同一不共享删除权限的文件句柄，再通过 `SetFileInformationByHandle` 发布，验证回调无法把同名未验证文件换入。
+- 第三阶段 Task 3 已完成：`ProjectRepository` 在持有项目根和项目目录身份期间安全读取有界清单，并只原子迁移 schema 1 的 `project.json`；直接扫描只接受规范 UUID 目录，以 `updated_at DESC, project_id ASC` 返回有效项目，并把损坏或不安全的规范项目隔离成类型化问题。`ProjectService` 现负责导入、获取、列表和实时覆盖业务，以磁盘项目为权威并在索引写入失败后只尝试一次重建；项目 API 新增 `GET /api/projects`，其余路由不再直接打开 `project.json`、遍历 `pack/` 或执行目录配置匹配。
 
 ## 已确认边界
 
@@ -35,13 +36,13 @@
 
 ## 当前工作入口
 
-当前工作分支为 `codex/phase-3-durable-jobs`。第三阶段 Task 1 和 Task 2 已完成；下一项是 Task 3“安全项目仓储与服务边界”，负责把 schema-1 打开/原子迁移、项目列表和覆盖业务从 API 路由移入仓储/服务。继续只执行 `docs/superpowers/plans/2026-07-27-phase-3-durable-jobs-and-recovery.md`，不接入真实模型、ComfyUI 或生产目录。
+当前工作分支为 `codex/phase-3-durable-jobs`。第三阶段 Task 1 至 Task 3 已完成；下一项是 Task 4“任务契约与纯状态机”，负责严格持久化请求/状态模型、四候选一致性和无 I/O 状态转换。继续只执行 `docs/superpowers/plans/2026-07-27-phase-3-durable-jobs-and-recovery.md`，不接入真实模型、ComfyUI 或生产目录。
 
 ## 接手步骤
 
 1. 运行 `git status --short`，确认并保留当前未提交改动。
 2. 阅读 `AGENTS.md`、路线图、第二阶段计划和第三阶段可执行计划，了解已合并的 processing 契约以及即将建立的持久化接口。
-3. 从 Task 3 开始继续逐项完成 RED → GREEN → commit；不要重复 Task 1/2 或提前执行后续任务。
+3. 从 Task 4 开始继续逐项完成 RED → GREEN → commit；不要重复 Task 1–3 或提前执行后续任务。
 4. 不要在第三阶段接入真实模型、ComfyUI 或生产目录，也不要采用候选或导出资源包。
 
 ## 当前可用验证
@@ -73,7 +74,7 @@ git status --short
 
 已于 2026-07-26 在合并后的 `master`（合并提交 `4f5ba49`，`.venv` Python 3.12.10）复跑门禁：后端 217 passed（第一阶段 165 项 + 第二阶段 `processing/` 52 项），使用 `-W error` 且无警告；前端 1 个测试文件 21 个测试通过，Vite 生产构建成功（本次已在合并结果上重新执行）。覆盖率基线记录自阶段分支提交 `672c666` 的带覆盖率门禁：总覆盖率 88%，`processing/` 各模块中 `errors.py`、`grid_snap.py`、`models.py`、`pipeline.py`、`previews.py`、`seam.py`、`validation.py` 均 100%，`palette.py` 97%（87 语句、3 未覆盖）。`git diff --check` 无输出。
 
-2026-07-27 第三阶段 Task 2 第一轮评审修复后，`.\.venv\Scripts\python -W error -m pytest backend\tests\core backend\tests\projects -v` 为 91 passed。额外完整后端回归为 287 passed、3 failed；三项失败均是 Task 3 明确接管的旧 API 测试夹具仍直接用 schema 1 构造当前 `ProjectManifest`，当前不把完整后端门禁记为通过。
+2026-07-27 第三阶段 Task 3 完成后，`.\.venv\Scripts\python -W error -m pytest backend\tests\projects backend\tests\api -v` 为 117 passed；额外完整后端回归 `.\.venv\Scripts\python -W error -m pytest backend\tests` 为 303 passed。Task 2 移交的三个旧 schema-1 API 夹具已改为当前 schema-2 构造，完整后端门禁恢复通过。
 
 ## 需要在对应阶段确定的事项
 

@@ -431,7 +431,7 @@ git commit -m "feat: version and atomically migrate project manifests"
   `get_coverage`.
 - Removes filesystem, manifest, and catalog business logic from API routes.
 
-- [ ] **Step 1: Write repository RED tests**
+- [x] **Step 1: Write repository RED tests**
 
 Move the current API-level manifest safety cases to repository tests and add:
 
@@ -445,7 +445,7 @@ Move the current API-level manifest safety cases to repository tests and add:
   valid sibling projects;
 - open holds the project directory identity for the full context.
 
-- [ ] **Step 2: Implement `ProjectRepository`**
+- [x] **Step 2: Implement `ProjectRepository`**
 
 Move the bounded regular-file read and handle/path identity checks from
 `api/projects.py` into `projects/repository.py`. Use
@@ -457,7 +457,7 @@ directory identity is held.
 Return both valid manifests and typed issues so startup recovery can report
 corruption without aborting all projects.
 
-- [ ] **Step 3: Write and implement `ProjectService` tests**
+- [x] **Step 3: Write and implement `ProjectService` tests**
 
 The service composes `ProjectWorkspace`, `ProjectRepository`, catalog lookup,
 coverage classification, and an index protocol:
@@ -479,14 +479,14 @@ Disk import is authoritative. After a successful import, an index failure
 triggers one index rebuild through the injected index protocol; a second
 failure becomes `INDEX_UNAVAILABLE` without deleting the project.
 
-- [ ] **Step 4: Thin the project API routes**
+- [x] **Step 4: Thin the project API routes**
 
 Add `GET /api/projects` and change existing endpoints to parse canonical UUIDs,
 call `ProjectService`, and map typed domain errors. Delete route-local project
 manifest opening, catalog classification, and directory traversal helpers once
 their repository/service equivalents are covered.
 
-- [ ] **Step 5: Run project/API regression tests**
+- [x] **Step 5: Run project/API regression tests**
 
 ```powershell
 .\.venv\Scripts\python -W error -m pytest backend\tests\projects backend\tests\api -v
@@ -494,7 +494,7 @@ their repository/service equivalents are covered.
 
 Expected: all pass and API routes no longer open `project.json` or `pack/`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add backend/src/aimctexturegen/projects backend/src/aimctexturegen/api/projects.py backend/tests/projects backend/tests/api

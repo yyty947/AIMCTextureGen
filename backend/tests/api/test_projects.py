@@ -159,7 +159,7 @@ def write_project(
         stone.write_bytes(stone_png)
     timestamp = datetime.now(timezone.utc)
     manifest = ProjectManifest(
-        schema_version=1,
+        schema_version=2,
         project_id=project_id,
         project_name="Persisted Pack",
         edition="java",
@@ -169,6 +169,9 @@ def write_project(
         source_sha256="0" * 64,
         created_at=timestamp,
         updated_at=timestamp,
+        default_resolution=16,
+        default_parallelism=1,
+        style_references=(),
     )
     (project_directory / "project.json").write_text(
         manifest.model_dump_json(indent=2),
@@ -290,6 +293,56 @@ def test_unknown_project_returns_stable_not_found_error(tmp_path: Path) -> None:
         status_code=404,
         code="PROJECT_NOT_FOUND",
         stage="loading_project",
+    )
+
+
+def test_lists_projects_in_stable_summary_order(tmp_path: Path) -> None:
+    project_root = tmp_path / "projects"
+    first_id = uuid4()
+    second_id = uuid4()
+    write_project(project_root, project_id=first_id)
+    first_manifest_path = project_root / str(first_id) / "project.json"
+    first_document = json.loads(first_manifest_path.read_text(encoding="utf-8"))
+    first_document["project_name"] = "First"
+    first_document["updated_at"] = "2026-07-26T08:00:00Z"
+    first_manifest_path.write_text(
+        json.dumps(first_document),
+        encoding="utf-8",
+    )
+    write_project(project_root, project_id=second_id)
+    second_manifest_path = project_root / str(second_id) / "project.json"
+    second_document = json.loads(second_manifest_path.read_text(encoding="utf-8"))
+    second_document["project_name"] = "Second"
+    second_document["updated_at"] = "2026-07-27T08:00:00Z"
+    second_manifest_path.write_text(
+        json.dumps(second_document),
+        encoding="utf-8",
+    )
+    client = build_client(project_root)
+
+    response = client.get("/api/projects")
+
+    assert response.status_code == 200
+    assert [project["project_id"] for project in response.json()] == [
+        str(second_id),
+        str(first_id),
+    ]
+    assert [project["project_name"] for project in response.json()] == [
+        "Second",
+        "First",
+    ]
+    assert all(
+        set(project)
+        == {
+            "project_id",
+            "project_name",
+            "edition",
+            "java_pack_format",
+            "catalog_id",
+            "created_at",
+            "updated_at",
+        }
+        for project in response.json()
     )
 
 
