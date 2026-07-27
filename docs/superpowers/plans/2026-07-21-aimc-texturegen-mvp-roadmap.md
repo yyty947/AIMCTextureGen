@@ -47,6 +47,8 @@ The MVP spans independent subsystems whose external versions and measured behavi
 
 ## Phase 3: Durable Jobs and Project Recovery
 
+**Executable plan:** [`2026-07-27-phase-3-durable-jobs-and-recovery.md`](2026-07-27-phase-3-durable-jobs-and-recovery.md)
+
 **Planned ownership:** `backend/src/aimctexturegen/jobs/`, `backend/src/aimctexturegen/index/`, project JSON schemas, and API/UI job history.
 
 **Deliverable:** Persisted request records, four seeds, candidate artifact layout, validated state transitions, cancellation/retry lineage, SQLite query index, index rebuild from project directories, and restart recovery.

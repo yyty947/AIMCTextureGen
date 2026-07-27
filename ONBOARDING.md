@@ -1,6 +1,6 @@
 # AIMCTextureGen 当前交接
 
-最后核对日期：2026-07-26
+最后核对日期：2026-07-27
 
 ## 当前状态
 
@@ -17,6 +17,8 @@
 - 前端固定 Node.js 24.18.0；首次 lockfile 和验证使用经 Node.js 官方 `SHASUMS256.txt` 校验的便携 Windows x64 ZIP，SHA-256 为 `0ae68406b42d7725661da979b1403ec9926da205c6770827f33aac9d8f26e821`。当前没有 ComfyUI 集成；FastAPI 应用可由 `aimctexturegen.main:create_app` 创建，运行时默认项目根和目录根从仓库位置解析，不依赖当前 PowerShell 目录。
 - 当前没有需要迁移的用户项目数据；本地 `projects/` 下可能存在 2026-07-22 手工验收残留项目（已被 `.gitignore` 忽略，可安全删除）。
 - 第二阶段“确定性材质处理”已通过合并提交 `4f5ba49` 合入 `master`，新增 `backend/src/aimctexturegen/processing/`：`models.py`（`ProcessingReport` 报告契约，`schema_version` 1、`ALGORITHM_VERSION` 1、`SCORE_DECIMALS` 6、确定性 `dump_report_json`）、`errors.py`（`ProcessingError`）、`validation.py`（仅接受 RGB 或完全不透明 RGBA、正方形且边长可被 16/32/64 整除的画布）、`grid_snap.py`（逐格逐通道下位中位数网格吸附）、`seam.py`（归一化环绕缝隙分数）、`previews.py`（512px 最近邻预览与 1536px 3x3 平铺预览）、`palette.py`（确定性 median-cut 调色板限制）、`pipeline.py`（`process_candidate` 编排，原子 temp + `os.replace` 写入）；对应测试位于 `backend/tests/processing/`，含子进程隔离门禁（验证导入图中无 fastapi/torch/comfy/numpy）。实现期间两处计划偏差已同步进 `docs/superpowers/plans/2026-07-26-phase-2-deterministic-texture-processing.md`：Pillow 12.3 弃用 `Image.getdata()`，全部调用点改用 `get_flattened_data()`（提交 `3d53e97`）；新增的 `backend/tests/processing/test_models.py` 与既有 `backend/tests/packs/test_models.py` 同名，导致合并后 pytest 单次收集 `backend\tests` 时报 `import file mismatch`，已重命名为 `test_report_models.py`（提交 `672c666`）。
+- 第二阶段计划中的历史完成项已全部勾选，并补充合并门禁与五项延后清理说明，不再与本文件的完成状态冲突。
+- 第三阶段可执行计划已在 `codex/phase-3-durable-jobs` 分支写入并完成自审：`docs/superpowers/plans/2026-07-27-phase-3-durable-jobs-and-recovery.md`；当前只完成计划，没有开始第三阶段业务实现。计划固定以项目 JSON/图片为可迁移真相、SQLite 为可删除重建索引，并覆盖项目清单 schema 1 到 2 的原子迁移、四 seed 任务记录、候选状态、取消/重试谱系、启动恢复和只读任务历史 UI。
 
 ## 已确认边界
 
@@ -32,14 +34,14 @@
 
 ## 当前工作入口
 
-第二阶段已完成全分支终审并于 2026-07-26 合入 `master`（合并提交 `4f5ba49`），阶段分支与 worktree 已清理。下一步是按路线图撰写第三阶段“持久任务与项目恢复”的可执行计划。第三阶段计划应包含一节“第二阶段延后清理”前置项（终审裁定不阻塞合并、但须在第五阶段接入 GenerationService 之前落地）：`process_candidate` 前置校验 `resolution` 并以 `ProcessingError` 报错（当前晚至报告构造才校验，且产物已写出）；写入失败时清理 `.tmp` 残留；校验 `stem` 参数不含路径分隔符；补一条 RGBA 输入的端到端管线测试；补齐 processing 各模块 docstring。不要提前接入真实模型或构建完整生产目录。
+当前工作分支为 `codex/phase-3-durable-jobs`。第三阶段“持久任务与项目恢复”的可执行计划已经完成并自审，实施入口是 `docs/superpowers/plans/2026-07-27-phase-3-durable-jobs-and-recovery.md`。先审阅计划中的锁定数据模型、状态转换、索引重建和恢复语义；确认后从 Task 1 的第二阶段延后清理开始按测试先行实施。第三阶段不接入真实模型、ComfyUI 或生产目录。
 
 ## 接手步骤
 
 1. 运行 `git status --short`，确认并保留当前未提交改动。
-2. 阅读 `AGENTS.md`、路线图和第二阶段计划文档，了解已合并的 processing 契约（`ProcessingReport`、`process_candidate` 等接口名跨阶段稳定）。
-3. 为第三阶段“持久任务与项目恢复”编写可执行计划（含上文列出的第二阶段延后清理前置项），并在实施前确认范围和验收条件。
-4. 不要在第三阶段接入真实模型、ComfyUI 或生产目录，除非路线图已明确该阶段范围包含它们。
+2. 阅读 `AGENTS.md`、路线图、第二阶段计划和第三阶段可执行计划，了解已合并的 processing 契约以及即将建立的持久化接口。
+3. 在实施前审阅并确认第三阶段计划；确认后只执行一个阶段计划，从 Task 1 开始逐项完成 RED → GREEN → commit。
+4. 不要在第三阶段接入真实模型、ComfyUI 或生产目录，也不要采用候选或导出资源包。
 
 ## 当前可用验证
 

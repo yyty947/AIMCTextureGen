@@ -8,6 +8,19 @@
 
 **Tech Stack:** Python 3.12, Pydantic 2.13.4, Pillow 12.3.0, pytest 9.1.1.
 
+## Completion Status
+
+Phase 2 was completed, reviewed, and merged into `master` by merge commit
+`4f5ba49` on 2026-07-26. The merged gate passed 217 backend tests, 21 frontend
+tests, the Vite production build, and `git diff --check`. The task checkboxes
+below record that historical completion.
+
+The review accepted five bounded follow-ups for the beginning of Phase 3:
+validate `resolution` before writing artifacts, remove `.tmp` files after a
+failed write, reject path separators in `stem`, add an opaque-RGBA end-to-end
+pipeline test, and complete processing-module docstrings. These follow-ups do
+not change the Phase 2 algorithm contract.
+
 ## Global Constraints
 
 - Supported host: Windows with NVIDIA CUDA; Phase 2 itself must not require CUDA, a GPU, ComfyUI, or the network.
@@ -59,7 +72,7 @@ Later phases consume the interfaces named below. Do not rename them casually; if
 
 ## Setup (before Task 1)
 
-- [ ] Confirm `master` is clean and synced (`git status --short`, `git pull`), then create the phase branch:
+- [x] Confirm `master` is clean and synced (`git status --short`, `git pull`), then create the phase branch:
 
 ```bash
 git checkout master
@@ -67,13 +80,13 @@ git pull
 git checkout -b codex/phase-2-texture-processing
 ```
 
-- [ ] Add the executable-plan link to the roadmap. In `docs/superpowers/plans/2026-07-21-aimc-texturegen-mvp-roadmap.md`, under `## Phase 2: Deterministic Texture Processing`, insert directly after the heading:
+- [x] Add the executable-plan link to the roadmap. In `docs/superpowers/plans/2026-07-21-aimc-texturegen-mvp-roadmap.md`, under `## Phase 2: Deterministic Texture Processing`, insert directly after the heading:
 
 ```markdown
 **Executable plan:** [`2026-07-26-phase-2-deterministic-texture-processing.md`](2026-07-26-phase-2-deterministic-texture-processing.md)
 ```
 
-- [ ] Commit the plan and roadmap link:
+- [x] Commit the plan and roadmap link:
 
 ```bash
 git add docs/superpowers/plans/2026-07-26-phase-2-deterministic-texture-processing.md docs/superpowers/plans/2026-07-21-aimc-texturegen-mvp-roadmap.md
@@ -102,7 +115,7 @@ Do not create `__init__.py` under `backend/tests/` — the existing suite discov
 - Produces: `ProcessingReport(schema_version, processor, input, input_mode, output, resolution, grid_snap, palette, seam_score, previews)`
 - Produces: `dump_report_json(report: ProcessingReport) -> bytes` (sorted keys, compact separators, UTF-8, trailing `\n`)
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `backend/tests/processing/test_report_models.py`:
 
@@ -212,12 +225,12 @@ def test_palette_limit_must_be_at_least_two_when_present():
         PaletteInfo(unique_colors=3, limit=1, method="median-cut")
 ```
 
-- [ ] **Step 2: Run tests to verify they fail for the right reason**
+- [x] **Step 2: Run tests to verify they fail for the right reason**
 
 Run: `.\.venv\Scripts\python -m pytest backend\tests\processing\test_report_models.py -v`
 Expected: collection error `ModuleNotFoundError: No module named 'aimctexturegen.processing'` — a setup failure, not RED. Create the empty `backend/src/aimctexturegen/processing/__init__.py` and an empty `models.py`, rerun, and confirm the failure becomes an `ImportError` naming the missing symbols. For a pure data-model module the interface itself is the behavior, so proceed to Step 3; after Step 4 passes, verify the tests assert real behavior by temporarily removing `sort_keys=True` from `dump_report_json`, confirming `test_dump_is_sorted_compact_utf8_with_trailing_newline` fails, then restoring it.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Create `backend/src/aimctexturegen/processing/models.py`:
 
@@ -298,12 +311,12 @@ def dump_report_json(report: ProcessingReport) -> bytes:
     return (text + "\n").encode("utf-8")
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `.\.venv\Scripts\python -m pytest backend\tests\processing\test_report_models.py -v`
 Expected: all PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/src/aimctexturegen/processing backend/tests/processing
@@ -326,7 +339,7 @@ git commit -m "feat: add processing report schema with deterministic serializati
 - Produces: `load_rgb_canvas(source: Path, resolution: int) -> tuple[PIL.Image.Image, Literal["RGB", "RGBA"]]` — returns the decoded RGB canvas and the ORIGINAL mode.
 - Produces (fixtures in `conftest.py`, consumed by every later test task): `image_from_rows` — fixture returning a builder `(rows: list[list[tuple[int, int, int]]]) -> PIL.Image.Image`; `png_path` — tmp_path-bound fixture returning a writer `(image, name="src.png") -> Path`; `solid_canvas` — fixture returning `(side, color=(120, 130, 140)) -> PIL.Image.Image`. They are fixtures (not module-level helpers) on purpose: `backend/tests/packs/conftest.py` already exists, so `import conftest` in a test file would be ambiguous when the full suite runs.
 
-- [ ] **Step 1: Write the shared test fixtures**
+- [x] **Step 1: Write the shared test fixtures**
 
 Create `backend/tests/processing/conftest.py`:
 
@@ -371,7 +384,7 @@ def solid_canvas(image_from_rows):
     return _build
 ```
 
-- [ ] **Step 2: Write the failing tests**
+- [x] **Step 2: Write the failing tests**
 
 Create `backend/tests/processing/test_validation.py`:
 
@@ -447,12 +460,12 @@ def test_error_messages_are_chinese(png_path):
     assert any("一" <= ch <= "鿿" for ch in raised.value.message)
 ```
 
-- [ ] **Step 3: Run tests to verify they fail for the right reason**
+- [x] **Step 3: Run tests to verify they fail for the right reason**
 
 Run: `.\.venv\Scripts\python -m pytest backend\tests\processing\test_validation.py -v`
 Expected: `ModuleNotFoundError`/`ImportError` naming `errors`/`validation` (setup). Create both files with only imports and the bare `ProcessingError` class plus an empty `load_rgb_canvas` that raises `NotImplementedError`, rerun, and confirm behavioral FAILs (e.g., `NotImplementedError` instead of expected results).
 
-- [ ] **Step 4: Write the implementation**
+- [x] **Step 4: Write the implementation**
 
 Create `backend/src/aimctexturegen/processing/errors.py`:
 
@@ -525,12 +538,12 @@ def load_rgb_canvas(
     return image, mode
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `.\.venv\Scripts\python -m pytest backend\tests\processing\test_validation.py -v`
 Expected: all PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/src/aimctexturegen/processing backend/tests/processing
@@ -549,7 +562,7 @@ git commit -m "feat: validate candidate canvases with strict mode and shape poli
 - Consumes: the `image_from_rows` fixture from `backend/tests/processing/conftest.py`.
 - Produces: `snap_to_grid(canvas: PIL.Image.Image, resolution: int) -> PIL.Image.Image` — returns a new `resolution x resolution` RGB image; the input canvas is not mutated.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `backend/tests/processing/test_grid_snap.py`:
 
@@ -616,12 +629,12 @@ def test_input_canvas_is_not_mutated(image_from_rows):
     assert list(canvas.get_flattened_data()) == before
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `.\.venv\Scripts\python -m pytest backend\tests\processing\test_grid_snap.py -v`
 Expected: import error naming `grid_snap` (setup); add the module with `snap_to_grid` raising `NotImplementedError`, rerun, and confirm behavioral FAILs.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Create `backend/src/aimctexturegen/processing/grid_snap.py`:
 
@@ -661,12 +674,12 @@ def snap_to_grid(canvas: Image.Image, resolution: int) -> Image.Image:
     return snapped
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `.\.venv\Scripts\python -m pytest backend\tests\processing\test_grid_snap.py -v`
 Expected: all PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/src/aimctexturegen/processing/grid_snap.py backend/tests/processing/test_grid_snap.py
@@ -685,7 +698,7 @@ git commit -m "feat: snap canvases to logical grid via per-channel lower median"
 - Consumes: `SCORE_DECIMALS` from `models.py`; `image_from_rows` from `conftest.py`.
 - Produces: `seam_scores(texture: PIL.Image.Image) -> tuple[float, float, float]` — `(horizontal, vertical, average)`, each in `[0, 1]` rounded to `SCORE_DECIMALS`. Horizontal compares the left edge column against the right edge column (horizontal tiling wrap); vertical compares the top row against the bottom row.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `backend/tests/processing/test_seam.py`:
 
@@ -732,12 +745,12 @@ def test_scores_are_rounded_to_six_decimals(image_from_rows):
     assert average == round(average, 6)
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `.\.venv\Scripts\python -m pytest backend\tests\processing\test_seam.py -v`
 Expected: import error (setup) -> scaffold with `NotImplementedError` -> behavioral FAILs.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Create `backend/src/aimctexturegen/processing/seam.py`:
 
@@ -774,12 +787,12 @@ def seam_scores(texture: Image.Image) -> tuple[float, float, float]:
     return horizontal, vertical, average
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `.\.venv\Scripts\python -m pytest backend\tests\processing\test_seam.py -v`
 Expected: all PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/src/aimctexturegen/processing/seam.py backend/tests/processing/test_seam.py
@@ -800,7 +813,7 @@ git commit -m "feat: compute normalized wrap-seam scores"
 - Produces: `nearest_neighbor_preview(texture) -> PIL.Image.Image` — upscales by `512 // texture.width` with NEAREST (16 -> x32, 32 -> x16, 64 -> x8).
 - Produces: `tile_3x3(texture) -> PIL.Image.Image` — 3x3 repetition of the texture, then the same NEAREST upscale factor (final side `3 * 512 = 1536` for every supported resolution).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `backend/tests/processing/test_previews.py`:
 
@@ -860,12 +873,12 @@ def test_tile_3x3_repeats_texture_and_upscales(image_from_rows):
     assert set(tiled.get_flattened_data()) == set(texture.get_flattened_data())
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `.\.venv\Scripts\python -m pytest backend\tests\processing\test_previews.py -v`
 Expected: import error (setup) -> scaffold -> behavioral FAILs.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Create `backend/src/aimctexturegen/processing/previews.py`:
 
@@ -898,12 +911,12 @@ def tile_3x3(texture: Image.Image) -> Image.Image:
     return tiled.resize((tiled.width * scale, tiled.height * scale), Image.Resampling.NEAREST)
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `.\.venv\Scripts\python -m pytest backend\tests\processing\test_previews.py -v`
 Expected: all PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/src/aimctexturegen/processing/previews.py backend/tests/processing/test_previews.py
@@ -929,7 +942,7 @@ Deterministic rules (all ties resolved without randomness):
 4. Each box's representative color is the per-channel weighted LOWER median.
 5. Every original color maps to the nearest representative by squared Euclidean distance (ties: lexicographically smallest RGB tuple).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `backend/tests/processing/test_palette.py`:
 
@@ -999,12 +1012,12 @@ def test_input_texture_is_not_mutated(image_from_rows):
     assert list(texture.get_flattened_data()) == before
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `.\.venv\Scripts\python -m pytest backend\tests\processing\test_palette.py -v`
 Expected: import error (setup) -> scaffold -> behavioral FAILs.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Create `backend/src/aimctexturegen/processing/palette.py`:
 
@@ -1127,12 +1140,12 @@ def limit_palette(texture: Image.Image, max_colors: int) -> Image.Image:
     return limited
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `.\.venv\Scripts\python -m pytest backend\tests\processing\test_palette.py -v`
 Expected: all PASS. If `test_median_cut_two_clusters_is_exact` fails, hand-trace the split with the rules above before changing either the test or the code — the expected values were derived from those exact rules.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/src/aimctexturegen/processing/palette.py backend/tests/processing/test_palette.py
@@ -1152,7 +1165,7 @@ git commit -m "feat: limit palettes with deterministic median-cut"
 - Consumes: everything produced by Tasks 1-6.
 - Produces: `process_candidate(source: Path, output_dir: Path, *, stem: str, resolution: int, palette_limit: int | None = None) -> ProcessingReport`. Writes `{stem}.png` (final texture), `{stem}-nn.png`, `{stem}-tile.png`, `{stem}-report.json` into `output_dir` (created if missing) via temp-file + `os.replace`. Report image paths are bare file names (POSIX-safe, relative to `output_dir`); `input.path` is `source.name`.
 
-- [ ] **Step 1: Write the failing pipeline tests**
+- [x] **Step 1: Write the failing pipeline tests**
 
 Create `backend/tests/processing/test_pipeline.py`:
 
@@ -1268,7 +1281,7 @@ def test_seam_scores_in_report_match_final_texture(tmp_path, image_from_rows, pn
     )
 ```
 
-- [ ] **Step 2: Write the failing isolation gate test**
+- [x] **Step 2: Write the failing isolation gate test**
 
 Create `backend/tests/processing/test_isolation.py`:
 
@@ -1322,12 +1335,12 @@ def test_processing_pipeline_imports_no_service_or_inference_modules():
     assert result.stdout.strip() == "CLEAN"
 ```
 
-- [ ] **Step 3: Run tests to verify they fail for the right reason**
+- [x] **Step 3: Run tests to verify they fail for the right reason**
 
 Run: `.\.venv\Scripts\python -m pytest backend\tests\processing\test_pipeline.py backend\tests\processing\test_isolation.py -v`
 Expected: pipeline tests hit an import error naming `pipeline` (setup); the isolation test fails because the probe cannot import `aimctexturegen.processing.pipeline`. Add the module scaffold (imports + `process_candidate` raising `NotImplementedError`), rerun, and confirm the pipeline tests fail behaviorally while the isolation test passes.
 
-- [ ] **Step 4: Write the implementation**
+- [x] **Step 4: Write the implementation**
 
 Create `backend/src/aimctexturegen/processing/pipeline.py`:
 
@@ -1426,12 +1439,12 @@ def process_candidate(
     return report
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `.\.venv\Scripts\python -m pytest backend\tests\processing -v`
 Expected: the entire processing suite PASSES, including the isolation gate. If Pydantic strict mode rejects `resolution` or `input_mode`, pass the values through exactly as typed above (int and `"RGB"`/`"RGBA"` literals are strict-compatible); do not loosen the models.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/src/aimctexturegen/processing/pipeline.py backend/tests/processing/test_pipeline.py backend/tests/processing/test_isolation.py
@@ -1446,34 +1459,34 @@ git commit -m "feat: orchestrate deterministic candidate processing pipeline"
 - Modify: `ONBOARDING.md`
 - (No production code changes; fix regressions if the full suite finds any.)
 
-- [ ] **Step 1: Run the full backend gate**
+- [x] **Step 1: Run the full backend gate**
 
 Run: `.\.venv\Scripts\python -W error -m pytest backend\tests --cov=aimctexturegen --cov-report=term-missing`
 Expected: every test passes (Phase 1's 165 plus all new processing tests) with zero warnings. Record the exact totals and coverage percentage for ONBOARDING.
 
-- [ ] **Step 2: Confirm the frontend is untouched**
+- [x] **Step 2: Confirm the frontend is untouched**
 
 Run: `git status --short frontend` — expected: no output. Phase 2 must not modify the frontend; if anything shows, revert it.
 
-- [ ] **Step 3: Verify clean diffs**
+- [x] **Step 3: Verify clean diffs**
 
 Run: `git diff --check` (expected: no output) and `git log --oneline master..HEAD` (expected: one commit per completed task plus the setup commit).
 
-- [ ] **Step 4: Update ONBOARDING.md**
+- [x] **Step 4: Update ONBOARDING.md**
 
 Rewrite the current-state sections to today's facts (keep the file short; delete superseded statements instead of appending):
 - 当前状态: Phase 2 deterministic texture processing implemented on `codex/phase-2-texture-processing`; list the new `processing/` modules and the report schema (`schema_version` 1, `algorithm_version` 1).
 - 当前可用验证: unchanged commands; update the recorded totals/coverage from Step 1 and the verification date.
 - 当前工作入口: next step is merging Phase 2 after review, then writing the Phase 3 plan (durable jobs and project recovery) per the roadmap.
 
-- [ ] **Step 5: Commit the closure**
+- [x] **Step 5: Commit the closure**
 
 ```bash
 git add ONBOARDING.md
 git commit -m "docs: record Phase 2 processing gate results"
 ```
 
-- [ ] **Step 6: Hand off for merge**
+- [x] **Step 6: Hand off for merge**
 
 Use superpowers:finishing-a-development-branch: present the verified branch for user review and merge `codex/phase-2-texture-processing` into `master` only after user confirmation. Do not push without explicit approval.
 
