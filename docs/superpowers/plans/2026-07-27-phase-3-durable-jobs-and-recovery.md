@@ -814,7 +814,7 @@ git commit -m "feat: add rebuildable SQLite project and job index"
   `RecoveryIssue` values and a completion timestamp.
 - Consumes `ProjectRepository`, `JobStore`, and `IndexService`.
 
-- [ ] **Step 1: Write recovery service tests**
+- [x] **Step 1: Write recovery service tests**
 
 Prepare multiple synthetic projects/jobs:
 
@@ -836,7 +836,7 @@ Assert one run:
 - rebuilds index summaries from the final recovered JSON state;
 - is idempotent on a second run.
 
-- [ ] **Step 2: Implement recovery scanning**
+- [x] **Step 2: Implement recovery scanning**
 
 `RecoveryService.run`:
 
@@ -849,7 +849,7 @@ Assert one run:
 
 Do not repair malformed JSON by guessing and do not delete corrupt entries.
 
-- [ ] **Step 3: Write the restart integration test**
+- [x] **Step 3: Write the restart integration test**
 
 Use a real temporary project import, real repository/store/index and two app
 instances. Before restart, hash every file under `source/` and `pack/`. Delete
@@ -861,7 +861,7 @@ the SQLite index between instances. Start the second app and assert:
 - queued jobs remain queued;
 - source and pack path/byte hash maps are exactly unchanged.
 
-- [ ] **Step 4: Run recovery and integration tests**
+- [x] **Step 4: Run recovery and integration tests**
 
 ```powershell
 .\.venv\Scripts\python -W error -m pytest backend\tests\jobs\test_recovery.py backend\tests\integration\test_restart_recovery.py -v
@@ -869,7 +869,7 @@ the SQLite index between instances. Start the second app and assert:
 
 Expected: all pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add backend/src/aimctexturegen/jobs/recovery.py backend/tests/jobs/test_recovery.py backend/tests/integration/test_restart_recovery.py
