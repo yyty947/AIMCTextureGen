@@ -1142,6 +1142,7 @@ describe("项目恢复与只读任务历史", () => {
   it("旧导入响应与 finally 不能覆盖选择或清除较新导入的 busy 状态", async () => {
     const importB = deferred<Response>();
     const importC = deferred<Response>();
+    let projectBCoverageRequests = 0;
     const projectBId = "dce1d8fa-3e28-48f5-81b2-1776371b7832";
     const projectCId = "ee54efc6-25e7-43ab-8833-54d6c21988ba";
     const manifestB = {
@@ -1171,9 +1172,12 @@ describe("项目恢复与只读任务历史", () => {
           return name === "重叠导入 B" ? importB.promise : importC.promise;
         }
         if (
-          url === `/api/projects/${projectBId}/coverage` ||
-          url === `/api/projects/${projectCId}/coverage`
+          url === `/api/projects/${projectBId}/coverage`
         ) {
+          projectBCoverageRequests += 1;
+          return Promise.resolve(jsonResponse(coverage));
+        }
+        if (url === `/api/projects/${projectCId}/coverage`) {
           return Promise.resolve(jsonResponse(coverage));
         }
         if (url === `/api/projects/${projectId}`) {
@@ -1214,6 +1218,11 @@ describe("项目恢复与只读任务历史", () => {
       "aria-current",
       "true",
     );
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /重叠导入 B/ }),
+    ).not.toHaveAttribute("aria-current", "true");
+    expect(projectBCoverageRequests).toBe(0);
 
     await act(async () => {
       importC.resolve(jsonResponse(manifestC, 201));
@@ -1223,9 +1232,10 @@ describe("项目恢复与只读任务历史", () => {
     expect(
       await screen.findByRole("button", { name: /较新导入 C/ }),
     ).toHaveAttribute("aria-current", "true");
-    expect(
-      screen.queryByRole("button", { name: /重叠导入 B/ }),
-    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /重叠导入 B/ })).not.toHaveAttribute(
+      "aria-current",
+      "true",
+    );
   });
 
   it("旧导入响应与 finally 不能打断较新项目的覆盖重试", async () => {
@@ -1297,6 +1307,7 @@ describe("项目恢复与只读任务历史", () => {
     await user.click(
       await screen.findByRole("button", { name: "重试覆盖分析" }),
     );
+    expect(screen.getByRole("alert")).toHaveTextContent("无法连接到本地服务");
 
     await act(async () => {
       staleImport.resolve(jsonResponse(staleManifest, 201));
@@ -1312,6 +1323,10 @@ describe("项目恢复与只读任务历史", () => {
       "aria-current",
       "true",
     );
+    expect(screen.getByRole("alert")).toHaveTextContent("无法连接到本地服务");
+    expect(
+      screen.getByRole("button", { name: /迟到导入/ }),
+    ).not.toHaveAttribute("aria-current", "true");
 
     await act(async () => {
       retriedCoverage.resolve(jsonResponse(coverage));
@@ -1319,9 +1334,10 @@ describe("项目恢复与只读任务历史", () => {
     });
 
     expect(await screen.findByLabelText("覆盖统计")).toBeVisible();
-    expect(
-      screen.queryByRole("button", { name: /迟到导入/ }),
-    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /迟到导入/ })).not.toHaveAttribute(
+      "aria-current",
+      "true",
+    );
   });
 
   it("使用产品中立的项目面板标题", () => {

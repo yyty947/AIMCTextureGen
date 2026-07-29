@@ -144,6 +144,10 @@ export default function App() {
         return;
       }
       if (operationGeneration.current !== operationRequestGeneration) {
+        projectsEpoch.current += 1;
+        setProjects((current) =>
+          mergeImportedProject(current, summaryFromManifest(imported)),
+        );
         return;
       }
       importedProjectId = imported.projectId;
