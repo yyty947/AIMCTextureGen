@@ -288,7 +288,17 @@ class JobStore:
         try:
             temporary_root.mkdir()
             temporary_created = True
-            temporary_identity = capture_directory_identity(temporary_root)
+            try:
+                temporary_identity = capture_directory_identity(temporary_root)
+            except (DirectoryGuardError, OSError):
+                try:
+                    with hold_directory_identity(
+                        temporary_root
+                    ) as cleanup_identity:
+                        temporary_identity = cleanup_identity
+                except (DirectoryGuardError, OSError):
+                    pass
+                raise
             with hold_directory_identity(temporary_root) as held_identity:
                 if held_identity != temporary_identity:
                     raise DirectoryGuardError("job temporary identity changed")
@@ -382,7 +392,7 @@ class JobStore:
         job_id: UUID,
         *,
         allow_temporary_name: bool = False,
-        allow_state_temporary: bool = False,
+        allow_state_temporary: bool = True,
     ) -> LoadedJob:
         expected_name = f"{job_id}.tmp" if allow_temporary_name else str(job_id)
         if job_root.parent != opened.jobs_root or job_root.name != expected_name:
@@ -480,6 +490,19 @@ class JobStore:
         actual_children = frozenset(child.name for child in children)
         if actual_children not in {_JOB_CHILDREN, expected_children}:
             raise _job_error("CORRUPT_JOB_RECORD")
+        if "state.json.tmp" in actual_children:
+            temporary = job_root / "state.json.tmp"
+            try:
+                status = os.lstat(temporary)
+            except OSError as error:
+                raise _job_error("CORRUPT_JOB_RECORD") from error
+            if is_reparse_point(temporary, status):
+                raise _job_error("UNSAFE_JOB_PATH")
+            if (
+                not stat.S_ISREG(status.st_mode)
+                or status.st_size > MAX_JOB_JSON_BYTES
+            ):
+                raise _job_error("CORRUPT_JOB_RECORD")
         for name in _ARTIFACT_DIRECTORIES:
             path = job_root / name
             try:

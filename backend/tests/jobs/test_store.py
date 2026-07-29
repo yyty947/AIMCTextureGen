@@ -203,6 +203,30 @@ def test_create_removes_owned_temporary_tree_after_injected_write_failure(
     assert not (project_root / "jobs" / f"{JOB_ID}.tmp").exists()
 
 
+def test_create_removes_temporary_directory_when_identity_capture_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    projects_root = tmp_path / "projects"
+    project_root = _write_project(projects_root)
+
+    def fail_identity_capture(_path: Path):
+        raise OSError("injected identity capture failure")
+
+    monkeypatch.setattr(
+        store_module,
+        "capture_directory_identity",
+        fail_identity_capture,
+    )
+
+    with pytest.raises(JobError) as captured:
+        _store(projects_root).create(_request())
+
+    assert captured.value.code == "JOB_STORAGE_UNAVAILABLE"
+    assert not (project_root / "jobs" / str(JOB_ID)).exists()
+    assert not (project_root / "jobs" / f"{JOB_ID}.tmp").exists()
+
+
 def test_create_rejects_existing_job_without_changing_it(tmp_path: Path) -> None:
     projects_root = tmp_path / "projects"
     project_root = _write_project(projects_root)
@@ -369,6 +393,98 @@ def test_replace_state_cleans_bounded_stale_state_temporary(
 
     assert updated.state == next_state
     assert not (queued.root / "state.json.tmp").exists()
+
+
+def test_load_accepts_bounded_regular_stale_state_temporary(
+    tmp_path: Path,
+) -> None:
+    projects_root = tmp_path / "projects"
+    _write_project(projects_root)
+    store = _store(projects_root)
+    created = store.create(_request())
+    temporary = created.root / "state.json.tmp"
+    temporary.write_bytes(b"stale")
+
+    loaded = store.load(PROJECT_ID, JOB_ID)
+
+    assert loaded == created
+    assert temporary.read_bytes() == b"stale"
+
+
+def test_list_keeps_valid_siblings_visible_with_bounded_stale_state_temporary(
+    tmp_path: Path,
+) -> None:
+    projects_root = tmp_path / "projects"
+    _write_project(projects_root)
+    store = _store(projects_root)
+    stale = store.create(_request())
+    sibling = store.create(_request(job_id=OTHER_JOB_ID))
+    (stale.root / "state.json.tmp").write_bytes(b"stale")
+
+    jobs = store.list(PROJECT_ID)
+
+    assert {job.request.job_id for job in jobs} == {JOB_ID, OTHER_JOB_ID}
+    assert sibling in jobs
+
+
+def test_recover_interrupted_accepts_and_cleans_bounded_stale_state_temporary(
+    tmp_path: Path,
+) -> None:
+    projects_root = tmp_path / "projects"
+    _write_project(projects_root)
+    store = _store(projects_root)
+    queued = store.create(_request())
+    generating = store.replace_state(
+        PROJECT_ID,
+        JOB_ID,
+        transition_job_state(
+            queued.state,
+            "generating",
+            now=CREATED_AT + timedelta(seconds=1),
+        ),
+        expected_revision=0,
+    )
+    temporary = generating.root / "state.json.tmp"
+    temporary.write_bytes(b"stale")
+
+    recovered = store.recover_interrupted(
+        PROJECT_ID,
+        JOB_ID,
+        expected_revision=1,
+        now=CREATED_AT + timedelta(seconds=2),
+    )
+
+    assert recovered.state.status == "failed"
+    assert recovered.state.failure is not None
+    assert recovered.state.failure.code == "JOB_INTERRUPTED"
+    assert not temporary.exists()
+
+
+@pytest.mark.parametrize("unsafe_kind", ["directory", "oversized", "junction"])
+def test_load_rejects_unsafe_stale_state_temporary(
+    tmp_path: Path,
+    unsafe_kind: str,
+) -> None:
+    projects_root = tmp_path / "projects"
+    _write_project(projects_root)
+    store = _store(projects_root)
+    created = store.create(_request())
+    temporary = created.root / "state.json.tmp"
+    outside = tmp_path / "outside-state-temp"
+    if unsafe_kind == "directory":
+        temporary.mkdir()
+    elif unsafe_kind == "oversized":
+        temporary.write_bytes(b"x" * (MAX_JOB_JSON_BYTES + 1))
+    else:
+        outside.mkdir()
+        _create_junction(temporary, outside)
+
+    try:
+        with pytest.raises(JobError):
+            store.load(PROJECT_ID, JOB_ID)
+    finally:
+        if unsafe_kind == "junction":
+            _remove_junction(temporary)
 
 
 @pytest.mark.parametrize("status", ["queued", "generating", "postprocessing"])
