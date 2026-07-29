@@ -179,6 +179,7 @@ export class ApiRequestError extends Error implements ApiError {
 }
 
 export const MAX_PROJECT_NAME_LENGTH = 128;
+const MAX_PROMPT_CODE_POINTS = 4000;
 
 export async function importProject(
   projectName: string,
@@ -206,7 +207,13 @@ export async function getProject(projectId: string): Promise<ProjectManifest> {
   const payload = await requestJson(
     `/api/projects/${encodeURIComponent(projectId)}`,
   );
-  return parseSuccessfulResponse(payload, parseProjectManifest);
+  return parseSuccessfulResponse(payload, (data) => {
+    const manifest = parseProjectManifest(data);
+    if (manifest.projectId !== projectId) {
+      throw new TypeError("Project detail identity does not match the request");
+    }
+    return manifest;
+  });
 }
 
 export async function getCoverage(projectId: string): Promise<CoverageReport> {
@@ -298,7 +305,7 @@ function parseApiError(payload: unknown): ApiRequestError {
   }
 }
 
-function invalidResponseError(cause: unknown): ApiRequestError {
+export function invalidResponseError(cause: unknown): ApiRequestError {
   return new ApiRequestError({
     code: "INVALID_API_RESPONSE",
     stage: "requesting",
@@ -340,7 +347,11 @@ function parseProjectManifest(data: Record<string, unknown>): ProjectManifest {
   return {
     schemaVersion: requireLiteral(data.schema_version, 2),
     projectId: requireCanonicalUuid(data.project_id),
-    projectName: requireString(data.project_name),
+    projectName: requireBoundedCodePointString(
+      data.project_name,
+      1,
+      MAX_PROJECT_NAME_LENGTH,
+    ),
     edition: requireJava(data.edition),
     javaPackFormat: requireNonnegativeInteger(data.java_pack_format),
     supportedFormats: parseSupportedFormats(data.supported_formats),
@@ -350,7 +361,11 @@ function parseProjectManifest(data: Record<string, unknown>): ProjectManifest {
     updatedAt: requireTimestamp(data.updated_at),
     defaultResolution: requireResolution(data.default_resolution),
     defaultParallelism: requireParallelism(data.default_parallelism),
-    styleReferences: requireBoundedStringArray(data.style_references, 0, 8),
+    styleReferences: requireBoundedStringArray(
+      data.style_references,
+      0,
+      8,
+    ).map(requireProjectRelativePath),
   };
 }
 
@@ -358,7 +373,11 @@ function parseProjectSummary(value: unknown): ProjectSummary {
   const data = requireRecord(value);
   return {
     projectId: requireCanonicalUuid(data.project_id),
-    projectName: requireString(data.project_name),
+    projectName: requireBoundedCodePointString(
+      data.project_name,
+      1,
+      MAX_PROJECT_NAME_LENGTH,
+    ),
     edition: requireJava(data.edition),
     javaPackFormat: requireNonnegativeInteger(data.java_pack_format),
     catalogId: requireString(data.catalog_id),
@@ -453,7 +472,7 @@ function parseJobRequest(value: unknown): JobRequest {
     targetSemanticId: requireNonemptyString(data.target_semantic_id),
     targetDisplayName: requireNonemptyString(data.target_display_name),
     targetRelativePath: requireProjectRelativePath(data.target_relative_path),
-    prompt: requireNonemptyString(data.prompt),
+    prompt: requirePrompt(data.prompt),
     resolution: requireResolution(data.resolution),
     parallelism: requireParallelism(data.parallelism),
     styleReferences,
@@ -713,6 +732,31 @@ function requireNonemptyString(value: unknown): string {
     throw new TypeError("Expected a nonempty string response field");
   }
   return text;
+}
+
+function requireBoundedCodePointString(
+  value: unknown,
+  minimum: number,
+  maximum: number,
+): string {
+  const text = requireString(value);
+  const length = Array.from(text).length;
+  if (length < minimum || length > maximum) {
+    throw new TypeError("Response string length is outside its contract");
+  }
+  return text;
+}
+
+function requirePrompt(value: unknown): string {
+  const prompt = requireBoundedCodePointString(
+    value,
+    1,
+    MAX_PROMPT_CODE_POINTS,
+  );
+  if (prompt.trim().length === 0) {
+    throw new TypeError("Expected a prompt containing non-whitespace text");
+  }
+  return prompt;
 }
 
 function requireProjectRelativePath(value: unknown): string {

@@ -14,6 +14,7 @@ import {
   getProject,
   getRecoveryReport,
   importProject,
+  invalidResponseError,
   listJobs,
   listProjects,
   type ApiError,
@@ -50,16 +51,19 @@ export default function App() {
   const [pendingImportedProject, setPendingImportedProject] =
     useState<ProjectManifest | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
+  const componentGeneration = useRef(0);
   const dashboardRequest = useRef(0);
+  const coverageRequest = useRef(0);
   const projectsEpoch = useRef(0);
   const selectedProject = useRef<string | null>(null);
 
   useEffect(() => {
-    let active = true;
+    const generation = componentGeneration.current + 1;
+    componentGeneration.current = generation;
     const requestEpoch = projectsEpoch.current;
     void listProjects()
       .then((loadedProjects) => {
-        if (active) {
+        if (isCurrentComponentGeneration(generation)) {
           setProjects((current) =>
             projectsEpoch.current === requestEpoch
               ? loadedProjects
@@ -69,31 +73,46 @@ export default function App() {
         }
       })
       .catch((cause: unknown) => {
-        if (active && projectsEpoch.current === requestEpoch) {
+        if (
+          isCurrentComponentGeneration(generation) &&
+          projectsEpoch.current === requestEpoch
+        ) {
           setProjectsError(toApiError(cause));
         }
       })
       .finally(() => {
-        if (active) {
+        if (isCurrentComponentGeneration(generation)) {
           setProjectsLoading(false);
         }
       });
     void getRecoveryReport()
       .then((report) => {
-        if (active) {
+        if (isCurrentComponentGeneration(generation)) {
           setRecovery(report);
           setRecoveryError(null);
         }
       })
       .catch((cause: unknown) => {
-        if (active) {
+        if (isCurrentComponentGeneration(generation)) {
           setRecoveryError(toApiError(cause));
         }
       });
     return () => {
-      active = false;
+      if (componentGeneration.current === generation) {
+        componentGeneration.current = generation + 1;
+      }
+      dashboardRequest.current += 1;
+      coverageRequest.current += 1;
+      projectsEpoch.current += 1;
+      selectedProject.current = null;
     };
   }, []);
+
+  function isCurrentComponentGeneration(generation: number): boolean {
+    return (
+      generation !== 0 && componentGeneration.current === generation
+    );
+  }
 
   const trimmedProjectName = projectName.trim();
   const projectNameLength = Array.from(trimmedProjectName).length;
@@ -110,10 +129,17 @@ export default function App() {
       return;
     }
 
+    const componentRequestGeneration = componentGeneration.current;
     setActiveRequest("import");
     setError(null);
+    let importedProjectId: string | null = null;
+    let importedCoverageRequestId: number | null = null;
     try {
       const imported = await importProject(trimmedProjectName, pack);
+      if (!isCurrentComponentGeneration(componentRequestGeneration)) {
+        return;
+      }
+      importedProjectId = imported.projectId;
       dashboardRequest.current += 1;
       projectsEpoch.current += 1;
       selectedProject.current = imported.projectId;
@@ -127,15 +153,30 @@ export default function App() {
       setProjects((current) =>
         mergeImportedProject(current, summaryFromManifest(imported)),
       );
+      importedCoverageRequestId = coverageRequest.current + 1;
+      coverageRequest.current = importedCoverageRequestId;
       const report = await getCoverage(imported.projectId);
-      if (selectedProject.current === imported.projectId) {
+      if (
+        isCurrentComponentGeneration(componentRequestGeneration) &&
+        coverageRequest.current === importedCoverageRequestId &&
+        selectedProject.current === imported.projectId
+      ) {
         setCoverage(report);
         setPendingImportedProject(null);
       }
     } catch (cause) {
-      setError(toApiError(cause));
+      if (
+        isCurrentComponentGeneration(componentRequestGeneration) &&
+        (importedCoverageRequestId === null ||
+          (coverageRequest.current === importedCoverageRequestId &&
+            selectedProject.current === importedProjectId))
+      ) {
+        setError(toApiError(cause));
+      }
     } finally {
-      setActiveRequest("idle");
+      if (isCurrentComponentGeneration(componentRequestGeneration)) {
+        setActiveRequest("idle");
+      }
     }
   }
 
@@ -160,24 +201,49 @@ export default function App() {
       return;
     }
 
+    const projectId = pendingImportedProject.projectId;
+    const componentRequestGeneration = componentGeneration.current;
+    const requestId = coverageRequest.current + 1;
+    coverageRequest.current = requestId;
     setActiveRequest("coverage");
     try {
-      const report = await getCoverage(pendingImportedProject.projectId);
-      setCoverage(report);
-      setPendingImportedProject(null);
-      setError(null);
+      const report = await getCoverage(projectId);
+      if (
+        isCurrentComponentGeneration(componentRequestGeneration) &&
+        coverageRequest.current === requestId &&
+        selectedProject.current === projectId
+      ) {
+        setCoverage(report);
+        setPendingImportedProject(null);
+        setError(null);
+      }
     } catch (cause) {
-      setError(toApiError(cause));
+      if (
+        isCurrentComponentGeneration(componentRequestGeneration) &&
+        coverageRequest.current === requestId &&
+        selectedProject.current === projectId
+      ) {
+        setError(toApiError(cause));
+      }
     } finally {
-      setActiveRequest("idle");
+      if (
+        isCurrentComponentGeneration(componentRequestGeneration) &&
+        coverageRequest.current === requestId
+      ) {
+        setActiveRequest("idle");
+      }
     }
   }
 
   async function refreshProjects() {
+    const componentRequestGeneration = componentGeneration.current;
     const requestEpoch = projectsEpoch.current;
     setProjectsLoading(true);
     try {
       const loadedProjects = await listProjects();
+      if (!isCurrentComponentGeneration(componentRequestGeneration)) {
+        return;
+      }
       if (projectsEpoch.current === requestEpoch) {
         setProjects(loadedProjects);
         setProjectsError(null);
@@ -185,25 +251,39 @@ export default function App() {
         setProjects((current) => mergeProjectLists(current, loadedProjects));
       }
     } catch (cause) {
-      if (projectsEpoch.current === requestEpoch) {
+      if (
+        isCurrentComponentGeneration(componentRequestGeneration) &&
+        projectsEpoch.current === requestEpoch
+      ) {
         setProjectsError(toApiError(cause));
       }
     } finally {
-      setProjectsLoading(false);
+      if (isCurrentComponentGeneration(componentRequestGeneration)) {
+        setProjectsLoading(false);
+      }
     }
   }
 
   async function refreshRecovery() {
+    const componentRequestGeneration = componentGeneration.current;
     try {
-      setRecovery(await getRecoveryReport());
+      const report = await getRecoveryReport();
+      if (!isCurrentComponentGeneration(componentRequestGeneration)) {
+        return;
+      }
+      setRecovery(report);
       setRecoveryError(null);
     } catch (cause) {
-      setRecoveryError(toApiError(cause));
+      if (isCurrentComponentGeneration(componentRequestGeneration)) {
+        setRecoveryError(toApiError(cause));
+      }
     }
   }
 
   function handleProjectSelect(projectId: string) {
+    coverageRequest.current += 1;
     selectedProject.current = projectId;
+    setActiveRequest("idle");
     setSelectedProjectId(projectId);
     setPendingImportedProject(null);
     setError(null);
@@ -215,6 +295,7 @@ export default function App() {
   }
 
   async function loadProjectDashboard(projectId: string) {
+    const componentRequestGeneration = componentGeneration.current;
     const requestId = dashboardRequest.current + 1;
     dashboardRequest.current = requestId;
     setDashboardLoading(true);
@@ -224,10 +305,18 @@ export default function App() {
         getCoverage(projectId),
         listJobs(projectId),
       ]);
+      if (
+        !isCurrentComponentGeneration(componentRequestGeneration) ||
+        dashboardRequest.current !== requestId ||
+        selectedProject.current !== projectId
+      ) {
+        return;
+      }
       const details = await Promise.all(
         summaries.map((summary) => getJob(projectId, summary.jobId)),
       );
       if (
+        !isCurrentComponentGeneration(componentRequestGeneration) ||
         dashboardRequest.current !== requestId ||
         selectedProject.current !== projectId
       ) {
@@ -243,6 +332,7 @@ export default function App() {
       setDashboardError(null);
     } catch (cause) {
       if (
+        isCurrentComponentGeneration(componentRequestGeneration) &&
         dashboardRequest.current === requestId &&
         selectedProject.current === projectId
       ) {
@@ -250,6 +340,7 @@ export default function App() {
       }
     } finally {
       if (
+        isCurrentComponentGeneration(componentRequestGeneration) &&
         dashboardRequest.current === requestId &&
         selectedProject.current === projectId
       ) {
@@ -485,9 +576,11 @@ function reconcileJobHistory(
     summary.targetDisplayName !== request.targetDisplayName ||
     summary.resolution !== request.resolution ||
     summary.parallelism !== request.parallelism ||
-    summary.createdAt !== state.createdAt
+    summary.createdAt !== request.createdAt
   ) {
-    throw new TypeError("Job list and detail immutable fields do not match");
+    throw invalidResponseError(
+      new TypeError("Job list and detail immutable fields do not match"),
+    );
   }
   return {
     summary: {

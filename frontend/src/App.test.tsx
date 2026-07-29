@@ -698,6 +698,49 @@ describe("项目恢复与只读任务历史", () => {
     expect(job).toHaveTextContent("应用重启时此任务仍在运行");
   });
 
+  it("任务摘要创建时间与请求一致时允许状态记录使用独立创建时间", async () => {
+    installRestorationFetch({
+      detailedJob: {
+        ...jobDetail,
+        state: {
+          ...jobDetail.state,
+          created_at: "2026-07-29T10:01:00+08:00",
+          updated_at: "2026-07-29T10:01:00+08:00",
+        },
+      },
+    });
+    render(<App />);
+
+    await userEvent.setup().click(
+      await screen.findByRole("button", { name: /恢复项目/ }),
+    );
+
+    expect(
+      await screen.findByRole("article", { name: /Deepslate/ }),
+    ).toBeVisible();
+    expect(screen.queryByText("当前项目读取失败")).not.toBeInTheDocument();
+  });
+
+  it("任务摘要与请求不可变字段冲突时显示无效 API 响应", async () => {
+    installRestorationFetch({
+      listedJob: {
+        ...jobSummary,
+        created_at: "2026-07-29T09:59:00+08:00",
+        updated_at: "2026-07-29T09:59:00+08:00",
+      },
+    });
+    render(<App />);
+
+    await userEvent.setup().click(
+      await screen.findByRole("button", { name: /恢复项目/ }),
+    );
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("当前项目读取失败");
+    expect(alert).toHaveTextContent("本地服务返回了无法识别的响应");
+    expect(alert).not.toHaveTextContent("导入时发生未知错误");
+  });
+
   it("旧项目面板响应不能覆盖刚成功导入的新项目", async () => {
     const oldManifest = deferred<Response>();
     const oldCoverage = deferred<Response>();
@@ -766,6 +809,141 @@ describe("项目恢复与只读任务历史", () => {
     expect(
       screen.queryByRole("heading", { name: "测试项目" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("导入覆盖失败迟到时不能把错误附着到后来选择的项目", async () => {
+    const importedCoverage = deferred<Response>();
+    const newProjectId = "dce1d8fa-3e28-48f5-81b2-1776371b7832";
+    const newManifest = {
+      ...manifest,
+      project_id: newProjectId,
+      project_name: "新导入项目",
+      source_sha256: "b".repeat(64),
+      created_at: "2026-07-29T13:00:00+08:00",
+      updated_at: "2026-07-29T13:00:00+08:00",
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === "/api/projects") {
+          return Promise.resolve(jsonResponse([projectSummary]));
+        }
+        if (url === "/api/system/recovery") {
+          return Promise.resolve(jsonResponse(recoveryReport));
+        }
+        if (url === "/api/projects/import") {
+          return Promise.resolve(jsonResponse(newManifest, 201));
+        }
+        if (url === `/api/projects/${newProjectId}/coverage`) {
+          return importedCoverage.promise;
+        }
+        if (url === `/api/projects/${projectId}`) {
+          return Promise.resolve(jsonResponse(manifest));
+        }
+        if (url === `/api/projects/${projectId}/coverage`) {
+          return Promise.resolve(jsonResponse(coverage));
+        }
+        if (url === `/api/projects/${projectId}/jobs`) {
+          return Promise.resolve(jsonResponse([jobSummary]));
+        }
+        if (url === `/api/projects/${projectId}/jobs/${jobId}`) {
+          return Promise.resolve(jsonResponse(jobDetail));
+        }
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+    render(<App />);
+    const user = await completeForm("新导入项目", "new.zip");
+    await user.click(screen.getByRole("button", { name: "导入并分析" }));
+    await user.click(await screen.findByRole("button", { name: /恢复项目/ }));
+    expect(
+      await screen.findByRole("article", { name: /Deepslate/ }),
+    ).toBeVisible();
+
+    await act(async () => {
+      importedCoverage.reject(new TypeError("stale imported coverage"));
+      await expect(importedCoverage.promise).rejects.toThrow(
+        "stale imported coverage",
+      );
+    });
+
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /恢复项目/ })).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
+  });
+
+  it("覆盖重试失败迟到时不能把错误附着到后来选择的项目", async () => {
+    const retriedCoverage = deferred<Response>();
+    const newProjectId = "dce1d8fa-3e28-48f5-81b2-1776371b7832";
+    const newManifest = {
+      ...manifest,
+      project_id: newProjectId,
+      project_name: "新导入项目",
+      source_sha256: "b".repeat(64),
+      created_at: "2026-07-29T13:00:00+08:00",
+      updated_at: "2026-07-29T13:00:00+08:00",
+    };
+    let importedCoverageAttempts = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === "/api/projects") {
+          return Promise.resolve(jsonResponse([projectSummary]));
+        }
+        if (url === "/api/system/recovery") {
+          return Promise.resolve(jsonResponse(recoveryReport));
+        }
+        if (url === "/api/projects/import") {
+          return Promise.resolve(jsonResponse(newManifest, 201));
+        }
+        if (url === `/api/projects/${newProjectId}/coverage`) {
+          importedCoverageAttempts += 1;
+          return importedCoverageAttempts === 1
+            ? Promise.reject(new TypeError("initial coverage failure"))
+            : retriedCoverage.promise;
+        }
+        if (url === `/api/projects/${projectId}`) {
+          return Promise.resolve(jsonResponse(manifest));
+        }
+        if (url === `/api/projects/${projectId}/coverage`) {
+          return Promise.resolve(jsonResponse(coverage));
+        }
+        if (url === `/api/projects/${projectId}/jobs`) {
+          return Promise.resolve(jsonResponse([jobSummary]));
+        }
+        if (url === `/api/projects/${projectId}/jobs/${jobId}`) {
+          return Promise.resolve(jsonResponse(jobDetail));
+        }
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+    render(<App />);
+    const user = await completeForm("新导入项目", "new.zip");
+    await user.click(screen.getByRole("button", { name: "导入并分析" }));
+    await user.click(
+      await screen.findByRole("button", { name: "重试覆盖分析" }),
+    );
+    await user.click(screen.getByRole("button", { name: /恢复项目/ }));
+    expect(
+      await screen.findByRole("article", { name: /Deepslate/ }),
+    ).toBeVisible();
+
+    await act(async () => {
+      retriedCoverage.reject(new TypeError("stale retry failure"));
+      await expect(retriedCoverage.promise).rejects.toThrow(
+        "stale retry failure",
+      );
+    });
+
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /恢复项目/ })).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
   });
 
   it("迟到的启动项目列表与新导入项目合并且不清除选择", async () => {
@@ -861,6 +1039,104 @@ describe("项目恢复与只读任务历史", () => {
     expect(newButton).toBeInTheDocument();
     expect(newButton).toHaveAttribute("aria-current", "true");
     expect(screen.queryByText("项目列表读取失败")).not.toBeInTheDocument();
+  });
+
+  it("组件卸载后导入响应不得继续请求覆盖或提交状态", async () => {
+    const imported = deferred<Response>();
+    const newProjectId = "dce1d8fa-3e28-48f5-81b2-1776371b7832";
+    const newManifest = {
+      ...manifest,
+      project_id: newProjectId,
+      project_name: "卸载中的项目",
+      source_sha256: "b".repeat(64),
+    };
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/projects") {
+        return Promise.resolve(jsonResponse([]));
+      }
+      if (url === "/api/system/recovery") {
+        return Promise.resolve(jsonResponse(recoveryReport));
+      }
+      if (url === "/api/projects/import") {
+        return imported.promise;
+      }
+      if (url === `/api/projects/${newProjectId}/coverage`) {
+        return Promise.resolve(jsonResponse(coverage));
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const view = render(<App />);
+    const user = await completeForm("卸载中的项目", "new.zip");
+    await user.click(screen.getByRole("button", { name: "导入并分析" }));
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/projects/import",
+      expect.objectContaining({ method: "POST" }),
+    );
+
+    view.unmount();
+    await act(async () => {
+      imported.resolve(jsonResponse(newManifest, 201));
+      await imported.promise;
+      await Promise.resolve();
+    });
+
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      `/api/projects/${newProjectId}/coverage`,
+      undefined,
+    );
+  });
+
+  it("组件卸载后面板响应不得继续请求任务详情", async () => {
+    const loadedManifest = deferred<Response>();
+    const loadedCoverage = deferred<Response>();
+    const loadedJobs = deferred<Response>();
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/projects") {
+        return Promise.resolve(jsonResponse([projectSummary]));
+      }
+      if (url === "/api/system/recovery") {
+        return Promise.resolve(jsonResponse(recoveryReport));
+      }
+      if (url === `/api/projects/${projectId}`) {
+        return loadedManifest.promise;
+      }
+      if (url === `/api/projects/${projectId}/coverage`) {
+        return loadedCoverage.promise;
+      }
+      if (url === `/api/projects/${projectId}/jobs`) {
+        return loadedJobs.promise;
+      }
+      if (url === `/api/projects/${projectId}/jobs/${jobId}`) {
+        return Promise.resolve(jsonResponse(jobDetail));
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const view = render(<App />);
+    await userEvent.setup().click(
+      await screen.findByRole("button", { name: /恢复项目/ }),
+    );
+
+    view.unmount();
+    await act(async () => {
+      loadedManifest.resolve(jsonResponse(manifest));
+      loadedCoverage.resolve(jsonResponse(coverage));
+      loadedJobs.resolve(jsonResponse([jobSummary]));
+      await Promise.all([
+        loadedManifest.promise,
+        loadedCoverage.promise,
+        loadedJobs.promise,
+      ]);
+      await Promise.resolve();
+    });
+
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      `/api/projects/${projectId}/jobs/${jobId}`,
+      undefined,
+    );
   });
 
   it("使用产品中立的项目面板标题", () => {

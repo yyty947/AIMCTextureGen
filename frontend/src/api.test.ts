@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ApiRequestError,
   getJob,
+  getProject,
   getRecoveryReport,
   listJobs,
   listProjects,
@@ -21,6 +22,16 @@ const projectSummary = {
   catalog_id: "java-dev-format-34",
   created_at: createdAt,
   updated_at: "2026-07-29T11:00:00+08:00",
+};
+
+const projectManifest = {
+  schema_version: 2,
+  ...projectSummary,
+  supported_formats: [34, 35],
+  source_sha256: "a".repeat(64),
+  default_resolution: 16,
+  default_parallelism: 1,
+  style_references: [],
 };
 
 const jobSummary = {
@@ -143,9 +154,34 @@ describe("strict project and durable-job API parsing", () => {
       { ...projectSummary, java_pack_format: Number.MAX_SAFE_INTEGER + 1 },
     ],
     ["naive timestamp", { ...projectSummary, updated_at: "2026-07-29T11:00:00" }],
+    ["empty project name", { ...projectSummary, project_name: "" }],
+    ["overlong project name", { ...projectSummary, project_name: "x".repeat(129) }],
   ])("rejects a project summary with %s", async (_label, invalidSummary) => {
     respondWith([invalidSummary]);
     await expectInvalidResponse(() => listProjects());
+  });
+
+  it.each([
+    [
+      "unsafe manifest style reference",
+      { ...projectManifest, style_references: ["../outside.png"] },
+    ],
+    [
+      "overlong manifest project name",
+      { ...projectManifest, project_name: "😀".repeat(129) },
+    ],
+  ])("rejects a project manifest with %s", async (_label, invalidManifest) => {
+    respondWith(invalidManifest);
+    await expectInvalidResponse(() => getProject(projectId));
+  });
+
+  it("rejects a project detail whose ID differs from the requested project", async () => {
+    respondWith({
+      ...projectManifest,
+      project_id: "cd2b33a6-222f-4cd4-b52e-cf6251864d1c",
+    });
+
+    await expectInvalidResponse(() => getProject(projectId));
   });
 
   it("parses deterministic job summaries and retry lineage", async () => {
@@ -284,6 +320,20 @@ describe("strict project and durable-job API parsing", () => {
             ...candidates.slice(1),
           ],
         },
+      },
+    ],
+    [
+      "whitespace-only prompt",
+      {
+        ...jobDetail,
+        request: { ...jobDetail.request, prompt: "   " },
+      },
+    ],
+    [
+      "overlong prompt",
+      {
+        ...jobDetail,
+        request: { ...jobDetail.request, prompt: "x".repeat(4001) },
       },
     ],
   ])("rejects job detail with %s", async (_label, invalidDetail) => {
