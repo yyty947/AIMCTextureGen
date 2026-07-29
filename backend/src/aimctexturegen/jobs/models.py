@@ -38,6 +38,12 @@ CandidateStatus = Literal[
     "failed",
     "canceled",
 ]
+_ACTIVE_CANDIDATE_STATUSES = frozenset({"generating", "postprocessing"})
+_TERMINAL_CANDIDATE_STATUSES = frozenset(
+    {"completed", "failed", "canceled"}
+)
+_ACTIVE_JOB_STATUSES = frozenset({"generating", "postprocessing"})
+_TERMINAL_JOB_STATUSES = frozenset({"completed", "failed", "canceled"})
 CandidateIndex = Literal[0, 1, 2, 3]
 Seed = Annotated[int, Field(ge=0, le=MAX_SAFE_SEED)]
 FourSeeds = tuple[Seed, Seed, Seed, Seed]
@@ -132,8 +138,29 @@ class CandidateRecord(_StrictModel):
     finished_at: AwareDatetime | None
 
     @model_validator(mode="after")
-    def validate_failure_status(self) -> Self:
+    def validate_lifecycle(self) -> Self:
         _validate_failure_status(self.status, self.failure)
+        if self.status == "pending":
+            if self.started_at is not None or self.finished_at is not None:
+                raise ValueError("pending candidate cannot have lifecycle timestamps")
+        elif self.status in _ACTIVE_CANDIDATE_STATUSES:
+            if self.started_at is None or self.finished_at is not None:
+                raise ValueError(
+                    "active candidate requires only a started timestamp"
+                )
+        elif self.status == "completed":
+            if self.started_at is None or self.finished_at is None:
+                raise ValueError(
+                    "completed candidate requires started and finished timestamps"
+                )
+        elif self.finished_at is None:
+            raise ValueError("terminal candidate requires a finished timestamp")
+        if (
+            self.started_at is not None
+            and self.finished_at is not None
+            and self.finished_at < self.started_at
+        ):
+            raise ValueError("candidate finished before it started")
         return self
 
 
@@ -158,11 +185,59 @@ class JobStateRecord(_StrictModel):
     finished_at: AwareDatetime | None
 
     @model_validator(mode="after")
-    def validate_candidate_order_and_failure(self) -> Self:
+    def validate_lifecycle(self) -> Self:
         indices = tuple(candidate.candidate_index for candidate in self.candidates)
         if indices != (0, 1, 2, 3):
             raise ValueError("candidate records must be ordered from 0 through 3")
         _validate_failure_status(self.status, self.failure)
+        if self.updated_at < self.created_at:
+            raise ValueError("job updated before it was created")
+        for timestamp in (self.started_at, self.finished_at):
+            if timestamp is not None and not (
+                self.created_at <= timestamp <= self.updated_at
+            ):
+                raise ValueError("job lifecycle timestamp is out of range")
+        if (
+            self.started_at is not None
+            and self.finished_at is not None
+            and self.finished_at < self.started_at
+        ):
+            raise ValueError("job finished before it started")
+
+        if self.status == "queued":
+            if self.started_at is not None or self.finished_at is not None:
+                raise ValueError("queued job cannot have lifecycle timestamps")
+        elif self.status in _ACTIVE_JOB_STATUSES:
+            if self.started_at is None or self.finished_at is not None:
+                raise ValueError("active job requires only a started timestamp")
+        elif self.status in {"completed", "failed"}:
+            if self.started_at is None or self.finished_at is None:
+                raise ValueError(
+                    "completed or failed job requires lifecycle timestamps"
+                )
+        elif self.finished_at is None:
+            raise ValueError("canceled job requires a finished timestamp")
+
+        candidate_statuses = tuple(
+            candidate.status for candidate in self.candidates
+        )
+        if self.status == "queued" and candidate_statuses != ("pending",) * 4:
+            raise ValueError("queued job requires four pending candidates")
+        if self.status == "completed" and candidate_statuses != ("completed",) * 4:
+            raise ValueError("completed job requires four completed candidates")
+        if self.status in _TERMINAL_JOB_STATUSES and any(
+            status not in _TERMINAL_CANDIDATE_STATUSES
+            for status in candidate_statuses
+        ):
+            raise ValueError("terminal job cannot contain active candidates")
+        for candidate in self.candidates:
+            for timestamp in (candidate.started_at, candidate.finished_at):
+                if timestamp is not None and not (
+                    self.created_at <= timestamp <= self.updated_at
+                ):
+                    raise ValueError(
+                        "candidate timestamp is outside the job lifetime"
+                    )
         return self
 
 

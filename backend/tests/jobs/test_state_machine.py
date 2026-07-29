@@ -99,6 +99,17 @@ def _state(
     candidates: tuple[CandidateRecord, ...] | None = None,
 ) -> JobStateRecord:
     terminal = status in {"completed", "failed", "canceled"}
+    if candidates is None:
+        default_candidate_status = {
+            "postprocessing": "completed",
+            "completed": "completed",
+            "failed": "failed",
+            "canceled": "canceled",
+        }.get(status, "pending")
+        candidates = tuple(
+            _candidate(index, default_candidate_status)
+            for index in range(4)
+        )
     return JobStateRecord.model_validate(
         {
             "schema_version": 1,
@@ -106,8 +117,7 @@ def _state(
             "project_id": uuid4(),
             "revision": 7,
             "status": status,
-            "candidates": candidates
-            or tuple(_candidate(index) for index in range(4)),
+            "candidates": candidates,
             "failure": _failure() if status == "failed" else None,
             "created_at": CREATED,
             "updated_at": CREATED,
@@ -137,10 +147,19 @@ def test_transition_job_state_accepts_every_legal_edge_once(
     assert result.revision == state.revision + 1
     assert result.updated_at == NOW
     if target == "canceled":
-        assert all(
-            candidate.status == "canceled"
-            for candidate in result.candidates
-        )
+        for source_candidate, result_candidate in zip(
+            state.candidates,
+            result.candidates,
+            strict=True,
+        ):
+            if source_candidate.status in {
+                "pending",
+                "generating",
+                "postprocessing",
+            }:
+                assert result_candidate.status == "canceled"
+            else:
+                assert result_candidate == source_candidate
     assert dump_job_state(state) == before
 
 
@@ -168,8 +187,28 @@ def test_job_started_at_is_set_once_and_terminal_transitions_finish() -> None:
     queued = _state("queued")
     generating = transition_job_state(queued, "generating", now=NOW)
     later = NOW + timedelta(minutes=1)
+    candidates_completed = generating
+    for candidate_index in range(4):
+        candidates_completed = transition_candidate_state(
+            candidates_completed,
+            candidate_index,
+            "generating",
+            now=later,
+        )
+        candidates_completed = transition_candidate_state(
+            candidates_completed,
+            candidate_index,
+            "postprocessing",
+            now=later,
+        )
+        candidates_completed = transition_candidate_state(
+            candidates_completed,
+            candidate_index,
+            "completed",
+            now=later,
+        )
     postprocessing = transition_job_state(
-        generating,
+        candidates_completed,
         "postprocessing",
         now=later,
     )
@@ -185,6 +224,53 @@ def test_job_started_at_is_set_once_and_terminal_transitions_finish() -> None:
     assert generating.finished_at is None
     assert postprocessing.finished_at is None
     assert finished.finished_at == later + timedelta(minutes=1)
+
+
+@pytest.mark.parametrize("status", ["generating", "postprocessing"])
+def test_failed_job_transition_terminalizes_nonterminal_candidates(
+    status: JobStatus,
+) -> None:
+    candidates = (
+        _candidate(0, "pending"),
+        _candidate(1, "generating"),
+        _candidate(2, "completed"),
+        _candidate(3, "canceled"),
+    )
+    state = _state(status, candidates=candidates)
+    failure = _failure()
+
+    result = transition_job_state(
+        state,
+        "failed",
+        now=NOW,
+        failure=failure,
+    )
+
+    assert tuple(candidate.status for candidate in result.candidates) == (
+        "canceled",
+        "failed",
+        "completed",
+        "canceled",
+    )
+    assert result.candidates[0].finished_at == NOW
+    assert result.candidates[1].failure == failure
+    assert result.candidates[2:] == state.candidates[2:]
+    assert result.revision == state.revision + 1
+
+
+def test_completed_job_transition_requires_every_candidate_completed() -> None:
+    candidates = (
+        _candidate(0, "completed"),
+        _candidate(1, "completed"),
+        _candidate(2, "completed"),
+        _candidate(3, "pending"),
+    )
+    state = _state("postprocessing", candidates=candidates)
+
+    with pytest.raises(JobError) as error:
+        transition_job_state(state, "completed", now=NOW)
+
+    assert error.value.code == "INVALID_JOB_TRANSITION"
 
 
 def test_job_failure_is_required_only_when_transitioning_to_failed() -> None:
@@ -207,6 +293,18 @@ LEGAL_CANDIDATE_CASES = sorted(LEGAL_CANDIDATE_EDGES)
 ILLEGAL_CANDIDATE_CASES = sorted(
     set(product(CANDIDATE_STATUSES, repeat=2)) - LEGAL_CANDIDATE_EDGES
 )
+AGGREGATE_CANDIDATE_CASES = [
+    *[
+        ("queued", source, target, False)
+        for source, target in LEGAL_CANDIDATE_CASES
+        if source == "pending"
+    ],
+    *[
+        (aggregate_status, source, target, True)
+        for aggregate_status in ("generating", "postprocessing")
+        for source, target in LEGAL_CANDIDATE_CASES
+    ],
+]
 
 
 @pytest.mark.parametrize(("source", "target"), LEGAL_CANDIDATE_CASES)
@@ -310,6 +408,67 @@ def test_candidate_failure_and_index_are_validated_before_update() -> None:
         assert error.value.code == "INVALID_JOB_TRANSITION"
 
 
+@pytest.mark.parametrize(
+    ("aggregate_status", "candidate_source", "candidate_target", "allowed"),
+    AGGREGATE_CANDIDATE_CASES,
+)
+def test_candidate_transition_respects_aggregate_lifecycle_matrix(
+    aggregate_status: JobStatus,
+    candidate_source: CandidateStatus,
+    candidate_target: CandidateStatus,
+    allowed: bool,
+) -> None:
+    state = _state(
+        aggregate_status,
+        candidates=tuple(
+            _candidate(index, candidate_source if index == 0 else "pending")
+            for index in range(4)
+        ),
+    )
+    failure = _failure() if candidate_target == "failed" else None
+
+    if allowed:
+        result = transition_candidate_state(
+            state,
+            0,
+            candidate_target,
+            now=NOW,
+            failure=failure,
+        )
+        assert result.candidates[0].status == candidate_target
+        return
+
+    before = dump_job_state(state)
+    with pytest.raises(JobError) as error:
+        transition_candidate_state(
+            state,
+            0,
+            candidate_target,
+            now=NOW,
+            failure=failure,
+        )
+    assert error.value.code == "INVALID_JOB_TRANSITION"
+    assert dump_job_state(state) == before
+
+
+def test_public_transitions_cannot_create_a_queued_active_candidate_for_recovery() -> None:
+    queued = _state("queued")
+    before = dump_job_state(queued)
+
+    with pytest.raises(JobError) as error:
+        transition_candidate_state(
+            queued,
+            0,
+            "generating",
+            now=NOW,
+        )
+
+    assert error.value.code == "INVALID_JOB_TRANSITION"
+    assert recover_interrupted_state(queued, now=NOW) is queued
+    assert dump_job_state(queued) == before
+    assert all(candidate.status == "pending" for candidate in queued.candidates)
+
+
 @pytest.mark.parametrize("status", ["completed", "failed", "canceled"])
 def test_candidate_transition_rejects_terminal_aggregate_state(
     status: JobStatus,
@@ -334,10 +493,14 @@ def test_cancel_changes_all_nonterminal_candidates_in_one_revision(
     status: JobStatus,
 ) -> None:
     candidates = (
-        _candidate(0, "pending"),
-        _candidate(1, "generating"),
-        _candidate(2, "completed"),
-        _candidate(3, "failed"),
+        tuple(_candidate(index, "pending") for index in range(4))
+        if status == "queued"
+        else (
+            _candidate(0, "pending"),
+            _candidate(1, "generating"),
+            _candidate(2, "completed"),
+            _candidate(3, "failed"),
+        )
     )
     state = _state(status, candidates=candidates)
 
@@ -348,13 +511,17 @@ def test_cancel_changes_all_nonterminal_candidates_in_one_revision(
     assert result.finished_at == NOW
     assert result.updated_at == NOW
     assert result.revision == state.revision + 1
-    assert tuple(candidate.status for candidate in result.candidates) == (
-        "canceled",
-        "canceled",
-        "completed",
-        "failed",
+    expected_statuses = (
+        ("canceled",) * 4
+        if status == "queued"
+        else ("canceled", "canceled", "completed", "failed")
     )
-    assert result.candidates[2:] == state.candidates[2:]
+    assert (
+        tuple(candidate.status for candidate in result.candidates)
+        == expected_statuses
+    )
+    if status != "queued":
+        assert result.candidates[2:] == state.candidates[2:]
     assert result.candidates[0].finished_at == NOW
     assert result.candidates[1].finished_at == NOW
 

@@ -107,6 +107,61 @@ def _failure() -> JobFailure:
     )
 
 
+def _candidate_values(index: int, status: str) -> dict[str, object]:
+    active = status in {"generating", "postprocessing"}
+    terminal = status in {"completed", "failed", "canceled"}
+    return {
+        "candidate_index": index,
+        "seed": SEEDS[index],
+        "status": status,
+        "failure": (
+            _failure().model_dump()
+            if status == "failed"
+            else None
+        ),
+        "started_at": NOW if active or status == "completed" else None,
+        "finished_at": NOW if terminal else None,
+    }
+
+
+def _state_values(
+    request: JobRequest,
+    status: str,
+    candidate_statuses: tuple[str, str, str, str],
+) -> dict[str, object]:
+    terminal = status in {"completed", "failed", "canceled"}
+    return {
+        "schema_version": 1,
+        "job_id": request.job_id,
+        "project_id": request.project_id,
+        "revision": 0,
+        "status": status,
+        "candidates": tuple(
+            _candidate_values(index, candidate_status)
+            for index, candidate_status in enumerate(candidate_statuses)
+        ),
+        "failure": (
+            _failure().model_dump()
+            if status == "failed"
+            else None
+        ),
+        "created_at": NOW,
+        "updated_at": NOW,
+        "started_at": None if status in {"queued", "canceled"} else NOW,
+        "finished_at": NOW if terminal else None,
+    }
+
+
+def _json_bytes(values: dict[str, object]) -> bytes:
+    return json.dumps(
+        values,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+
+
 def test_job_request_accepts_the_locked_four_candidate_contract() -> None:
     request = _request()
 
@@ -264,6 +319,186 @@ def test_job_failure_is_present_only_for_failed_status(
     request = _request()
     with pytest.raises(ValidationError):
         _state(request, status=status, failure=failure)
+
+
+@pytest.mark.parametrize(
+    ("status", "updates"),
+    [
+        ("pending", {"started_at": NOW}),
+        ("pending", {"finished_at": NOW}),
+        ("generating", {"started_at": None}),
+        ("generating", {"finished_at": NOW}),
+        ("postprocessing", {"started_at": None}),
+        ("postprocessing", {"finished_at": NOW}),
+        ("completed", {"started_at": None}),
+        ("completed", {"finished_at": None}),
+        ("failed", {"finished_at": None}),
+        ("canceled", {"finished_at": None}),
+        (
+            "completed",
+            {
+                "started_at": NOW,
+                "finished_at": datetime(2026, 7, 29, 9, 29, tzinfo=timezone.utc),
+            },
+        ),
+    ],
+)
+def test_candidate_rejects_status_timestamp_incoherence(
+    status: str,
+    updates: dict[str, object],
+) -> None:
+    values = {
+        **_candidate_values(0, status),
+        **updates,
+    }
+
+    with pytest.raises(ValidationError):
+        CandidateRecord.model_validate(values)
+
+
+@pytest.mark.parametrize(
+    ("status", "candidate_statuses", "updates"),
+    [
+        ("queued", ("pending",) * 4, {"started_at": NOW}),
+        ("queued", ("pending",) * 4, {"finished_at": NOW}),
+        ("generating", ("pending",) * 4, {"started_at": None}),
+        ("generating", ("pending",) * 4, {"finished_at": NOW}),
+        ("postprocessing", ("postprocessing",) * 4, {"started_at": None}),
+        ("completed", ("completed",) * 4, {"finished_at": None}),
+        (
+            "failed",
+            ("completed", "failed", "canceled", "canceled"),
+            {"finished_at": None},
+        ),
+        (
+            "canceled",
+            ("completed", "failed", "canceled", "canceled"),
+            {"finished_at": None},
+        ),
+        (
+            "queued",
+            ("pending",) * 4,
+            {"updated_at": datetime(2026, 7, 29, 9, 29, tzinfo=timezone.utc)},
+        ),
+        (
+            "generating",
+            ("pending",) * 4,
+            {"started_at": datetime(2026, 7, 29, 9, 31, tzinfo=timezone.utc)},
+        ),
+        (
+            "completed",
+            ("completed",) * 4,
+            {
+                "started_at": NOW,
+                "finished_at": datetime(2026, 7, 29, 9, 29, tzinfo=timezone.utc),
+            },
+        ),
+    ],
+)
+def test_job_state_rejects_status_and_timestamp_incoherence(
+    status: str,
+    candidate_statuses: tuple[str, str, str, str],
+    updates: dict[str, object],
+) -> None:
+    request = _request()
+    values = {
+        **_state_values(request, status, candidate_statuses),
+        **updates,
+    }
+
+    with pytest.raises(ValidationError):
+        JobStateRecord.model_validate(values)
+
+
+@pytest.mark.parametrize(
+    ("status", "candidate_statuses"),
+    [
+        ("queued", ("generating", "pending", "pending", "pending")),
+        ("completed", ("completed", "completed", "completed", "pending")),
+        ("failed", ("completed", "failed", "canceled", "generating")),
+        ("canceled", ("completed", "failed", "canceled", "pending")),
+    ],
+)
+def test_strict_json_rejects_aggregate_candidate_lifecycle_mismatch(
+    status: str,
+    candidate_statuses: tuple[str, str, str, str],
+) -> None:
+    request = _request()
+    payload = _json_bytes(
+        _state_values(request, status, candidate_statuses)
+    )
+
+    with pytest.raises(ValidationError):
+        JobStateRecord.model_validate_json(payload, strict=True)
+
+
+@pytest.mark.parametrize(
+    ("status", "candidate_statuses", "candidate_index", "field", "timestamp"),
+    [
+        (
+            "generating",
+            ("generating", "pending", "pending", "pending"),
+            0,
+            "started_at",
+            datetime(2026, 7, 29, 9, 29, tzinfo=timezone.utc),
+        ),
+        (
+            "canceled",
+            ("completed", "failed", "canceled", "canceled"),
+            2,
+            "finished_at",
+            datetime(2026, 7, 29, 9, 31, tzinfo=timezone.utc),
+        ),
+    ],
+)
+def test_job_state_rejects_candidate_timestamps_outside_job_lifetime(
+    status: str,
+    candidate_statuses: tuple[str, str, str, str],
+    candidate_index: int,
+    field: str,
+    timestamp: datetime,
+) -> None:
+    request = _request()
+    values = _state_values(request, status, candidate_statuses)
+    candidates = list(values["candidates"])
+    candidates[candidate_index] = {
+        **candidates[candidate_index],
+        field: timestamp,
+    }
+    values["candidates"] = tuple(candidates)
+
+    with pytest.raises(ValidationError):
+        JobStateRecord.model_validate(values)
+
+
+@pytest.mark.parametrize(
+    ("status", "candidate_statuses"),
+    [
+        ("queued", ("pending",) * 4),
+        ("generating", ("pending", "generating", "completed", "failed")),
+        (
+            "postprocessing",
+            ("postprocessing", "completed", "failed", "canceled"),
+        ),
+        ("completed", ("completed",) * 4),
+        ("failed", ("completed", "failed", "canceled", "canceled")),
+        ("canceled", ("completed", "failed", "canceled", "canceled")),
+    ],
+)
+def test_job_state_accepts_coherent_lifecycle_records(
+    status: str,
+    candidate_statuses: tuple[str, str, str, str],
+) -> None:
+    request = _request()
+
+    state = JobStateRecord.model_validate(
+        _state_values(request, status, candidate_statuses)
+    )
+
+    assert state.status == status
+    assert tuple(candidate.status for candidate in state.candidates) == (
+        candidate_statuses
+    )
 
 
 def test_models_reject_naive_timestamps_unknown_fields_and_mutation() -> None:

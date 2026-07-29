@@ -15,6 +15,7 @@ from aimctexturegen.jobs.models import (
 
 
 _TERMINAL_JOB_STATUSES = frozenset({"completed", "failed", "canceled"})
+_ACTIVE_CANDIDATE_STATUSES = frozenset({"generating", "postprocessing"})
 _TERMINAL_CANDIDATE_STATUSES = frozenset({"completed", "failed", "canceled"})
 _ACTIVE_JOB_STATUSES = frozenset({"generating", "postprocessing"})
 
@@ -53,6 +54,14 @@ def transition_job_state(
     _require_failure_for_target(target, failure)
     if target == "canceled":
         return _canceled_state(state, now)
+    if target == "failed":
+        if failure is None:
+            raise _invalid_transition()
+        return _failed_state(state, now, failure)
+    if target == "completed" and any(
+        candidate.status != "completed" for candidate in state.candidates
+    ):
+        raise _invalid_transition()
 
     started_at = state.started_at
     if target == "generating" and started_at is None:
@@ -77,7 +86,7 @@ def transition_candidate_state(
 ) -> JobStateRecord:
     """Apply one legal candidate transition in one aggregate revision."""
 
-    if state.status in _TERMINAL_JOB_STATUSES:
+    if state.status not in _ACTIVE_JOB_STATUSES:
         raise _invalid_transition()
     if type(candidate_index) is not int or candidate_index not in range(4):
         raise _invalid_transition()
@@ -135,6 +144,39 @@ def _canceled_state(
         status="canceled",
         candidates=candidates,
         failure=None,
+        updated_at=now,
+        finished_at=now,
+    )
+
+
+def _failed_state(
+    state: JobStateRecord,
+    now: datetime,
+    failure: JobFailure,
+) -> JobStateRecord:
+    candidates = tuple(
+        _replace_candidate(
+            candidate,
+            status="canceled",
+            failure=None,
+            finished_at=now,
+        )
+        if candidate.status == "pending"
+        else _replace_candidate(
+            candidate,
+            status="failed",
+            failure=failure,
+            finished_at=now,
+        )
+        if candidate.status in _ACTIVE_CANDIDATE_STATUSES
+        else candidate
+        for candidate in state.candidates
+    )
+    return _replace_state(
+        state,
+        status="failed",
+        candidates=candidates,
+        failure=failure,
         updated_at=now,
         finished_at=now,
     )
