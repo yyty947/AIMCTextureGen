@@ -24,7 +24,8 @@
 - 第三阶段 Task 4 已实现严格冻结的 schema-1 任务请求/状态/候选/失败/摘要契约、四个唯一 JavaScript-safe seed、共享项目相对路径语法、跨文件 ID/候选顺序/seed 一致性校验和确定性 JSON。模型拒绝 job/candidate 状态与时间戳不一致、queued job 含非 pending 候选、终态 job 含非终态候选或 completed job 含非 completed 候选的记录；候选时间戳还必须处于 aggregate 的 `started_at..finished_at` 活跃窗口内（对应边界存在时）。纯状态机完整限制 job/candidate 合法边，queued job 不接受候选跃迁；取消或失败在同一 revision 中终止全部非终态候选，重启恢复只把 active job 置为 `failed/JOB_INTERRUPTED`，保留已完成候选并取消未开始候选。`CreateJobCommand` 是严格 service/domain 命令；Task 8 的 HTTP DTO 必须把 JSON 数组显式映射为 tuple，不能直接放宽持久化合同。
 - 第三阶段 Task 5 已实现 JSON 权威的 `JobStore` 与 `JobService`：任务创建只发布包含 `request.json`、`state.json` 和四个空产物目录的规范 UUID 目录，状态更新使用期望 revision 和验证后的同目录原子替换；加载和列表限制 JSON 大小、复核项目/任务/seed 身份并拒绝 reparse tree。`JobStore.scan()` 额外返回冻结的有效任务和无路径类型化问题，使坏的规范任务不会隐藏有效 sibling；原 `list()` 仍保持遇到问题即失败的业务合同，Task 7 可消费 scan issues 形成恢复报告。取消、重试与重启恢复均复用 Task 4 纯状态机，重试保留全部请求参数和四个 seed，只更新任务 ID、直接来源 ID 与创建时间。服务只允许当前目录中 MVP-eligible 且缺失的精确目标，绑定并验证 `pack/` 内 1–8 个普通风格参考和 `uploads/structure-references/` 内可选结构参考，随后生成并持久化四个唯一 JavaScript-safe seed；索引写入发生在 JSON 提交之后，失败不回滚任务。SQLite、API、WebUI、ComfyUI 与真实模型仍未接入。
 - 第三阶段 Task 6 已实现可丢弃的 SQLite schema-1 查询索引：`ProjectIndex` 每次操作使用有限 busy timeout 的独立连接、开启外键、显式事务写入，并只保存冻结的项目/任务摘要；UUID 文本、任务/候选枚举和数值边界由数据库约束，时间统一为可正确排序的 UTC 文本。索引不保存 prompt、seed、文件系统路径、失败技术详情、source hash 或产物。`replace_snapshot` 在普通 `.aimctexturegen/` 目录内构建 `index.sqlite3.tmp`，完成完整性、外键和行数校验并关闭句柄后才原子替换；失败保留旧索引并清理临时库，非空且未版本化的未知数据库会原字节保留并拒绝覆盖。`IndexService` 从权威 manifest/job JSON 模型重建，只索引 `JobStore.scan()` 返回的有效任务，并把问题留给 Task 7 报告；guarded upsert/query 在 SQLite 失败后只重建并重试一次，第二次失败返回稳定 `INDEX_UNAVAILABLE`。仍未接入 API、WebUI、ComfyUI 或真实模型。
-- 第三阶段 Task 7 已实现启动迁移和中断任务恢复：`RecoveryService` 先通过 `ProjectRepository` 迁移并扫描有效项目，再通过 `JobStore.scan()` 隔离坏任务；只把 `generating`/`postprocessing` 任务按期望 revision 原子更新为 `failed/JOB_INTERRUPTED`，保留已完成候选并取消未开始候选，queued 与全部终态 `state.json` 字节不变。若 Windows 墙钟回拨，每个 active job 的有效恢复时间不会早于其持久化 `updated_at`，报告完成时间也不会早于本次 run 起点或任何有效恢复时间。冻结的无路径 `RecoveryReport` 汇总有效项目/任务、实际恢复任务、项目/任务问题和完成时间；全部 JSON 更新结束后才由 `IndexService` 从最终磁盘状态重建 SQLite。真实 ZIP 导入的双实例重启测试在删除索引后恢复了项目和三种任务状态，并逐路径证明 `source/`、`pack/` 及其 assets 的 SHA-256 映射完全不变。FastAPI lifespan 接线仍属于 Task 8。
+- 第三阶段 Task 7 已实现启动迁移和中断任务恢复：`RecoveryService` 先通过 `ProjectRepository` 迁移并扫描有效项目，再通过 `JobStore.scan()` 隔离坏任务；只把 `generating`/`postprocessing` 任务按期望 revision 原子更新为 `failed/JOB_INTERRUPTED`，保留已完成候选并取消未开始候选，queued 与全部终态 `state.json` 字节不变。若 Windows 墙钟回拨，每个 active job 的有效恢复时间不会早于其持久化 `updated_at`，报告完成时间也不会早于本次 run 起点或任何有效恢复时间。冻结的无路径 `RecoveryReport` 汇总有效项目/任务、实际恢复任务、项目/任务问题和完成时间；全部 JSON 更新结束后才由 `IndexService` 从最终磁盘状态重建 SQLite。真实 ZIP 导入的双实例重启测试在删除索引后恢复了项目和三种任务状态，并逐路径证明 `source/`、`pack/` 及其 assets 的 SHA-256 映射完全不变。
+- 第三阶段 Task 8 已实现 FastAPI lifespan 恢复和持久化任务 HTTP 边界：默认 `AppServices` 组合 `ProjectRepository`、`ProjectService`、`JobStore`、`JobService`、`ProjectIndex`、`IndexService` 与 `RecoveryService`，启动恢复在接受请求前运行并把无路径报告保存到 `app.state.recovery_report`；SQLite 仍按每次操作打开和关闭连接。新增任务创建、确定性列表、详情、revision 条件取消、保留四 seed 的 retry lineage 以及只读恢复报告端点。HTTP DTO 明确把 JSON 风格参考数组转换为严格 tuple 域命令，不接收客户端 ID 或 seed；规范 UUID、严格值、损坏 JSON、不安全引用、not-found、revision conflict、非法转换和索引不可用均使用稳定错误信封，技术详情只有域错误显式标记安全时才返回。未运行 lifespan 的既有直接 ASGI 测试仍使用原磁盘项目服务，显式注入的服务继续优先使用，避免测试接触默认仓库项目根。
 
 ## 已确认边界
 
@@ -40,13 +41,13 @@
 
 ## 当前工作入口
 
-当前工作分支为 `codex/phase-3-durable-jobs`。第三阶段 Task 1 至 Task 7 已完成；下一项是 Task 8“FastAPI 任务与恢复端点”，负责 lifespan 启动恢复、任务 HTTP 映射和只读恢复报告。继续只执行 `docs/superpowers/plans/2026-07-27-phase-3-durable-jobs-and-recovery.md`，不接入真实模型、ComfyUI 或生产目录。
+当前工作分支为 `codex/phase-3-durable-jobs`。第三阶段 Task 1 至 Task 8 已完成；下一项是 Task 9“WebUI 项目恢复与任务历史”，只消费已验证的项目列表、任务历史/详情和恢复报告 API。继续只执行 `docs/superpowers/plans/2026-07-27-phase-3-durable-jobs-and-recovery.md`，不接入真实模型、ComfyUI 或生产目录。
 
 ## 接手步骤
 
 1. 运行 `git status --short`，确认并保留当前未提交改动。
 2. 阅读 `AGENTS.md`、路线图、第二阶段计划和第三阶段可执行计划，了解已合并的 processing 契约以及即将建立的持久化接口。
-3. 从 Task 8 开始继续逐项完成 RED → GREEN → commit；不要重复 Task 1–7 或提前执行后续任务。
+3. 从 Task 9 开始继续逐项完成 RED → GREEN → commit；不要重复 Task 1–8 或提前执行后续任务。
 4. 不要在第三阶段接入真实模型、ComfyUI 或生产目录，也不要采用候选或导出资源包。
 
 ## 当前可用验证
@@ -87,6 +88,8 @@ git status --short
 2026-07-29 第三阶段 Task 6 首轮复审修复后的索引门禁 `.\.venv\Scripts\python -W error -m pytest backend\tests\index -v` 为 21 passed；完整后端回归 `.\.venv\Scripts\python -W error -m pytest backend\tests` 为 566 passed。覆盖 schema version/外键/规范 UUID、四个 candidate 状态列约束、跨时区时间排序、retry lineage、冻结摘要与敏感字段排除；覆盖完整快照重建、删除后重建、非空未版本化数据库原字节保留，以及填充、验证和发布失败时旧索引可用且临时库清理；真实 `JobStore` 回归证明一个损坏规范任务不会阻止有效 sibling 进入重建索引，原损坏 JSON 保持不变并通过类型化 issue 留给 Task 7；覆盖 SQLite 首次失败后的一次重建/重试和第二次失败的稳定 `INDEX_UNAVAILABLE`。SQLite 只作为 JSON 权威数据的可重建查询索引，未读取或修改资源包文件，也未接入 API、WebUI、ComfyUI 或模型。
 
 2026-07-29 第三阶段 Task 7 首轮复审修复后的恢复与真实重启门禁 `.\.venv\Scripts\python -W error -m pytest backend\tests\jobs\test_recovery.py backend\tests\integration\test_restart_recovery.py -v` 为 3 passed；完整后端回归 `.\.venv\Scripts\python -W error -m pytest backend\tests` 为 569 passed。测试覆盖 schema-1 项目迁移、queued/终态字节保留、两种 active 状态的 `JOB_INTERRUPTED` 恢复、完成候选保留、损坏任务 sibling 隔离与原字节保留、最终 JSON 索引重建和第二次运行幂等；额外覆盖墙钟早于持久化 active 生命周期时继续恢复后续 sibling 并最终重建索引，以及完成时钟再次回拨时报告时间不倒退。真实 ZIP 导入后删除 SQLite 并用第二套真实 repository/store/index/recovery 服务启动，项目和 queued/failed/completed 任务均可见，`source/` 与 `pack/` 的逐路径 SHA-256 映射不变。未修改 FastAPI、WebUI、ComfyUI、模型、生产目录、候选采用或导出行为。
+
+2026-07-29 第三阶段 Task 8 的 API 门禁 `.\.venv\Scripts\python -W error -m pytest backend\tests\api -v` 为 71 passed；恢复与真实重启门禁仍为 3 passed；完整后端回归 `.\.venv\Scripts\python -W error -m pytest backend\tests` 为 588 passed。API 测试覆盖 JSON array 到 tuple 的显式传输映射、服务端四 seed/ID、规范 UUID、严格请求、确定性任务顺序、详情、取消/retry lineage、not-found、revision conflict、非法转换、不安全引用、损坏 JSON、索引不可用和 technical-details 安全标记；lifespan 测试证明注入恢复只执行一次、报告不含绝对路径、默认服务图完整，并在 Windows 上可于 lifespan 内重命名 SQLite 文件，证明没有长期连接占用。原导入、multipart 与项目 API 回归保持通过；未接入 WebUI、ComfyUI、模型、候选采用、导出或生产目录。
 
 ## 需要在对应阶段确定的事项
 

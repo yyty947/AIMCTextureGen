@@ -900,7 +900,7 @@ git commit -m "feat: recover projects and interrupted jobs on restart"
   - `GET /api/system/recovery`
 - Adds app lifespan startup recovery.
 
-- [ ] **Step 1: Write API contract tests**
+- [x] **Step 1: Write API contract tests**
 
 Test canonical UUID enforcement, strict request values, exact four seeds,
 deterministic ordering, detail responses, cancel/retry lineage, not-found,
@@ -924,7 +924,7 @@ The create request accepts:
 
 Seeds and IDs are server-generated and returned, not accepted from the client.
 
-- [ ] **Step 2: Expand `AppServices` and lifespan**
+- [x] **Step 2: Expand `AppServices` and lifespan**
 
 Construct and inject `ProjectRepository`, `ProjectService`, `JobStore`,
 `JobService`, `ProjectIndex`, and `RecoveryService`. The FastAPI lifespan runs
@@ -935,7 +935,7 @@ so lifespan owns no long-lived SQLite connection.
 Injected test services remain supported; tests must not touch the default
 repository project root.
 
-- [ ] **Step 3: Implement thin routes and error translation**
+- [x] **Step 3: Implement thin routes and error translation**
 
 Routes parse canonical IDs, validate Pydantic commands, invoke services, and
 return models. Map job/repository/index errors to the existing stable envelope.
@@ -944,7 +944,7 @@ Return technical details only when the domain error explicitly marks them safe.
 `GET /api/system/recovery` returns counts and user-readable issues; it does not
 return absolute paths.
 
-- [ ] **Step 4: Run all API tests**
+- [x] **Step 4: Run all API tests**
 
 ```powershell
 .\.venv\Scripts\python -W error -m pytest backend\tests\api -v
@@ -952,7 +952,7 @@ return absolute paths.
 
 Expected: all pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add backend/src/aimctexturegen/api backend/src/aimctexturegen/main.py backend/tests/api

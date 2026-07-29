@@ -14,6 +14,7 @@ from pydantic import ValidationError
 
 from aimctexturegen.catalog.registry import CatalogRegistry
 from aimctexturegen.core.errors import ErrorEnvelope
+from aimctexturegen.jobs.errors import JobError
 from aimctexturegen.main import AppServices, create_app
 from aimctexturegen.projects.models import ProjectManifest
 
@@ -27,6 +28,25 @@ class FailingWorkspace:
 
     def import_pack(self, _source: Path, _project_name: str):
         raise RuntimeError(f"injected workspace failure: {self._secret}")
+
+
+class FailingJobService:
+    def __init__(
+        self,
+        technical_details: str,
+        *,
+        expose_technical_details: bool,
+    ) -> None:
+        self._technical_details = technical_details
+        self._expose_technical_details = expose_technical_details
+
+    def create_job(self, _project_id, _command):
+        raise JobError(
+            "INDEX_UNAVAILABLE",
+            "任务已保存，但任务索引暂时不可用",
+            technical_details=self._technical_details,
+            expose_technical_details=self._expose_technical_details,
+        )
 
 
 class ReplacingCatalog:
@@ -206,6 +226,61 @@ def test_injected_unexpected_failure_is_logged_but_not_returned(
     assert secret in caplog.text
     assert secret not in response.text
     assert list(project_root.iterdir()) == []
+
+
+@pytest.mark.parametrize(
+    ("expose_technical_details", "expected_details"),
+    [
+        (False, None),
+        (True, "index rebuild failed after one retry"),
+    ],
+)
+def test_job_domain_details_require_explicit_safe_marker(
+    tmp_path: Path,
+    expose_technical_details: bool,
+    expected_details: str | None,
+) -> None:
+    unsafe_secret = str(tmp_path / "private" / "index.sqlite3")
+    technical_details = (
+        "index rebuild failed after one retry"
+        if expose_technical_details
+        else unsafe_secret
+    )
+    services = AppServices(
+        workspace=FailingWorkspace("not called"),
+        catalogs=CatalogRegistry(CATALOG_ROOT),
+        project_root=tmp_path / "projects",
+        job_service=FailingJobService(
+            technical_details,
+            expose_technical_details=expose_technical_details,
+        ),
+    )
+    app = create_app(services=services)
+
+    response = asyncio.run(
+        request_app(
+            app,
+            "POST",
+            "/api/projects/abcdefab-cdef-4abc-8def-abcdefabcdef/jobs",
+            json={
+                "target_semantic_id": "minecraft:deepslate",
+                "prompt": "cold blue-gray stone",
+                "resolution": 16,
+                "parallelism": 1,
+                "style_references": [
+                    "assets/minecraft/textures/block/stone.png"
+                ],
+                "structure_reference": None,
+            },
+        )
+    )
+
+    assert response.status_code == 500
+    assert response.json()["code"] == "INDEX_UNAVAILABLE"
+    assert response.json()["stage"] == "creating_job"
+    assert response.json()["technical_details"] == expected_details
+    if not expose_technical_details:
+        assert unsafe_secret not in response.text
 
 
 def test_coverage_holds_project_identity_against_post_manifest_replacement(

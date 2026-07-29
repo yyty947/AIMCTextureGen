@@ -75,7 +75,7 @@ async def import_project(
                 temporary_path,
                 temporary_identity,
             )
-            return _project_service(services).import_pack(
+            return _project_service(request).import_pack(
                 temporary_path,
                 parsed.project_name,
             )
@@ -126,7 +126,7 @@ async def import_project(
 @router.get("", response_model=tuple[ProjectSummary, ...])
 def list_projects(request: Request) -> tuple[ProjectSummary, ...]:
     try:
-        return _project_service(request.app.state.services).list_projects()
+        return _project_service(request).list_projects()
     except (ProjectRepositoryError, ProjectServiceError) as error:
         raise _project_domain_problem(error, "listing_projects") from error
     except Exception as error:
@@ -138,7 +138,7 @@ def list_projects(request: Request) -> tuple[ProjectSummary, ...]:
 def get_project(request: Request, project_id: str) -> ProjectManifest:
     try:
         parsed_id = _parse_project_id(project_id)
-        return _project_service(request.app.state.services).get_project(parsed_id)
+        return _project_service(request).get_project(parsed_id)
     except ApiProblem:
         raise
     except (ProjectRepositoryError, ProjectServiceError) as error:
@@ -152,7 +152,7 @@ def get_project(request: Request, project_id: str) -> ProjectManifest:
 def get_project_coverage(request: Request, project_id: str) -> CoverageReport:
     try:
         parsed_id = _parse_project_id(project_id)
-        return _project_service(request.app.state.services).get_coverage(parsed_id)
+        return _project_service(request).get_coverage(parsed_id)
     except ApiProblem:
         raise
     except (ProjectRepositoryError, ProjectServiceError) as error:
@@ -162,7 +162,16 @@ def get_project_coverage(request: Request, project_id: str) -> CoverageReport:
         raise _internal_problem("classifying_coverage") from error
 
 
-def _project_service(services) -> ProjectService:
+def _project_service(request: Request) -> ProjectService:
+    services = request.app.state.services
+    if (
+        services.project_service is not None
+        and (
+            request.app.state.startup_complete
+            or services._project_service_injected
+        )
+    ):
+        return services.project_service
     repository = ProjectRepository(services.project_root)
     return ProjectService(
         workspace=services.workspace,
