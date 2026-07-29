@@ -530,7 +530,7 @@ git commit -m "refactor: move project persistence behind services"
   `cancel_state`, and `recover_interrupted_state`.
 - Produces: deterministic `dump_job_request` and `dump_job_state`.
 
-- [ ] **Step 1: Write strict model tests**
+- [x] **Step 1: Write strict model tests**
 
 `JobRequest` contains:
 
@@ -561,7 +561,7 @@ indices, seed mismatch between request and candidates, invalid paths, empty or
 over-4000-code-point prompts, style counts outside 1–8, naive timestamps,
 unknown fields, and mutation.
 
-- [ ] **Step 2: Implement models and deterministic dumps**
+- [x] **Step 2: Implement models and deterministic dumps**
 
 Use frozen strict Pydantic models. Define:
 
@@ -583,7 +583,7 @@ trailing newline. `validate_job_pair` requires equal project/job IDs and exactly
 four candidate records whose indices and seeds match the request tuple in
 order; `JobStore.load` must call it before returning a job.
 
-- [ ] **Step 3: Write the state-machine matrix tests**
+- [x] **Step 3: Write the state-machine matrix tests**
 
 Parametrize every legal and illegal edge. Assert:
 
@@ -596,14 +596,14 @@ Parametrize every legal and illegal edge. Assert:
 - recovery converts active jobs to `failed/JOB_INTERRUPTED`, active candidates
   to failed, pending candidates to canceled, and preserves completed candidates.
 
-- [ ] **Step 4: Implement pure transition functions**
+- [x] **Step 4: Implement pure transition functions**
 
 Every function receives a record and explicit `now` time, returns a new record,
 and performs no I/O. Increment `revision` exactly once per returned update.
 Use the locked transition table above; do not add `paused`, `interrupted`, or
 automatic retry states.
 
-- [ ] **Step 5: Run the job-contract tests**
+- [x] **Step 5: Run the job-contract tests**
 
 ```powershell
 .\.venv\Scripts\python -m pytest backend\tests\jobs\test_models.py backend\tests\jobs\test_state_machine.py -v
@@ -611,7 +611,7 @@ automatic retry states.
 
 Expected: all pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add backend/src/aimctexturegen/jobs backend/tests/jobs
