@@ -978,7 +978,7 @@ git commit -m "feat: expose durable project and job history APIs"
 - Produces a desktop project selector and read-only job history.
 - Does not add target/reference/generation controls; those remain Phase 5.
 
-- [ ] **Step 1: Add strict API parsing tests**
+- [x] **Step 1: Add strict API parsing tests**
 
 Add `ProjectSummary`, `JobSummary`, `JobDetail`, `CandidateRecord`, and
 `RecoveryReport` TypeScript interfaces. Test rejection of noncanonical UUIDs,
@@ -994,7 +994,7 @@ getJob(projectId: string, jobId: string): Promise<JobDetail>
 getRecoveryReport(): Promise<RecoveryReport>
 ```
 
-- [ ] **Step 2: Write component RED tests**
+- [x] **Step 2: Write component RED tests**
 
 Test:
 
@@ -1009,7 +1009,7 @@ Test:
 - empty history clearly says no generation jobs exist;
 - request failures preserve the selected project and expose retry actions.
 
-- [ ] **Step 3: Implement focused components**
+- [x] **Step 3: Implement focused components**
 
 `ProjectList` owns no network state; it renders passed summaries and emits a
 selected project ID. `JobHistory` is read-only and renders passed jobs. `App`
@@ -1018,13 +1018,13 @@ owns loading/error orchestration and continues to use the existing import form.
 Keep Phase 1 import behavior and accessibility labels intact. Change the hero
 copy from “Phase 1” to a product-neutral project dashboard label.
 
-- [ ] **Step 4: Add desktop-responsive styles**
+- [x] **Step 4: Add desktop-responsive styles**
 
 At wide widths, show project navigation and the selected project dashboard in
 two columns. At 400–900 px desktop widths, stack them without horizontal
 overflow. Do not add mobile-only navigation or touch-specific behavior.
 
-- [ ] **Step 5: Run frontend tests and build**
+- [x] **Step 5: Run frontend tests and build**
 
 ```powershell
 Push-Location frontend
@@ -1035,7 +1035,7 @@ Pop-Location
 
 Expected: all tests and the production build pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add frontend/src

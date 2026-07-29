@@ -35,7 +35,7 @@ input {
 }
 
 .app-shell {
-  width: min(calc(100% - 32px), 760px);
+  width: min(calc(100% - 32px), 1180px);
   margin: 0 auto;
   padding: 72px 0 96px;
 }
@@ -339,6 +339,216 @@ details code {
 .unknown-count span {
   color: #cbd5e1;
   font-weight: 400;
+}
+
+.import-panel {
+  max-width: 760px;
+}
+
+.dashboard-layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.34fr) minmax(0, 1fr);
+  gap: 28px;
+  align-items: start;
+  margin-top: 40px;
+}
+
+.project-navigation,
+.project-dashboard {
+  min-width: 0;
+  padding: clamp(18px, 3vw, 30px);
+}
+
+.project-dashboard {
+  min-height: 280px;
+}
+
+.project-dashboard .summary-panel {
+  margin: 0;
+  border: 0;
+  padding: 0 0 32px;
+  background: transparent;
+  box-shadow: none;
+}
+
+.compact-heading {
+  gap: 12px;
+  margin-bottom: 22px;
+}
+
+.compact-heading .step-marker {
+  flex-basis: 38px;
+  min-height: 38px;
+}
+
+.project-items,
+.job-items {
+  display: grid;
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.project-button {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  gap: 4px;
+  border-color: #64748b;
+  padding: 14px;
+  color: #f8fafc;
+  background: #0f172a;
+  box-shadow: 4px 4px 0 #020617;
+  text-align: left;
+}
+
+.project-button:hover:not(:disabled),
+.project-button.selected {
+  border-color: #86efac;
+  color: #f8fafc;
+  background: #14532d;
+}
+
+.project-button span,
+.project-button time {
+  color: #cbd5e1;
+  font-size: 0.8125rem;
+}
+
+.loading-note,
+.empty-state {
+  margin: 18px 0 0;
+  color: #cbd5e1;
+}
+
+.history-heading,
+.job-card-heading {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.history-heading {
+  margin-bottom: 18px;
+  border-top: 2px solid #475569;
+  padding-top: 28px;
+}
+
+.history-heading h3,
+.job-card-heading h4 {
+  margin: 0;
+}
+
+.job-card {
+  min-width: 0;
+  border: 2px solid #475569;
+  padding: 18px;
+  background: #0f172a;
+}
+
+.job-card code,
+.lineage code {
+  overflow-wrap: anywhere;
+  color: #cbd5e1;
+}
+
+.status-badge {
+  border: 1px solid #94a3b8;
+  padding: 3px 8px;
+  color: #e2e8f0;
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+
+.status-completed {
+  border-color: #86efac;
+  color: #86efac;
+}
+
+.status-failed {
+  border-color: #fca5a5;
+  color: #fca5a5;
+}
+
+.job-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 18px 0;
+}
+
+.job-facts div {
+  min-width: 0;
+  border-left: 3px solid #475569;
+  padding-left: 10px;
+}
+
+.job-facts dt {
+  color: #94a3b8;
+  font-size: 0.75rem;
+}
+
+.job-facts dd {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.lineage {
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+.interrupted-note,
+.recovery-warning {
+  border-color: #fbbf24;
+  color: #fef3c7;
+  background: #422006;
+}
+
+.interrupted-note {
+  margin: 16px 0 0;
+  border: 2px solid #fbbf24;
+  padding: 12px;
+}
+
+.recovery-warning {
+  margin-top: 40px;
+  padding: clamp(18px, 3vw, 30px);
+}
+
+.recovery-warning ul {
+  margin-bottom: 0;
+  padding-left: 24px;
+}
+
+.inline-error {
+  border: 2px solid #f87171;
+  padding: 16px;
+  color: #fecaca;
+  background: #450a0a;
+}
+
+.inline-error h3,
+.inline-error p {
+  margin-bottom: 8px;
+}
+
+.inline-error .retry-button {
+  margin-top: 10px;
+}
+
+@media (max-width: 900px) {
+  .dashboard-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .project-navigation,
+  .project-dashboard {
+    width: 100%;
+  }
 }
 
 @media (max-width: 560px) {

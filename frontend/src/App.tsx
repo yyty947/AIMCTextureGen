@@ -1,14 +1,29 @@
-import { useState, type ChangeEvent, type FormEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+} from "react";
 
 import {
   ApiRequestError,
   MAX_PROJECT_NAME_LENGTH,
   getCoverage,
+  getJob,
+  getProject,
+  getRecoveryReport,
   importProject,
+  listJobs,
+  listProjects,
   type ApiError,
   type CoverageReport,
   type ProjectManifest,
+  type ProjectSummary,
+  type RecoveryReport,
 } from "./api";
+import JobHistory, { type JobHistoryEntry } from "./JobHistory";
+import ProjectList from "./ProjectList";
 
 export default function App() {
   const [projectName, setProjectName] = useState("");
@@ -19,9 +34,57 @@ export default function App() {
   const [activeRequest, setActiveRequest] = useState<
     "idle" | "import" | "coverage"
   >("idle");
+  const [projects, setProjects] = useState<readonly ProjectSummary[]>([]);
+  const [projectsLoading, setProjectsLoading] = useState(true);
+  const [projectsError, setProjectsError] = useState<ApiError | null>(null);
+  const [recovery, setRecovery] = useState<RecoveryReport | null>(null);
+  const [recoveryError, setRecoveryError] = useState<ApiError | null>(null);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [dashboardLoading, setDashboardLoading] = useState(false);
+  const [dashboardError, setDashboardError] = useState<ApiError | null>(null);
   const [manifest, setManifest] = useState<ProjectManifest | null>(null);
   const [coverage, setCoverage] = useState<CoverageReport | null>(null);
+  const [jobs, setJobs] = useState<readonly JobHistoryEntry[]>([]);
+  const [pendingImportedProject, setPendingImportedProject] =
+    useState<ProjectManifest | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
+  const dashboardRequest = useRef(0);
+
+  useEffect(() => {
+    let active = true;
+    void listProjects()
+      .then((loadedProjects) => {
+        if (active) {
+          setProjects(loadedProjects);
+          setProjectsError(null);
+        }
+      })
+      .catch((cause: unknown) => {
+        if (active) {
+          setProjectsError(toApiError(cause));
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setProjectsLoading(false);
+        }
+      });
+    void getRecoveryReport()
+      .then((report) => {
+        if (active) {
+          setRecovery(report);
+          setRecoveryError(null);
+        }
+      })
+      .catch((cause: unknown) => {
+        if (active) {
+          setRecoveryError(toApiError(cause));
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const trimmedProjectName = projectName.trim();
   const projectNameLength = Array.from(trimmedProjectName).length;
@@ -30,7 +93,7 @@ export default function App() {
     projectNameLength <= MAX_PROJECT_NAME_LENGTH &&
     pack !== null;
   const isBusy = activeRequest !== "idle";
-  const needsCoverageRetry = manifest !== null && coverage === null;
+  const needsCoverageRetry = pendingImportedProject !== null;
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -40,13 +103,23 @@ export default function App() {
 
     setActiveRequest("import");
     setError(null);
+    setDashboardError(null);
+    setSelectedProjectId(null);
+    setPendingImportedProject(null);
     setManifest(null);
     setCoverage(null);
+    setJobs([]);
     try {
       const imported = await importProject(trimmedProjectName, pack);
+      setSelectedProjectId(imported.projectId);
+      setPendingImportedProject(imported);
       setManifest(imported);
+      setProjects((current) =>
+        mergeImportedProject(current, summaryFromManifest(imported)),
+      );
       const report = await getCoverage(imported.projectId);
       setCoverage(report);
+      setPendingImportedProject(null);
     } catch (cause) {
       setError(toApiError(cause));
     } finally {
@@ -71,14 +144,15 @@ export default function App() {
   }
 
   async function handleCoverageRetry() {
-    if (manifest === null || isBusy) {
+    if (pendingImportedProject === null || isBusy) {
       return;
     }
 
     setActiveRequest("coverage");
     try {
-      const report = await getCoverage(manifest.projectId);
+      const report = await getCoverage(pendingImportedProject.projectId);
       setCoverage(report);
+      setPendingImportedProject(null);
       setError(null);
     } catch (cause) {
       setError(toApiError(cause));
@@ -87,13 +161,81 @@ export default function App() {
     }
   }
 
+  async function refreshProjects() {
+    setProjectsLoading(true);
+    try {
+      setProjects(await listProjects());
+      setProjectsError(null);
+    } catch (cause) {
+      setProjectsError(toApiError(cause));
+    } finally {
+      setProjectsLoading(false);
+    }
+  }
+
+  async function refreshRecovery() {
+    try {
+      setRecovery(await getRecoveryReport());
+      setRecoveryError(null);
+    } catch (cause) {
+      setRecoveryError(toApiError(cause));
+    }
+  }
+
+  function handleProjectSelect(projectId: string) {
+    setSelectedProjectId(projectId);
+    setPendingImportedProject(null);
+    setError(null);
+    setDashboardError(null);
+    setManifest(null);
+    setCoverage(null);
+    setJobs([]);
+    void loadProjectDashboard(projectId);
+  }
+
+  async function loadProjectDashboard(projectId: string) {
+    const requestId = dashboardRequest.current + 1;
+    dashboardRequest.current = requestId;
+    setDashboardLoading(true);
+    try {
+      const [loadedManifest, loadedCoverage, summaries] = await Promise.all([
+        getProject(projectId),
+        getCoverage(projectId),
+        listJobs(projectId),
+      ]);
+      const details = await Promise.all(
+        summaries.map((summary) => getJob(projectId, summary.jobId)),
+      );
+      if (dashboardRequest.current !== requestId) {
+        return;
+      }
+      setManifest(loadedManifest);
+      setCoverage(loadedCoverage);
+      setJobs(
+        summaries.map((summary, index) => ({
+          summary,
+          detail: details[index],
+        })),
+      );
+      setDashboardError(null);
+    } catch (cause) {
+      if (dashboardRequest.current === requestId) {
+        setDashboardError(toApiError(cause));
+      }
+    } finally {
+      if (dashboardRequest.current === requestId) {
+        setDashboardLoading(false);
+      }
+    }
+  }
+
   return (
     <main className="app-shell">
       <header className="hero">
-        <p className="eyebrow">AIMCTextureGen / Phase 1</p>
-        <h1>导入 Java 资源包</h1>
+        <p className="eyebrow">AIMCTextureGen / 项目面板</p>
+        <h1>Java 资源包项目</h1>
         <p className="intro">
-          上传 ZIP，建立只读快照与独立工作副本，并查看当前目录配置下的材质覆盖情况。
+          导入新资源包或恢复已有项目，查看覆盖情况与持久化任务历史。
         </p>
       </header>
 
@@ -169,11 +311,128 @@ export default function App() {
           onCoverageRetry={handleCoverageRetry}
         />
       )}
-      {manifest !== null && coverage !== null && (
-        <CoverageSummary manifest={manifest} coverage={coverage} />
+
+      {(recovery?.issues.length ?? 0) > 0 && (
+        <RecoveryWarning report={recovery as RecoveryReport} />
       )}
+      {recoveryError !== null && (
+        <InlineRequestError
+          title="恢复报告读取失败"
+          error={recoveryError}
+          retryLabel="重试恢复报告"
+          onRetry={() => void refreshRecovery()}
+        />
+      )}
+
+      <div className="dashboard-layout">
+        <section className="panel project-navigation">
+          <ProjectList
+            projects={projects}
+            selectedProjectId={selectedProjectId}
+            onSelect={handleProjectSelect}
+          />
+          {projectsLoading && <p className="loading-note">正在读取已有项目…</p>}
+          {projectsError !== null && (
+            <InlineRequestError
+              title="项目列表读取失败"
+              error={projectsError}
+              retryLabel="重试项目列表"
+              onRetry={() => void refreshProjects()}
+            />
+          )}
+        </section>
+
+        <section
+          className="panel project-dashboard"
+          aria-label="所选项目概览"
+          aria-busy={dashboardLoading}
+        >
+          {selectedProjectId === null ? (
+            <p className="empty-state">选择已有项目，或导入新的 Java 资源包。</p>
+          ) : dashboardLoading ? (
+            <p className="loading-note">正在读取项目覆盖与任务历史…</p>
+          ) : dashboardError !== null ? (
+            <InlineRequestError
+              title="当前项目读取失败"
+              error={dashboardError}
+              retryLabel="重试当前项目"
+              onRetry={() => void loadProjectDashboard(selectedProjectId)}
+            />
+          ) : manifest !== null && coverage !== null ? (
+            <>
+              <CoverageSummary manifest={manifest} coverage={coverage} />
+              <JobHistory jobs={jobs} />
+            </>
+          ) : (
+            <p className="empty-state">项目已创建，覆盖分析尚未完成。</p>
+          )}
+        </section>
+      </div>
     </main>
   );
+}
+
+function RecoveryWarning({ report }: { readonly report: RecoveryReport }) {
+  return (
+    <section className="panel recovery-warning" role="status">
+      <p className="eyebrow">启动恢复警告</p>
+      <h2>部分损坏记录已隔离</h2>
+      <p>
+        有效项目仍可正常打开；应用没有猜测、修改或删除损坏的 JSON 记录。
+      </p>
+      <ul>
+        {report.issues.map((issue, index) => (
+          <li key={`${issue.projectId}:${issue.jobId ?? "project"}:${issue.code}:${index}`}>
+            <strong>{issue.code}</strong>：{issue.userMessage}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function InlineRequestError({
+  title,
+  error,
+  retryLabel,
+  onRetry,
+}: {
+  readonly title: string;
+  readonly error: ApiError;
+  readonly retryLabel: string;
+  readonly onRetry: () => void;
+}) {
+  return (
+    <div className="inline-error" role="alert">
+      <h3>{title}</h3>
+      <p>{error.userMessage}</p>
+      <button className="retry-button" type="button" onClick={onRetry}>
+        {retryLabel}
+      </button>
+    </div>
+  );
+}
+
+function summaryFromManifest(manifest: ProjectManifest): ProjectSummary {
+  return {
+    projectId: manifest.projectId,
+    projectName: manifest.projectName,
+    edition: manifest.edition,
+    javaPackFormat: manifest.javaPackFormat,
+    catalogId: manifest.catalogId,
+    createdAt: manifest.createdAt,
+    updatedAt: manifest.updatedAt,
+  };
+}
+
+function mergeImportedProject(
+  projects: readonly ProjectSummary[],
+  imported: ProjectSummary,
+): readonly ProjectSummary[] {
+  return [
+    imported,
+    ...projects.filter((project) => project.projectId !== imported.projectId),
+  ];
 }
 
 function ErrorPanel({

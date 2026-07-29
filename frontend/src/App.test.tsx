@@ -7,7 +7,7 @@ import App from "./App";
 const projectId = "6fda5078-1246-4cac-91e8-541808da14f4";
 
 const manifest = {
-  schema_version: 1,
+  schema_version: 2,
   project_id: projectId,
   project_name: "测试项目",
   edition: "java",
@@ -17,6 +17,9 @@ const manifest = {
   source_sha256: "a".repeat(64),
   created_at: "2026-07-21T10:00:00+08:00",
   updated_at: "2026-07-21T10:00:00+08:00",
+  default_resolution: 16,
+  default_parallelism: 1,
+  style_references: [],
 };
 
 const coverage = {
@@ -55,6 +58,32 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
+const recoveryReport = {
+  project_count: 0,
+  job_count: 0,
+  recovered_job_count: 0,
+  issues: [],
+  completed_at: "2026-07-29T12:00:00Z",
+};
+
+function renderImportApp() {
+  const operationFetch = globalThis.fetch;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/projects" && init === undefined) {
+        return Promise.resolve(jsonResponse([]));
+      }
+      if (url === "/api/system/recovery") {
+        return Promise.resolve(jsonResponse(recoveryReport));
+      }
+      return operationFetch.call(globalThis, input, init);
+    }),
+  );
+  return render(<App />);
+}
+
 function mockSuccessfulImport(): void {
   vi.stubGlobal(
     "fetch",
@@ -81,20 +110,26 @@ async function completeForm(
 describe("资源包导入与覆盖摘要", () => {
   it("导入 ZIP 后显示资源格式和覆盖统计", async () => {
     mockSuccessfulImport();
-    render(<App />);
+    renderImportApp();
     const user = await completeForm();
 
     await user.click(screen.getByRole("button", { name: "导入并分析" }));
 
-    expect(await screen.findByText("资源格式 34")).toBeInTheDocument();
+    expect(await screen.findByLabelText("覆盖统计")).toHaveTextContent(
+      "资源格式 34",
+    );
     expect(screen.getByText("已覆盖 1")).toBeInTheDocument();
     expect(screen.getByText("未覆盖 1")).toBeInTheDocument();
     expect(screen.getByText("Deepslate")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /测试项目/ })).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
   });
 
   it("显示开发目录警告、缺失路径和未知文件数量", async () => {
     mockSuccessfulImport();
-    render(<App />);
+    renderImportApp();
     const user = await completeForm();
 
     await user.click(screen.getByRole("button", { name: "导入并分析" }));
@@ -124,7 +159,7 @@ describe("资源包导入与覆盖摘要", () => {
         ),
       ),
     );
-    render(<App />);
+    renderImportApp();
     const user = await completeForm();
 
     await user.click(screen.getByRole("button", { name: "导入并分析" }));
@@ -140,7 +175,7 @@ describe("资源包导入与覆盖摘要", () => {
     ["非 JSON 响应", () => Promise.resolve(new Response("bad gateway", { status: 502 })), "本地服务返回了无法识别的响应"],
   ])("%s 时显示可读错误", async (_label, response, expectedMessage) => {
     vi.stubGlobal("fetch", vi.fn().mockImplementation(response));
-    render(<App />);
+    renderImportApp();
     const user = await completeForm();
 
     await user.click(screen.getByRole("button", { name: "导入并分析" }));
@@ -153,7 +188,7 @@ describe("资源包导入与覆盖摘要", () => {
       jsonResponse({ ...manifest, project_id: 42 }, 201),
     );
     vi.stubGlobal("fetch", fetchMock);
-    render(<App />);
+    renderImportApp();
     const user = await completeForm();
 
     await user.click(screen.getByRole("button", { name: "导入并分析" }));
@@ -173,7 +208,7 @@ describe("资源包导入与覆盖摘要", () => {
       )
       .mockResolvedValueOnce(jsonResponse(coverage));
     vi.stubGlobal("fetch", fetchMock);
-    render(<App />);
+    renderImportApp();
     const user = await completeForm();
 
     await user.click(screen.getByRole("button", { name: "导入并分析" }));
@@ -185,7 +220,9 @@ describe("资源包导入与覆盖摘要", () => {
 
     await user.click(screen.getByRole("button", { name: "重试覆盖分析" }));
 
-    expect(await screen.findByText("资源格式 34")).toBeInTheDocument();
+    expect(await screen.findByLabelText("覆盖统计")).toHaveTextContent(
+      "资源格式 34",
+    );
     expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(fetchMock.mock.calls[2]?.[0]).toBe(
       `/api/projects/${projectId}/coverage`,
@@ -199,7 +236,7 @@ describe("资源包导入与覆盖摘要", () => {
       .mockRejectedValueOnce(new TypeError("Failed to fetch coverage"))
       .mockResolvedValueOnce(jsonResponse(coverage));
     vi.stubGlobal("fetch", fetchMock);
-    render(<App />);
+    renderImportApp();
     const user = await completeForm();
 
     await user.click(screen.getByRole("button", { name: "导入并分析" }));
@@ -211,7 +248,9 @@ describe("资源包导入与覆盖摘要", () => {
 
     await user.click(screen.getByRole("button", { name: "重试覆盖分析" }));
 
-    expect(await screen.findByText("资源格式 34")).toBeInTheDocument();
+    expect(await screen.findByLabelText("覆盖统计")).toHaveTextContent(
+      "资源格式 34",
+    );
     expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(fetchMock.mock.calls[2]?.[0]).toBe(
       `/api/projects/${projectId}/coverage`,
@@ -219,7 +258,7 @@ describe("资源包导入与覆盖摘要", () => {
   });
 
   it("拒绝非 ZIP 文件名并将可读错误关联到文件输入", async () => {
-    render(<App />);
+    renderImportApp();
     const user = userEvent.setup();
     await user.type(screen.getByLabelText("项目名称"), "测试项目");
     const fileInput = screen.getByLabelText("ZIP 资源包");
@@ -259,7 +298,7 @@ describe("资源包导入与覆盖摘要", () => {
         .mockReturnValueOnce(pendingImport)
         .mockResolvedValueOnce(jsonResponse(coverage)),
     );
-    render(<App />);
+    renderImportApp();
     const form = screen.getByRole("form", { name: "资源包导入" });
     const button = screen.getByRole("button", { name: "导入并分析" });
 
@@ -274,12 +313,14 @@ describe("资源包导入与覆盖摘要", () => {
     expect(screen.getByLabelText("ZIP 资源包")).toBeDisabled();
 
     resolveImport(jsonResponse(manifest, 201));
-    expect(await screen.findByText("资源格式 34")).toBeInTheDocument();
+    expect(await screen.findByLabelText("覆盖统计")).toHaveTextContent(
+      "资源格式 34",
+    );
   });
 
   it("项目名称按 Unicode code point 与后端一致计数", async () => {
     mockSuccessfulImport();
-    render(<App />);
+    renderImportApp();
     const input = screen.getByLabelText("项目名称");
     const fileInput = screen.getByLabelText("ZIP 资源包");
     const button = screen.getByRole("button", { name: "导入并分析" });
@@ -313,7 +354,7 @@ describe("资源包导入与覆盖摘要", () => {
   ])("拒绝%s的成功项目响应", async (_label, invalidManifest) => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(invalidManifest, 201));
     vi.stubGlobal("fetch", fetchMock);
-    render(<App />);
+    renderImportApp();
     const user = await completeForm();
 
     await user.click(screen.getByRole("button", { name: "导入并分析" }));
@@ -335,7 +376,7 @@ describe("资源包导入与覆盖摘要", () => {
         .mockResolvedValueOnce(jsonResponse(manifest, 201))
         .mockResolvedValueOnce(jsonResponse(invalidCoverage)),
     );
-    render(<App />);
+    renderImportApp();
     const user = await completeForm();
 
     await user.click(screen.getByRole("button", { name: "导入并分析" }));
@@ -365,11 +406,13 @@ describe("资源包导入与覆盖摘要", () => {
           ),
         ),
     );
-    render(<App />);
+    renderImportApp();
     const user = await completeForm();
     const button = screen.getByRole("button", { name: "导入并分析" });
     await user.click(button);
-    expect(await screen.findByText("资源格式 34")).toBeInTheDocument();
+    expect(await screen.findByLabelText("覆盖统计")).toHaveTextContent(
+      "资源格式 34",
+    );
 
     const nameInput = screen.getByLabelText("项目名称");
     await user.clear(nameInput);
@@ -383,7 +426,185 @@ describe("资源包导入与覆盖摘要", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "不安全的资源包路径",
     );
-    expect(screen.queryByText("资源格式 34")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("覆盖统计")).not.toBeInTheDocument();
     expect(screen.queryByText("Deepslate")).not.toBeInTheDocument();
+  });
+});
+
+describe("项目恢复与只读任务历史", () => {
+  const jobId = "0f6fb74b-5d0f-46b0-bf03-2fb41aa83694";
+  const projectSummary = {
+    project_id: projectId,
+    project_name: "恢复项目",
+    edition: "java",
+    java_pack_format: 34,
+    catalog_id: "java-dev-format-34",
+    created_at: "2026-07-21T10:00:00+08:00",
+    updated_at: "2026-07-29T11:00:00+08:00",
+  };
+  const jobSummary = {
+    job_id: jobId,
+    project_id: projectId,
+    retry_of_job_id: null,
+    target_semantic_id: "minecraft:deepslate",
+    target_display_name: "Deepslate",
+    resolution: 16,
+    parallelism: 1,
+    status: "queued",
+    revision: 0,
+    candidate_statuses: ["pending", "pending", "pending", "pending"],
+    created_at: "2026-07-29T10:00:00+08:00",
+    updated_at: "2026-07-29T10:00:00+08:00",
+  };
+  const jobDetail = {
+    request: {
+      schema_version: 1,
+      job_id: jobId,
+      project_id: projectId,
+      retry_of_job_id: null,
+      catalog_id: "java-dev-format-34",
+      target_semantic_id: "minecraft:deepslate",
+      target_display_name: "Deepslate",
+      target_relative_path: "assets/minecraft/textures/block/deepslate.png",
+      prompt: "cold stone",
+      resolution: 16,
+      parallelism: 1,
+      style_references: ["assets/minecraft/textures/block/stone.png"],
+      structure_reference: null,
+      seeds: [11, 22, 33, 44],
+      created_at: "2026-07-29T10:00:00+08:00",
+    },
+    state: {
+      schema_version: 1,
+      job_id: jobId,
+      project_id: projectId,
+      revision: 0,
+      status: "queued",
+      candidates: [11, 22, 33, 44].map((seed, candidate_index) => ({
+        candidate_index,
+        seed,
+        status: "pending",
+        failure: null,
+        started_at: null,
+        finished_at: null,
+      })),
+      failure: null,
+      created_at: "2026-07-29T10:00:00+08:00",
+      updated_at: "2026-07-29T10:00:00+08:00",
+      started_at: null,
+      finished_at: null,
+    },
+  };
+
+  function installRestorationFetch({
+    recovery = recoveryReport,
+    failCoverageOnce = false,
+  }: {
+    readonly recovery?: unknown;
+    readonly failCoverageOnce?: boolean;
+  } = {}) {
+    let coverageAttempts = 0;
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/projects") {
+        return Promise.resolve(jsonResponse([projectSummary]));
+      }
+      if (url === "/api/system/recovery") {
+        return Promise.resolve(jsonResponse(recovery));
+      }
+      if (url === `/api/projects/${projectId}`) {
+        return Promise.resolve(jsonResponse(manifest));
+      }
+      if (url === `/api/projects/${projectId}/coverage`) {
+        coverageAttempts += 1;
+        if (failCoverageOnce && coverageAttempts === 1) {
+          return Promise.reject(new TypeError("coverage offline"));
+        }
+        return Promise.resolve(jsonResponse(coverage));
+      }
+      if (url === `/api/projects/${projectId}/jobs`) {
+        return Promise.resolve(jsonResponse([jobSummary]));
+      }
+      if (url === `/api/projects/${projectId}/jobs/${jobId}`) {
+        return Promise.resolve(jsonResponse(jobDetail));
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  it("启动时列出已有项目，选择后加载覆盖与任务历史", async () => {
+    const fetchMock = installRestorationFetch();
+    render(<App />);
+
+    const projectButton = await screen.findByRole("button", { name: /恢复项目/ });
+    expect(screen.queryByLabelText("覆盖统计")).not.toBeInTheDocument();
+
+    await userEvent.setup().click(projectButton);
+
+    expect(await screen.findByLabelText("覆盖统计")).toHaveTextContent(
+      "资源格式 34",
+    );
+    expect(screen.getByRole("article", { name: /Deepslate/ })).toHaveTextContent(
+      "候选 4",
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/projects/${projectId}/jobs`,
+      undefined,
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/projects/${projectId}/jobs/${jobId}`,
+      undefined,
+    );
+  });
+
+  it("恢复问题显示为警告且不隐藏有效项目", async () => {
+    installRestorationFetch({
+      recovery: {
+        ...recoveryReport,
+        project_count: 1,
+        job_count: 1,
+        issues: [
+          {
+            project_id: projectId,
+            job_id: jobId,
+            code: "CORRUPT_JOB_RECORD",
+            user_message: "一个任务记录损坏，已隔离",
+          },
+        ],
+      },
+    });
+    render(<App />);
+
+    expect(await screen.findByRole("button", { name: /恢复项目/ })).toBeVisible();
+    expect(screen.getByRole("status")).toHaveTextContent("一个任务记录损坏，已隔离");
+  });
+
+  it("项目请求失败时保留选择并提供只重试当前项目的操作", async () => {
+    installRestorationFetch({ failCoverageOnce: true });
+    render(<App />);
+    const user = userEvent.setup();
+    const projectButton = await screen.findByRole("button", { name: /恢复项目/ });
+
+    await user.click(projectButton);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("无法连接到本地服务");
+    expect(projectButton).toHaveAttribute("aria-current", "true");
+
+    await user.click(screen.getByRole("button", { name: "重试当前项目" }));
+
+    expect(await screen.findByLabelText("覆盖统计")).toHaveTextContent(
+      "资源格式 34",
+    );
+    expect(projectButton).toHaveAttribute("aria-current", "true");
+  });
+
+  it("使用产品中立的项目面板标题", () => {
+    installRestorationFetch();
+    render(<App />);
+
+    expect(screen.getByText("AIMCTextureGen / 项目面板")).toBeInTheDocument();
+    expect(screen.queryByText(/Phase 1/)).not.toBeInTheDocument();
   });
 });
