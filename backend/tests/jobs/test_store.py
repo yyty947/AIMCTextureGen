@@ -227,6 +227,71 @@ def test_create_removes_temporary_directory_when_identity_capture_fails(
     assert not (project_root / "jobs" / f"{JOB_ID}.tmp").exists()
 
 
+def test_create_preserves_substituted_directory_when_identity_capture_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    projects_root = tmp_path / "projects"
+    project_root = _write_project(projects_root)
+    temporary_root = project_root / "jobs" / f"{JOB_ID}.tmp"
+    displaced_root = project_root / "jobs" / "displaced-created-job"
+
+    def substitute_then_fail(path: Path):
+        path.rename(displaced_root)
+        path.mkdir()
+        (path / "sentinel.txt").write_bytes(b"replacement")
+        raise OSError("injected failure after directory substitution")
+
+    monkeypatch.setattr(
+        store_module,
+        "capture_directory_identity",
+        substitute_then_fail,
+    )
+
+    with pytest.raises(JobError) as captured:
+        _store(projects_root).create(_request())
+
+    assert captured.value.code == "JOB_STORAGE_UNAVAILABLE"
+    assert displaced_root.is_dir()
+    assert temporary_root.is_dir()
+    assert (temporary_root / "sentinel.txt").read_bytes() == b"replacement"
+
+
+def test_create_preserves_substituted_junction_when_identity_capture_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    projects_root = tmp_path / "projects"
+    project_root = _write_project(projects_root)
+    temporary_root = project_root / "jobs" / f"{JOB_ID}.tmp"
+    displaced_root = project_root / "jobs" / "displaced-created-job"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "sentinel.txt").write_bytes(b"outside")
+
+    def substitute_then_fail(path: Path):
+        path.rename(displaced_root)
+        _create_junction(path, outside)
+        raise OSError("injected failure after junction substitution")
+
+    monkeypatch.setattr(
+        store_module,
+        "capture_directory_identity",
+        substitute_then_fail,
+    )
+
+    try:
+        with pytest.raises(JobError) as captured:
+            _store(projects_root).create(_request())
+
+        assert captured.value.code == "JOB_STORAGE_UNAVAILABLE"
+        assert displaced_root.is_dir()
+        assert os.path.lexists(temporary_root)
+        assert (outside / "sentinel.txt").read_bytes() == b"outside"
+    finally:
+        _remove_junction(temporary_root)
+
+
 def test_create_rejects_existing_job_without_changing_it(tmp_path: Path) -> None:
     projects_root = tmp_path / "projects"
     project_root = _write_project(projects_root)

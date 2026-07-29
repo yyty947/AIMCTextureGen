@@ -288,17 +288,10 @@ class JobStore:
         try:
             temporary_root.mkdir()
             temporary_created = True
-            try:
-                temporary_identity = capture_directory_identity(temporary_root)
-            except (DirectoryGuardError, OSError):
-                try:
-                    with hold_directory_identity(
-                        temporary_root
-                    ) as cleanup_identity:
-                        temporary_identity = cleanup_identity
-                except (DirectoryGuardError, OSError):
-                    pass
-                raise
+            with hold_directory_identity(temporary_root) as created_identity:
+                temporary_identity = created_identity
+            if capture_directory_identity(temporary_root) != temporary_identity:
+                raise DirectoryGuardError("job temporary identity changed")
             with hold_directory_identity(temporary_root) as held_identity:
                 if held_identity != temporary_identity:
                     raise DirectoryGuardError("job temporary identity changed")

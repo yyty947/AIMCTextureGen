@@ -80,7 +80,7 @@ git status --short
 
 2026-07-29 第三阶段 Task 4 经两轮评审加固后，严格任务合同与纯状态机门禁 `.\.venv\Scripts\python -W error -m pytest backend\tests\jobs\test_models.py backend\tests\jobs\test_state_machine.py -v` 为 196 passed；完整后端回归 `.\.venv\Scripts\python -W error -m pytest backend\tests` 为 502 passed。测试覆盖全部 job/candidate 合法和非法边、aggregate-status × candidate-transition 矩阵、取消/失败/恢复候选分类、单次 revision 增量、状态/时间戳和 aggregate/candidate 生命周期一致性、候选与 aggregate 活跃时间窗边界、严格序列化与跨文件四候选一致性；`backend/tests/jobs/__init__.py` 避免 brief 指定的 `test_models.py` 与既有 packs 同名测试发生 pytest 收集冲突。
 
-2026-07-29 第三阶段 Task 5 经第一轮评审加固后的任务存储/服务门禁 `.\.venv\Scripts\python -W error -m pytest backend\tests\jobs -v` 为 236 passed；完整后端回归 `.\.venv\Scripts\python -W error -m pytest backend\tests` 为 542 passed。新增覆盖精确目录发布与失败清理、身份捕获失败后的安全临时目录清理、JSON 大小和跨文件身份、nested reparse、同 revision 竞争，以及 bounded ordinary stale `state.json.tmp` 在 load/list/recovery 路径的可恢复性并继续拒绝目录、超大文件和 reparse point；取消/重试/恢复、确定性列表、目标覆盖与引用绑定、四个唯一安全 seed，以及 JSON 提交先于索引更新也保持覆盖。全程未接入 SQLite、API、WebUI、ComfyUI 或模型。
+2026-07-29 第三阶段 Task 5 经第二轮评审加固后的任务存储/服务门禁 `.\.venv\Scripts\python -W error -m pytest backend\tests\jobs -v` 为 238 passed；完整后端回归 `.\.venv\Scripts\python -W error -m pytest backend\tests` 为 544 passed。新增覆盖精确目录发布与失败清理、身份捕获失败后的安全临时目录清理，以及捕获期间被普通目录或 junction 替换时保留替换路径与外部内容；清理所有权只来自失败前观察到的创建目录身份，不会在失败后重新认领当前路径。JSON 大小和跨文件身份、nested reparse、同 revision 竞争，以及 bounded ordinary stale `state.json.tmp` 在 load/list/recovery 路径的可恢复性并继续拒绝目录、超大文件和 reparse point；取消/重试/恢复、确定性列表、目标覆盖与引用绑定、四个唯一安全 seed，以及 JSON 提交先于索引更新也保持覆盖。全程未接入 SQLite、API、WebUI、ComfyUI 或模型。
 
 ## 需要在对应阶段确定的事项
 
