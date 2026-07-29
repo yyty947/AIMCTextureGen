@@ -23,7 +23,6 @@ from aimctexturegen.projects.models import (
     ProjectSummary,
 )
 from aimctexturegen.projects.repository import (
-    ProjectRepository,
     ProjectRepositoryError,
 )
 from aimctexturegen.projects.service import ProjectService, ProjectServiceError
@@ -172,7 +171,9 @@ def _project_service(request: Request) -> ProjectService:
         )
     ):
         return services.project_service
-    repository = ProjectRepository(services.project_root)
+    repository = services.repository
+    if repository is None:
+        raise RuntimeError("project repository is unavailable")
     return ProjectService(
         workspace=services.workspace,
         repository=repository,

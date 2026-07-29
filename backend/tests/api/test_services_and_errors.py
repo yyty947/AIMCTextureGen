@@ -17,6 +17,7 @@ from aimctexturegen.core.errors import ErrorEnvelope
 from aimctexturegen.jobs.errors import JobError
 from aimctexturegen.main import AppServices, create_app
 from aimctexturegen.projects.models import ProjectManifest
+from aimctexturegen.projects.repository import ProjectScanResult
 
 
 CATALOG_ROOT = Path(__file__).parents[3] / "catalogs" / "java"
@@ -46,6 +47,19 @@ class FailingJobService:
             "任务已保存，但任务索引暂时不可用",
             technical_details=self._technical_details,
             expose_technical_details=self._expose_technical_details,
+        )
+
+
+class CountingProjectRepository:
+    def __init__(self, manifest: ProjectManifest) -> None:
+        self._manifest = manifest
+        self.list_calls = 0
+
+    def list_manifests(self) -> ProjectScanResult:
+        self.list_calls += 1
+        return ProjectScanResult(
+            manifests=(self._manifest,),
+            issues=(),
         )
 
 
@@ -151,6 +165,44 @@ def test_create_app_uses_supplied_services_object_directly(tmp_path: Path) -> No
     app = create_app(services=services)
 
     assert app.state.services is services
+
+
+def test_pre_lifespan_project_fallback_uses_injected_repository(
+    tmp_path: Path,
+) -> None:
+    project_id = UUID("abcdefab-cdef-4abc-8def-abcdefabcdef")
+    timestamp = datetime(2026, 7, 29, 10, 0, tzinfo=timezone.utc)
+    manifest = ProjectManifest(
+        schema_version=2,
+        project_id=project_id,
+        project_name="Injected repository project",
+        edition="java",
+        java_pack_format=34,
+        supported_formats=None,
+        catalog_id="java-dev-format-34",
+        source_sha256="0" * 64,
+        created_at=timestamp,
+        updated_at=timestamp,
+        default_resolution=16,
+        default_parallelism=1,
+        style_references=(),
+    )
+    repository = CountingProjectRepository(manifest)
+    project_root = tmp_path / "must-not-be-read"
+    services = AppServices(
+        workspace=FailingWorkspace("not called"),
+        catalogs=CatalogRegistry(CATALOG_ROOT),
+        project_root=project_root,
+        repository=repository,
+    )
+    app = create_app(services=services)
+
+    response = asyncio.run(request_app(app, "GET", "/api/projects"))
+
+    assert response.status_code == 200, response.text
+    assert [item["project_id"] for item in response.json()] == [str(project_id)]
+    assert repository.list_calls == 1
+    assert not project_root.exists()
 
 
 def test_canonical_uuid_is_accepted_and_noncanonical_uuid_is_rejected(
