@@ -452,12 +452,14 @@ Move the bounded regular-file read and handle/path identity checks from
 `MAX_PROJECT_MANIFEST_BYTES`, `load_project_manifest`, and
 `atomic_replace_bytes`. A migrated manifest is replaced while the project
 directory identity is held. Repository manifest writers are serialized, and
-the process lock is only an optimization. Correctness comes from conditional
-atomic replacement: on Windows it holds a destination handle that denies write
-sharing across the compare/publish window, verifies the handle/path identity
-and exact schema-1 bytes, then publishes by source handle with POSIX rename
-semantics. A replacement after validator completion is preserved and reported
-as `PROJECT_MANIFEST_CONFLICT`.
+the migration validator rechecks that the observed destination identity and
+exact schema-1 bytes still match before publication. Observable replacement is
+preserved and reported as `PROJECT_MANIFEST_CONFLICT`. Per
+[`ADR-0001`](../../adr/0001-running-project-mutation-boundary.md), one running
+application process owns its project root: application writers are serialized
+and use validated atomic publication, while manual/external mutation during
+runtime and hostile CAS in the final OS-call window are unsupported. Do not use
+deprecated TxF or require NTFS transactions.
 
 `list_manifests` scans only direct children whose name equals `str(UUID(name))`.
 Return both valid manifests and typed issues so startup recovery can report

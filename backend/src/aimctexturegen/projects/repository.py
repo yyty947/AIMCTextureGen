@@ -13,12 +13,7 @@ from uuid import UUID
 
 from pydantic import ValidationError
 
-from aimctexturegen.core.atomic_files import (
-    AtomicDestinationChangedError,
-    AtomicDestinationExpectation,
-    AtomicWriteError,
-    atomic_replace_bytes,
-)
+from aimctexturegen.core.atomic_files import AtomicWriteError, atomic_replace_bytes
 from aimctexturegen.projects._directory_guard import (
     DirectoryGuardError,
     FileIdentity,
@@ -221,10 +216,29 @@ class ProjectRepository:
         if len(replacement) > MAX_PROJECT_MANIFEST_BYTES:
             raise _repository_error("CORRUPT_PROJECT_MANIFEST")
 
+        conflict_detected = False
+
         def validate_replacement(readback: bytes) -> None:
+            nonlocal conflict_detected
             loaded, still_migrated = load_project_manifest(readback)
             if still_migrated or loaded != manifest:
                 raise ValueError("migrated project manifest changed during write")
+            try:
+                current_payload, current_identity = self._read_bounded_manifest(
+                    manifest_path,
+                    project_root,
+                    root_identity,
+                    project_identity,
+                )
+            except ProjectRepositoryError:
+                conflict_detected = True
+                raise
+            if (
+                current_identity != observed_identity
+                or current_payload != payload
+            ):
+                conflict_detected = True
+                raise _repository_error("PROJECT_MANIFEST_CONFLICT")
 
         self._require_identity(self._root, root_identity, "UNSAFE_PROJECT_ROOT")
         self._require_identity(
@@ -237,14 +251,10 @@ class ProjectRepository:
                 manifest_path,
                 replacement,
                 validate_replacement,
-                expected_destination=AtomicDestinationExpectation(
-                    identity=observed_identity,
-                    payload=payload,
-                ),
             )
-        except AtomicDestinationChangedError as error:
-            raise _repository_error("PROJECT_MANIFEST_CONFLICT") from error
         except AtomicWriteError as error:
+            if conflict_detected:
+                raise _repository_error("PROJECT_MANIFEST_CONFLICT") from error
             raise _repository_error("PROJECT_STORAGE_UNAVAILABLE") from error
         self._require_identity(self._root, root_identity, "UNSAFE_PROJECT_ROOT")
         self._require_identity(

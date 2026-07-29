@@ -20,7 +20,7 @@
 - 第二阶段计划中的历史完成项已全部勾选，并补充合并门禁与五项延后清理说明，不再与本文件的完成状态冲突。
 - 第三阶段 Task 1 已由提交 `a89c924` 完成：补齐 Phase 2 的分辨率/文件名预检、失败临时文件清理、RGBA 端到端覆盖和处理模块文档。
 - 第三阶段 Task 2 已由提交 `d4ee5cf` 实现并完成第一轮评审加固：项目清单严格区分 schema 1/2，schema 1 可保持原字段和双时间戳迁移到 schema 2；新导入直接写入默认分辨率 16、并行度 1、空风格参考的 schema 2。共享项目相对路径语法现在同时拒绝 Windows 非法字符、控制字符、尾随点/空格和设备名。清单原子替换在 Windows 上从写入、`fsync`、回读验证到发布始终绑定同一不共享删除权限的文件句柄，再通过 `SetFileInformationByHandle` 发布，验证回调无法把同名未验证文件换入。
-- 第三阶段 Task 3 已完成并通过第二轮评审加固：`ProjectRepository` 在持有项目根和项目目录身份期间安全读取有界清单，并只原子迁移 schema 1 的 `project.json`；进程锁仅作优化，Windows 条件替换会以拒绝写共享的目标句柄覆盖比较与发布窗口，核对目标身份及原始字节后再以源句柄发布。即使新清单在验证后、发布前替换目标，也会保留新字节并返回 `PROJECT_MANIFEST_CONFLICT`。直接扫描只接受规范 UUID 目录，以 `updated_at DESC, project_id ASC` 返回有效项目，并把损坏或不安全的规范项目隔离成类型化问题。`ProjectService` 现负责导入、获取、列表和实时覆盖业务，以磁盘项目为权威并在索引写入失败后只尝试一次重建；项目 API 新增 `GET /api/projects`，其余路由不再直接打开 `project.json`、遍历 `pack/` 或执行目录配置匹配。导入已落盘但索引重建失败时，API 保留 `INDEX_UNAVAILABLE` 并明确提示从项目列表重新打开或重启重建，避免误导用户重复导入。
+- 第三阶段 Task 3 已按用户确认的 [`ADR-0001`](docs/adr/0001-running-project-mutation-boundary.md) 收敛：`ProjectRepository` 在持有项目根和项目目录身份期间安全读取有界清单，并串行、原子迁移 schema 1 的 `project.json`；迁移验证会复核可观察到的目标身份和原始字节，冲突时保留新文件并返回 `PROJECT_MANIFEST_CONFLICT`。单个运行中的应用进程拥有项目根，应用内写入保证验证、原子发布和串行化；运行时手工或外部强制修改项目内部文件不受支持，不承诺最终系统调用窗口的敌对外部 CAS，也不使用已弃用的 TxF 或要求 NTFS 事务。直接扫描只接受规范 UUID 目录，以 `updated_at DESC, project_id ASC` 返回有效项目，并把损坏或不安全的规范项目隔离成类型化问题。`ProjectService` 现负责导入、获取、列表和实时覆盖业务，以磁盘项目为权威并在索引写入失败后只尝试一次重建；项目 API 新增 `GET /api/projects`，其余路由不再直接打开 `project.json`、遍历 `pack/` 或执行目录配置匹配。导入已落盘但索引重建失败时，API 保留 `INDEX_UNAVAILABLE` 并明确提示从项目列表重新打开或重启重建，避免误导用户重复导入。
 
 ## 已确认边界
 
@@ -74,7 +74,7 @@ git status --short
 
 已于 2026-07-26 在合并后的 `master`（合并提交 `4f5ba49`，`.venv` Python 3.12.10）复跑门禁：后端 217 passed（第一阶段 165 项 + 第二阶段 `processing/` 52 项），使用 `-W error` 且无警告；前端 1 个测试文件 21 个测试通过，Vite 生产构建成功（本次已在合并结果上重新执行）。覆盖率基线记录自阶段分支提交 `672c666` 的带覆盖率门禁：总覆盖率 88%，`processing/` 各模块中 `errors.py`、`grid_snap.py`、`models.py`、`pipeline.py`、`previews.py`、`seam.py`、`validation.py` 均 100%，`palette.py` 97%（87 语句、3 未覆盖）。`git diff --check` 无输出。
 
-2026-07-27 第三阶段 Task 3 第二轮评审加固后，`.\.venv\Scripts\python -W error -m pytest backend\tests\projects backend\tests\api -v` 为 120 passed；额外完整后端回归 `.\.venv\Scripts\python -W error -m pytest backend\tests` 为 306 passed。验证后、发布前并发替换的迁移竞态回归额外连续运行 20 次且全部通过。Task 2 移交的三个旧 schema-1 API 夹具已改为当前 schema-2 构造，完整后端门禁恢复通过。
+2026-07-29 第三阶段 Task 3 按 ADR-0001 收敛后，`.\.venv\Scripts\python -W error -m pytest backend\tests\projects backend\tests\api -v` 为 120 passed；额外完整后端回归 `.\.venv\Scripts\python -W error -m pytest backend\tests` 为 306 passed。应用内并发打开只执行一次 schema-1 迁移的回归额外连续运行 20 次且全部通过；不再保留或声称敌对外部 CAS 测试。Task 2 移交的三个旧 schema-1 API 夹具已改为当前 schema-2 构造，完整后端门禁恢复通过。
 
 ## 需要在对应阶段确定的事项
 

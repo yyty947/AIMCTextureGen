@@ -1,16 +1,15 @@
-import ctypes
 import hashlib
 import json
 import os
 import subprocess
-from ctypes import wintypes
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID
 
 import pytest
 
-import aimctexturegen.core.atomic_files as atomic_files_module
 import aimctexturegen.projects.repository as repository_module
 from aimctexturegen.projects.models import (
     ProjectManifest,
@@ -94,44 +93,6 @@ def _remove_junction(link: Path) -> None:
         os.rmdir(link)
 
 
-def _replace_with_posix_semantics(destination: Path, payload: bytes) -> None:
-    attacker_path = destination.with_name(f"{destination.name}.attacker")
-    handle = atomic_files_module._create_windows_file(attacker_path)
-    descriptor = atomic_files_module._open_windows_handle_as_descriptor(handle)
-    with os.fdopen(descriptor, "w+b") as attacker:
-        attacker.write(payload)
-        attacker.flush()
-        native_handle = atomic_files_module._windows_handle_from_descriptor(
-            attacker.fileno()
-        )
-        target_bytes = os.path.abspath(destination).encode("utf-16-le")
-        filename_offset = atomic_files_module._FileRenameInfo.FileName.offset
-        buffer = ctypes.create_string_buffer(
-            filename_offset
-            + len(target_bytes)
-            + ctypes.sizeof(wintypes.WCHAR)
-        )
-        ctypes.c_uint32.from_buffer(buffer).value = 0x00000001 | 0x00000002
-        information = ctypes.cast(
-            buffer,
-            ctypes.POINTER(atomic_files_module._FileRenameInfo),
-        ).contents
-        information.RootDirectory = None
-        information.FileNameLength = len(target_bytes)
-        ctypes.memmove(
-            ctypes.addressof(buffer) + filename_offset,
-            target_bytes,
-            len(target_bytes),
-        )
-        if not atomic_files_module._set_file_information(
-            native_handle,
-            22,
-            buffer,
-            len(buffer),
-        ):
-            atomic_files_module._raise_windows_error(destination)
-
-
 def test_open_migrates_schema_1_once_without_changing_source_or_pack(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -152,9 +113,9 @@ def test_open_migrates_schema_1_once_without_changing_source_or_pack(
     replacements: list[Path] = []
     real_replace = repository_module.atomic_replace_bytes
 
-    def record_replace(destination, payload, validator, *args, **kwargs):
+    def record_replace(destination, payload, validator):
         replacements.append(destination)
-        return real_replace(destination, payload, validator, *args, **kwargs)
+        return real_replace(destination, payload, validator)
 
     monkeypatch.setattr(repository_module, "atomic_replace_bytes", record_replace)
     repository = ProjectRepository(projects_root)
@@ -181,6 +142,64 @@ def test_open_migrates_schema_1_once_without_changing_source_or_pack(
     }
 
 
+def test_concurrent_app_opens_serialize_one_schema_1_migration(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    projects_root = tmp_path / "projects"
+    project_id = UUID("13131313-1313-4313-8313-131313131313")
+    expected = _manifest(project_id)
+    _write_project(projects_root, expected, schema_1=True)
+    first_in_atomic_write = threading.Event()
+    release_first_write = threading.Event()
+    second_started = threading.Event()
+    call_lock = threading.Lock()
+    replace_calls = 0
+    real_replace = repository_module.atomic_replace_bytes
+
+    def block_first_replace(destination, payload, validator):
+        nonlocal replace_calls
+        with call_lock:
+            replace_calls += 1
+            call_number = replace_calls
+        if call_number == 1:
+            first_in_atomic_write.set()
+            if not release_first_write.wait(timeout=5):
+                raise TimeoutError("test did not release first manifest write")
+        return real_replace(destination, payload, validator)
+
+    def open_project(*, started: threading.Event | None = None) -> ProjectManifest:
+        if started is not None:
+            started.set()
+        with ProjectRepository(projects_root).open(project_id) as opened:
+            return opened.manifest
+
+    monkeypatch.setattr(
+        repository_module,
+        "atomic_replace_bytes",
+        block_first_replace,
+    )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(open_project)
+        assert first_in_atomic_write.wait(timeout=5)
+        second = executor.submit(open_project, started=second_started)
+        try:
+            assert second_started.wait(timeout=5)
+            assert second.done() is False
+        finally:
+            release_first_write.set()
+        assert first.result(timeout=5) == expected
+        assert second.result(timeout=5) == expected
+
+    assert replace_calls == 1
+    migrated, needs_migration = load_project_manifest(
+        (projects_root / str(project_id) / "project.json").read_bytes()
+    )
+    assert migrated == expected
+    assert needs_migration is False
+
+
 def test_schema_1_migration_preserves_concurrent_newer_manifest(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -201,58 +220,14 @@ def test_schema_1_migration_preserves_concurrent_newer_manifest(
     concurrent_payload = dump_project_manifest(concurrent_manifest)
     real_replace = repository_module.atomic_replace_bytes
 
-    def replace_destination_before_publication(
-        destination,
-        payload,
-        validator,
-        *args,
-        **kwargs,
-    ):
+    def replace_destination_before_publication(destination, payload, validator):
         destination.write_bytes(concurrent_payload)
-        return real_replace(destination, payload, validator, *args, **kwargs)
+        return real_replace(destination, payload, validator)
 
     monkeypatch.setattr(
         repository_module,
         "atomic_replace_bytes",
         replace_destination_before_publication,
-    )
-
-    with pytest.raises(ProjectRepositoryError) as captured:
-        with ProjectRepository(projects_root).open(project_id):
-            pass
-
-    assert captured.value.code == "PROJECT_MANIFEST_CONFLICT"
-    assert (project_root / "project.json").read_bytes() == concurrent_payload
-
-
-def test_schema_1_migration_protects_after_validation_before_publication(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    projects_root = tmp_path / "projects"
-    project_id = UUID("13131313-1313-4313-8313-131313131313")
-    project_root = _write_project(
-        projects_root,
-        _manifest(project_id),
-        schema_1=True,
-    )
-    concurrent_manifest = _manifest(project_id).model_copy(
-        update={
-            "project_name": "Concurrent after validation",
-            "default_resolution": 64,
-        }
-    )
-    concurrent_payload = dump_project_manifest(concurrent_manifest)
-    real_publish = atomic_files_module._publish_open_file
-
-    def replace_after_validation(handle, destination, *args, **kwargs):
-        _replace_with_posix_semantics(destination, concurrent_payload)
-        return real_publish(handle, destination, *args, **kwargs)
-
-    monkeypatch.setattr(
-        atomic_files_module,
-        "_publish_open_file",
-        replace_after_validation,
     )
 
     with pytest.raises(ProjectRepositoryError) as captured:

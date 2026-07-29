@@ -6,7 +6,6 @@ import os
 import stat
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO
 
@@ -19,24 +18,10 @@ class AtomicWriteError(Exception):
     """Raised when an atomic replacement cannot be completed safely."""
 
 
-class AtomicDestinationChangedError(AtomicWriteError):
-    """Raised when a conditional destination no longer matches."""
-
-
-@dataclass(frozen=True)
-class AtomicDestinationExpectation:
-    """The exact destination identity and bytes required for publication."""
-
-    identity: _FileIdentity
-    payload: bytes
-
-
 def atomic_replace_bytes(
     destination: Path,
     payload: bytes,
     validator: Callable[[bytes], object],
-    *,
-    expected_destination: AtomicDestinationExpectation | None = None,
 ) -> None:
     """Validate durable temporary bytes before replacing ``destination``."""
 
@@ -65,15 +50,7 @@ def atomic_replace_bytes(
                     raise AtomicWriteError("atomic validation failed") from error
 
                 try:
-                    if expected_destination is not None:
-                        _publish_conditionally(
-                            native_handle,
-                            temporary,
-                            destination,
-                            created_identity,
-                            expected_destination,
-                        )
-                    elif os.name == "nt":
+                    if os.name == "nt":
                         _publish_open_file(native_handle, destination)
                     else:
                         _publish_portable_file(
@@ -152,77 +129,6 @@ def _publish_portable_file(
     os.replace(temporary, destination)
 
 
-def _publish_conditionally(
-    source_handle: int,
-    temporary: Path,
-    destination: Path,
-    source_identity: _FileIdentity,
-    expectation: AtomicDestinationExpectation,
-) -> None:
-    if os.name == "nt":
-        _publish_windows_conditionally(
-            source_handle,
-            destination,
-            expectation,
-        )
-        return
-
-    try:
-        with destination.open("rb") as guarded_destination:
-            _require_expected_destination_handle(
-                guarded_destination,
-                destination,
-                expectation,
-            )
-            _publish_portable_file(
-                temporary,
-                destination,
-                source_identity,
-            )
-    except AtomicDestinationChangedError:
-        raise
-    except OSError as error:
-        raise AtomicDestinationChangedError(
-            "atomic destination changed"
-        ) from error
-
-
-def _require_expected_destination_handle(
-    guarded_destination: BinaryIO,
-    destination: Path,
-    expectation: AtomicDestinationExpectation,
-) -> None:
-    handle_status = os.fstat(guarded_destination.fileno())
-    if (
-        not stat.S_ISREG(handle_status.st_mode)
-        or _identity(handle_status) != expectation.identity
-    ):
-        raise AtomicDestinationChangedError("atomic destination changed")
-    guarded_destination.seek(0)
-    current_payload = guarded_destination.read(len(expectation.payload) + 1)
-    if current_payload != expectation.payload:
-        raise AtomicDestinationChangedError("atomic destination changed")
-    _require_expected_destination_path(destination, expectation.identity)
-
-
-def _require_expected_destination_path(
-    destination: Path,
-    expected_identity: _FileIdentity,
-) -> None:
-    try:
-        status = os.lstat(destination)
-    except OSError as error:
-        raise AtomicDestinationChangedError(
-            "atomic destination changed"
-        ) from error
-    if (
-        not stat.S_ISREG(status.st_mode)
-        or _is_reparse_point(status)
-        or _identity(status) != expected_identity
-    ):
-        raise AtomicDestinationChangedError("atomic destination changed")
-
-
 def _remove_exact_regular_file(path: Path, expected_identity: _FileIdentity) -> None:
     try:
         status = os.lstat(path)
@@ -261,14 +167,9 @@ if os.name == "nt":
     _DELETE = 0x00010000
     _FILE_SHARE_READ = 0x00000001
     _FILE_SHARE_WRITE = 0x00000002
-    _FILE_SHARE_DELETE = 0x00000004
     _CREATE_NEW = 1
-    _OPEN_EXISTING = 3
     _FILE_ATTRIBUTE_NORMAL = 0x00000080
     _FILE_RENAME_INFO_CLASS = 3
-    _FILE_RENAME_INFO_EX_CLASS = 22
-    _FILE_RENAME_REPLACE_IF_EXISTS = 0x00000001
-    _FILE_RENAME_POSIX_SEMANTICS = 0x00000002
     _INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
 
     class _FileRenameInfo(ctypes.Structure):
@@ -340,77 +241,11 @@ def _close_windows_handle(handle: int) -> None:
         _close_handle(handle)
 
 
-def _publish_windows_conditionally(
-    source_handle: int,
-    destination: Path,
-    expectation: AtomicDestinationExpectation,
-) -> None:
-    if os.name != "nt":
-        raise OSError("Windows conditional publication is unavailable")
-    # Denying write sharing makes the compare/publish window an OS-enforced
-    # exclusion boundary across processes. Delete sharing is retained so this
-    # process can publish the validated source with POSIX rename semantics.
-    destination_handle = _create_file(
-        str(destination),
-        _GENERIC_READ,
-        _FILE_SHARE_READ | _FILE_SHARE_DELETE,
-        None,
-        _OPEN_EXISTING,
-        _FILE_ATTRIBUTE_NORMAL,
-        None,
-    )
-    if destination_handle == _INVALID_HANDLE_VALUE:
-        raise AtomicDestinationChangedError("atomic destination changed")
-    try:
-        descriptor = msvcrt.open_osfhandle(
-            destination_handle,
-            os.O_RDONLY | os.O_BINARY,
-        )
-    except BaseException:
-        _close_handle(destination_handle)
-        raise
-    with os.fdopen(descriptor, "rb") as guarded_destination:
-        _require_expected_destination_handle(
-            guarded_destination,
-            destination,
-            expectation,
-        )
-        try:
-            _publish_open_file(
-                source_handle,
-                destination,
-                expected_destination_identity=expectation.identity,
-                posix_semantics=True,
-            )
-        except AtomicDestinationChangedError:
-            raise
-        except OSError as error:
-            try:
-                _require_expected_destination_path(
-                    destination,
-                    expectation.identity,
-                )
-            except AtomicDestinationChangedError as changed:
-                raise changed from error
-            raise
-
-
-def _publish_open_file(
-    handle: int,
-    destination: Path,
-    *,
-    expected_destination_identity: _FileIdentity | None = None,
-    posix_semantics: bool = False,
-) -> None:
+def _publish_open_file(handle: int, destination: Path) -> None:
     """Replace by source handle while its pathname cannot be substituted."""
 
     if os.name != "nt":
         raise OSError("Handle-bound atomic publication is unavailable")
-    if expected_destination_identity is not None:
-        _require_expected_destination_path(
-            destination,
-            expected_destination_identity,
-        )
     target_bytes = os.path.abspath(destination).encode("utf-16-le")
     filename_offset = _FileRenameInfo.FileName.offset
     buffer = ctypes.create_string_buffer(
@@ -420,14 +255,7 @@ def _publish_open_file(
         buffer,
         ctypes.POINTER(_FileRenameInfo),
     ).contents
-    information_class = _FILE_RENAME_INFO_CLASS
-    if posix_semantics:
-        ctypes.c_uint32.from_buffer(buffer).value = (
-            _FILE_RENAME_REPLACE_IF_EXISTS | _FILE_RENAME_POSIX_SEMANTICS
-        )
-        information_class = _FILE_RENAME_INFO_EX_CLASS
-    else:
-        information.ReplaceIfExists = True
+    information.ReplaceIfExists = True
     information.RootDirectory = None
     information.FileNameLength = len(target_bytes)
     ctypes.memmove(
@@ -437,7 +265,7 @@ def _publish_open_file(
     )
     if not _set_file_information(
         handle,
-        information_class,
+        _FILE_RENAME_INFO_CLASS,
         buffer,
         len(buffer),
     ):
