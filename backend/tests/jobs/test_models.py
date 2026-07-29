@@ -471,6 +471,77 @@ def test_job_state_rejects_candidate_timestamps_outside_job_lifetime(
         JobStateRecord.model_validate(values)
 
 
+@pytest.mark.parametrize("parser", ["python", "json"])
+@pytest.mark.parametrize(
+    ("field", "timestamp"),
+    [
+        (
+            "started_at",
+            datetime(2026, 7, 29, 9, 31, tzinfo=timezone.utc),
+        ),
+        (
+            "finished_at",
+            datetime(2026, 7, 29, 9, 33, 30, tzinfo=timezone.utc),
+        ),
+    ],
+)
+def test_strict_parsing_rejects_candidate_outside_aggregate_lifecycle_window(
+    parser: str,
+    field: str,
+    timestamp: datetime,
+) -> None:
+    request = _request()
+    job_started = datetime(2026, 7, 29, 9, 32, tzinfo=timezone.utc)
+    job_finished = datetime(2026, 7, 29, 9, 33, tzinfo=timezone.utc)
+    values = _state_values(request, "completed", ("completed",) * 4)
+    values.update(
+        updated_at=datetime(2026, 7, 29, 9, 34, tzinfo=timezone.utc),
+        started_at=job_started,
+        finished_at=job_finished,
+    )
+    candidates = [
+        {
+            **candidate,
+            "started_at": job_started,
+            "finished_at": job_finished,
+        }
+        for candidate in values["candidates"]
+    ]
+    candidates[0] = {**candidates[0], field: timestamp}
+    values["candidates"] = tuple(candidates)
+
+    with pytest.raises(ValidationError):
+        if parser == "python":
+            JobStateRecord.model_validate(values, strict=True)
+        else:
+            JobStateRecord.model_validate_json(
+                _json_bytes(values),
+                strict=True,
+            )
+
+
+@pytest.mark.parametrize("parser", ["python", "json"])
+def test_strict_parsing_accepts_queued_to_canceled_without_start_timestamps(
+    parser: str,
+) -> None:
+    request = _request()
+    values = _state_values(request, "canceled", ("canceled",) * 4)
+
+    if parser == "python":
+        state = JobStateRecord.model_validate(values, strict=True)
+    else:
+        state = JobStateRecord.model_validate_json(
+            _json_bytes(values),
+            strict=True,
+        )
+
+    assert state.started_at is None
+    assert all(
+        candidate.started_at is None
+        for candidate in state.candidates
+    )
+
+
 @pytest.mark.parametrize(
     ("status", "candidate_statuses"),
     [

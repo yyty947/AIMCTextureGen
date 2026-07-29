@@ -238,6 +238,22 @@ class JobStateRecord(_StrictModel):
                     raise ValueError(
                         "candidate timestamp is outside the job lifetime"
                     )
+                if (
+                    timestamp is not None
+                    and self.started_at is not None
+                    and timestamp < self.started_at
+                ):
+                    raise ValueError(
+                        "candidate timestamp precedes the job lifecycle"
+                    )
+                if (
+                    timestamp is not None
+                    and self.finished_at is not None
+                    and timestamp > self.finished_at
+                ):
+                    raise ValueError(
+                        "candidate timestamp exceeds the job lifecycle"
+                    )
         return self
 
 
