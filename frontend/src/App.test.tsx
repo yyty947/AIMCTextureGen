@@ -1139,6 +1139,191 @@ describe("项目恢复与只读任务历史", () => {
     );
   });
 
+  it("旧导入响应与 finally 不能覆盖选择或清除较新导入的 busy 状态", async () => {
+    const importB = deferred<Response>();
+    const importC = deferred<Response>();
+    const projectBId = "dce1d8fa-3e28-48f5-81b2-1776371b7832";
+    const projectCId = "ee54efc6-25e7-43ab-8833-54d6c21988ba";
+    const manifestB = {
+      ...manifest,
+      project_id: projectBId,
+      project_name: "重叠导入 B",
+      source_sha256: "b".repeat(64),
+    };
+    const manifestC = {
+      ...manifest,
+      project_id: projectCId,
+      project_name: "较新导入 C",
+      source_sha256: "c".repeat(64),
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === "/api/projects") {
+          return Promise.resolve(jsonResponse([projectSummary]));
+        }
+        if (url === "/api/system/recovery") {
+          return Promise.resolve(jsonResponse(recoveryReport));
+        }
+        if (url === "/api/projects/import") {
+          const name = (init?.body as FormData).get("project_name");
+          return name === "重叠导入 B" ? importB.promise : importC.promise;
+        }
+        if (
+          url === `/api/projects/${projectBId}/coverage` ||
+          url === `/api/projects/${projectCId}/coverage`
+        ) {
+          return Promise.resolve(jsonResponse(coverage));
+        }
+        if (url === `/api/projects/${projectId}`) {
+          return Promise.resolve(jsonResponse(manifest));
+        }
+        if (url === `/api/projects/${projectId}/coverage`) {
+          return Promise.resolve(jsonResponse(coverage));
+        }
+        if (url === `/api/projects/${projectId}/jobs`) {
+          return Promise.resolve(jsonResponse([]));
+        }
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+    render(<App />);
+    const user = await completeForm("重叠导入 B", "b.zip");
+    await user.click(screen.getByRole("button", { name: "导入并分析" }));
+    await user.click(await screen.findByRole("button", { name: /恢复项目/ }));
+    await user.clear(screen.getByLabelText("项目名称"));
+    await user.type(screen.getByLabelText("项目名称"), "较新导入 C");
+    await user.upload(
+      screen.getByLabelText("ZIP 资源包"),
+      new File(["c"], "c.zip", { type: "application/zip" }),
+    );
+    await user.click(screen.getByRole("button", { name: "导入并分析" }));
+
+    await act(async () => {
+      importB.resolve(jsonResponse(manifestB, 201));
+      await importB.promise;
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      screen.getByRole("button", { name: "正在导入并分析…" }),
+    ).toBeDisabled();
+    expect(screen.getByRole("button", { name: /恢复项目/ })).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
+
+    await act(async () => {
+      importC.resolve(jsonResponse(manifestC, 201));
+      await importC.promise;
+    });
+
+    expect(
+      await screen.findByRole("button", { name: /较新导入 C/ }),
+    ).toHaveAttribute("aria-current", "true");
+    expect(
+      screen.queryByRole("button", { name: /重叠导入 B/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("旧导入响应与 finally 不能打断较新项目的覆盖重试", async () => {
+    const staleImport = deferred<Response>();
+    const retriedCoverage = deferred<Response>();
+    const staleProjectId = "dce1d8fa-3e28-48f5-81b2-1776371b7832";
+    const retryProjectId = "ee54efc6-25e7-43ab-8833-54d6c21988ba";
+    const staleManifest = {
+      ...manifest,
+      project_id: staleProjectId,
+      project_name: "迟到导入",
+      source_sha256: "b".repeat(64),
+    };
+    const retryManifest = {
+      ...manifest,
+      project_id: retryProjectId,
+      project_name: "重试项目",
+      source_sha256: "c".repeat(64),
+    };
+    let retryCoverageAttempts = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === "/api/projects") {
+          return Promise.resolve(jsonResponse([projectSummary]));
+        }
+        if (url === "/api/system/recovery") {
+          return Promise.resolve(jsonResponse(recoveryReport));
+        }
+        if (url === "/api/projects/import") {
+          const name = (init?.body as FormData).get("project_name");
+          return name === "迟到导入"
+            ? staleImport.promise
+            : Promise.resolve(jsonResponse(retryManifest, 201));
+        }
+        if (url === `/api/projects/${retryProjectId}/coverage`) {
+          retryCoverageAttempts += 1;
+          return retryCoverageAttempts === 1
+            ? Promise.reject(new TypeError("initial coverage failure"))
+            : retriedCoverage.promise;
+        }
+        if (url === `/api/projects/${staleProjectId}/coverage`) {
+          return Promise.resolve(jsonResponse(coverage));
+        }
+        if (url === `/api/projects/${projectId}`) {
+          return Promise.resolve(jsonResponse(manifest));
+        }
+        if (url === `/api/projects/${projectId}/coverage`) {
+          return Promise.resolve(jsonResponse(coverage));
+        }
+        if (url === `/api/projects/${projectId}/jobs`) {
+          return Promise.resolve(jsonResponse([]));
+        }
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+    render(<App />);
+    const user = await completeForm("迟到导入", "stale.zip");
+    await user.click(screen.getByRole("button", { name: "导入并分析" }));
+    await user.click(await screen.findByRole("button", { name: /恢复项目/ }));
+    await user.clear(screen.getByLabelText("项目名称"));
+    await user.type(screen.getByLabelText("项目名称"), "重试项目");
+    await user.upload(
+      screen.getByLabelText("ZIP 资源包"),
+      new File(["retry"], "retry.zip", { type: "application/zip" }),
+    );
+    await user.click(screen.getByRole("button", { name: "导入并分析" }));
+    await user.click(
+      await screen.findByRole("button", { name: "重试覆盖分析" }),
+    );
+
+    await act(async () => {
+      staleImport.resolve(jsonResponse(staleManifest, 201));
+      await staleImport.promise;
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      screen.getByRole("button", { name: "正在重试覆盖分析…" }),
+    ).toBeDisabled();
+    expect(screen.getByRole("button", { name: /重试项目/ })).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
+
+    await act(async () => {
+      retriedCoverage.resolve(jsonResponse(coverage));
+      await retriedCoverage.promise;
+    });
+
+    expect(await screen.findByLabelText("覆盖统计")).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: /迟到导入/ }),
+    ).not.toBeInTheDocument();
+  });
+
   it("使用产品中立的项目面板标题", () => {
     installRestorationFetch();
     render(<App />);

@@ -54,6 +54,7 @@ export default function App() {
   const componentGeneration = useRef(0);
   const dashboardRequest = useRef(0);
   const coverageRequest = useRef(0);
+  const operationGeneration = useRef(0);
   const projectsEpoch = useRef(0);
   const selectedProject = useRef<string | null>(null);
 
@@ -103,6 +104,7 @@ export default function App() {
       }
       dashboardRequest.current += 1;
       coverageRequest.current += 1;
+      operationGeneration.current += 1;
       projectsEpoch.current += 1;
       selectedProject.current = null;
     };
@@ -130,6 +132,8 @@ export default function App() {
     }
 
     const componentRequestGeneration = componentGeneration.current;
+    const operationRequestGeneration = operationGeneration.current + 1;
+    operationGeneration.current = operationRequestGeneration;
     setActiveRequest("import");
     setError(null);
     let importedProjectId: string | null = null;
@@ -137,6 +141,9 @@ export default function App() {
     try {
       const imported = await importProject(trimmedProjectName, pack);
       if (!isCurrentComponentGeneration(componentRequestGeneration)) {
+        return;
+      }
+      if (operationGeneration.current !== operationRequestGeneration) {
         return;
       }
       importedProjectId = imported.projectId;
@@ -158,6 +165,7 @@ export default function App() {
       const report = await getCoverage(imported.projectId);
       if (
         isCurrentComponentGeneration(componentRequestGeneration) &&
+        operationGeneration.current === operationRequestGeneration &&
         coverageRequest.current === importedCoverageRequestId &&
         selectedProject.current === imported.projectId
       ) {
@@ -167,6 +175,7 @@ export default function App() {
     } catch (cause) {
       if (
         isCurrentComponentGeneration(componentRequestGeneration) &&
+        operationGeneration.current === operationRequestGeneration &&
         (importedCoverageRequestId === null ||
           (coverageRequest.current === importedCoverageRequestId &&
             selectedProject.current === importedProjectId))
@@ -174,7 +183,10 @@ export default function App() {
         setError(toApiError(cause));
       }
     } finally {
-      if (isCurrentComponentGeneration(componentRequestGeneration)) {
+      if (
+        isCurrentComponentGeneration(componentRequestGeneration) &&
+        operationGeneration.current === operationRequestGeneration
+      ) {
         setActiveRequest("idle");
       }
     }
@@ -203,6 +215,8 @@ export default function App() {
 
     const projectId = pendingImportedProject.projectId;
     const componentRequestGeneration = componentGeneration.current;
+    const operationRequestGeneration = operationGeneration.current + 1;
+    operationGeneration.current = operationRequestGeneration;
     const requestId = coverageRequest.current + 1;
     coverageRequest.current = requestId;
     setActiveRequest("coverage");
@@ -210,6 +224,7 @@ export default function App() {
       const report = await getCoverage(projectId);
       if (
         isCurrentComponentGeneration(componentRequestGeneration) &&
+        operationGeneration.current === operationRequestGeneration &&
         coverageRequest.current === requestId &&
         selectedProject.current === projectId
       ) {
@@ -220,6 +235,7 @@ export default function App() {
     } catch (cause) {
       if (
         isCurrentComponentGeneration(componentRequestGeneration) &&
+        operationGeneration.current === operationRequestGeneration &&
         coverageRequest.current === requestId &&
         selectedProject.current === projectId
       ) {
@@ -228,6 +244,7 @@ export default function App() {
     } finally {
       if (
         isCurrentComponentGeneration(componentRequestGeneration) &&
+        operationGeneration.current === operationRequestGeneration &&
         coverageRequest.current === requestId
       ) {
         setActiveRequest("idle");
@@ -281,6 +298,7 @@ export default function App() {
   }
 
   function handleProjectSelect(projectId: string) {
+    operationGeneration.current += 1;
     coverageRequest.current += 1;
     selectedProject.current = projectId;
     setActiveRequest("idle");
