@@ -30,6 +30,14 @@ _UUID_CHECK = """
     AND length(replace({column}, '-', '')) = 32
     AND replace({column}, '-', '') NOT GLOB '*[^0-9a-f]*'
 """
+_CANDIDATE_STATUS_CHECK = """
+    CHECK (
+        {column} IN (
+            'pending', 'generating', 'postprocessing',
+            'completed', 'failed', 'canceled'
+        )
+    )
+"""
 _CREATE_PROJECTS = f"""
 CREATE TABLE projects (
     project_id TEXT PRIMARY KEY CHECK ({_UUID_CHECK.format(column="project_id")}),
@@ -63,10 +71,14 @@ CREATE TABLE jobs (
         )
     ),
     revision INTEGER NOT NULL CHECK (revision >= 0),
-    candidate_status_0 TEXT NOT NULL,
-    candidate_status_1 TEXT NOT NULL,
-    candidate_status_2 TEXT NOT NULL,
-    candidate_status_3 TEXT NOT NULL,
+    candidate_status_0 TEXT NOT NULL
+        {_CANDIDATE_STATUS_CHECK.format(column="candidate_status_0")},
+    candidate_status_1 TEXT NOT NULL
+        {_CANDIDATE_STATUS_CHECK.format(column="candidate_status_1")},
+    candidate_status_2 TEXT NOT NULL
+        {_CANDIDATE_STATUS_CHECK.format(column="candidate_status_2")},
+    candidate_status_3 TEXT NOT NULL
+        {_CANDIDATE_STATUS_CHECK.format(column="candidate_status_3")},
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 )
@@ -297,14 +309,27 @@ class ProjectIndex:
         if not path.exists():
             return
         connection: sqlite3.Connection | None = None
+        existing = None
         try:
             connection = sqlite3.connect(path, timeout=_BUSY_TIMEOUT_SECONDS)
             version = connection.execute("PRAGMA user_version").fetchone()[0]
+            if version == 0:
+                existing = connection.execute(
+                    """
+                    SELECT name
+                    FROM sqlite_master
+                    WHERE name NOT LIKE 'sqlite_%'
+                      AND type IN ('table', 'index', 'view', 'trigger')
+                    LIMIT 1
+                    """
+                ).fetchone()
         except sqlite3.DatabaseError:
             return
         finally:
             if connection is not None:
                 connection.close()
+        if version == 0 and existing is not None:
+            raise sqlite3.DatabaseError("unsupported unversioned index schema")
         if version not in (0, _SCHEMA_VERSION):
             raise sqlite3.DatabaseError(
                 f"unsupported index schema version: {version}"

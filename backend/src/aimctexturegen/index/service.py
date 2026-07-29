@@ -9,7 +9,7 @@ from uuid import UUID
 
 from aimctexturegen.index.models import IndexSnapshot
 from aimctexturegen.jobs.models import JobSummary
-from aimctexturegen.jobs.store import JobStore, LoadedJob
+from aimctexturegen.jobs.store import JobScanResult, JobStore, LoadedJob
 from aimctexturegen.projects.models import (
     ProjectManifest,
     ProjectSummary,
@@ -40,7 +40,7 @@ class ProjectRepositoryPort(Protocol):
 
 
 class JobStorePort(Protocol):
-    def list(self, project_id: UUID) -> tuple[LoadedJob, ...]: ...
+    def scan(self, project_id: UUID) -> JobScanResult: ...
 
 
 class IndexUnavailableError(Exception):
@@ -95,9 +95,10 @@ class IndexService:
         scan = self._repository.list_manifests()
         for manifest in scan.manifests:
             projects.append(_project_summary(manifest))
+            job_scan = self._store.scan(manifest.project_id)
             jobs.extend(
                 _job_summary(loaded)
-                for loaded in self._store.list(manifest.project_id)
+                for loaded in job_scan.jobs
             )
         snapshot = IndexSnapshot(projects=tuple(projects), jobs=tuple(jobs))
         self._index.replace_snapshot(snapshot)

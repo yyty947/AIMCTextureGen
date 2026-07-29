@@ -175,6 +175,33 @@ def test_job_queries_sort_and_preserve_retry_lineage(tmp_path):
         summaries[0].revision = 99  # type: ignore[misc]
 
 
+@pytest.mark.parametrize(
+    "column",
+    (
+        "candidate_status_0",
+        "candidate_status_1",
+        "candidate_status_2",
+        "candidate_status_3",
+    ),
+)
+def test_schema_rejects_invalid_candidate_status_in_every_column(
+    tmp_path,
+    column,
+):
+    projects_root = tmp_path / "projects"
+    projects_root.mkdir()
+    index = ProjectIndex(projects_root)
+    index.upsert_project(_manifest())
+    index.upsert_job(_job_summary())
+
+    with sqlite3.connect(index.database_path) as connection:
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                f"UPDATE jobs SET {column} = ? WHERE job_id = ?",
+                ("unknown-state", str(JOB_ID)),
+            )
+
+
 def test_index_contains_only_rebuildable_summary_fields(tmp_path):
     projects_root = tmp_path / "projects"
     projects_root.mkdir()
@@ -229,3 +256,28 @@ def test_unknown_schema_version_is_rejected_without_upgrade(tmp_path):
 
     with sqlite3.connect(database_path) as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 2
+
+
+def test_nonempty_unversioned_database_is_preserved_byte_for_byte(tmp_path):
+    projects_root = tmp_path / "projects"
+    metadata_root = projects_root / ".aimctexturegen"
+    metadata_root.mkdir(parents=True)
+    database_path = metadata_root / "index.sqlite3"
+    connection = sqlite3.connect(database_path)
+    try:
+        connection.execute("CREATE TABLE future_data (value TEXT NOT NULL)")
+        connection.execute(
+            "INSERT INTO future_data (value) VALUES (?)",
+            ("must-survive",),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    before = database_path.read_bytes()
+
+    index = ProjectIndex(projects_root)
+    with pytest.raises(sqlite3.DatabaseError, match="unversioned"):
+        index.replace_snapshot(IndexSnapshot(projects=(), jobs=()))
+
+    assert database_path.read_bytes() == before
+    assert not index.temporary_path.exists()

@@ -632,6 +632,9 @@ git commit -m "feat: define durable job contracts and state machine"
 - Produces: frozen `LoadedJob(request, state, root)` plus
   `JobStore.create`, `load`, `list`, `replace_state`, `cancel`,
   `retry`, and `recover_interrupted`.
+- Produces: frozen `JobScanResult(jobs, issues)` and path-free
+  `JobScanIssue`; `JobStore.scan` isolates malformed canonical siblings while
+  `list` remains fail-fast.
 - Produces: `JobService.create_job`, `get_job`, `list_jobs`, `cancel_job`,
   `retry_job`.
 - Consumes project repository, catalog registry and an index-writer protocol.

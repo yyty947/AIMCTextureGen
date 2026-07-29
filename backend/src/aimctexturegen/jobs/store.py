@@ -58,6 +58,23 @@ class LoadedJob:
     root: Path
 
 
+@dataclass(frozen=True)
+class JobScanIssue:
+    """A path-free issue for one malformed canonical job directory."""
+
+    job_id: UUID
+    code: str
+    user_message: str
+
+
+@dataclass(frozen=True)
+class JobScanResult:
+    """Valid jobs and isolated canonical-job issues from one project scan."""
+
+    jobs: tuple[LoadedJob, ...]
+    issues: tuple[JobScanIssue, ...]
+
+
 class JobStore:
     """Persist jobs below projects opened through ``ProjectRepository``."""
 
@@ -90,24 +107,53 @@ class JobStore:
     def list(self, project_id: UUID) -> tuple[LoadedJob, ...]:
         """List valid canonical jobs by creation time then job ID."""
 
+        result = self.scan(project_id)
+        if result.issues:
+            issue = result.issues[0]
+            raise JobError(issue.code, issue.user_message)
+        return result.jobs
+
+    def scan(self, project_id: UUID) -> JobScanResult:
+        """Scan canonical siblings without allowing one bad job to hide others."""
+
         _require_uuid(project_id, "project_id")
         with self._repository.open(project_id) as opened:
             with self._hold_jobs_root(opened, create=False) as jobs_identity:
                 if jobs_identity is None:
-                    return ()
+                    return JobScanResult(jobs=(), issues=())
                 try:
                     entries = tuple(os.scandir(opened.jobs_root))
                 except OSError as error:
                     raise _job_error("UNSAFE_JOBS_PATH") from error
                 jobs: list[LoadedJob] = []
+                issues: list[JobScanIssue] = []
                 for entry in sorted(entries, key=lambda item: item.name):
                     job_id = _canonical_uuid(entry.name)
                     if job_id is None:
                         continue
-                    jobs.append(self._load_opened(opened, jobs_identity, job_id))
+                    try:
+                        jobs.append(
+                            self._load_opened(
+                                opened,
+                                jobs_identity,
+                                job_id,
+                            )
+                        )
+                    except JobError as error:
+                        issues.append(
+                            JobScanIssue(
+                                job_id=job_id,
+                                code=error.code,
+                                user_message=error.user_message,
+                            )
+                        )
                 jobs.sort(key=lambda job: str(job.request.job_id))
                 jobs.sort(key=lambda job: job.request.created_at, reverse=True)
-                return tuple(jobs)
+                issues.sort(key=lambda issue: str(issue.job_id))
+                return JobScanResult(
+                    jobs=tuple(jobs),
+                    issues=tuple(issues),
+                )
 
     def replace_state(
         self,

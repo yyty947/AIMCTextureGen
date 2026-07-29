@@ -397,6 +397,32 @@ def test_list_is_deterministic_and_ignores_noncanonical_directories(
     assert tuple(job.request.job_id for job in second) == expected
 
 
+def test_scan_returns_valid_jobs_and_typed_issues_for_corrupt_siblings(
+    tmp_path: Path,
+) -> None:
+    projects_root = tmp_path / "projects"
+    _write_project(projects_root)
+    store = _store(projects_root)
+    valid = store.create(_request(job_id=OTHER_JOB_ID))
+    corrupt = store.create(_request(job_id=JOB_ID))
+    corrupt_state = b"{not valid job state json"
+    (corrupt.root / "state.json").write_bytes(corrupt_state)
+
+    result = store.scan(PROJECT_ID)
+
+    assert tuple(job.request.job_id for job in result.jobs) == (
+        valid.request.job_id,
+    )
+    assert len(result.issues) == 1
+    issue = result.issues[0]
+    assert isinstance(issue, store_module.JobScanIssue)
+    assert issue.job_id == corrupt.request.job_id
+    assert issue.code == "CORRUPT_JOB_RECORD"
+    assert issue.user_message == "任务记录损坏或不一致"
+    assert not hasattr(issue, "path")
+    assert (corrupt.root / "state.json").read_bytes() == corrupt_state
+
+
 def test_replace_state_atomically_updates_only_the_expected_revision(
     tmp_path: Path,
 ) -> None:

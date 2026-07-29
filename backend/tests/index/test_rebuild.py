@@ -18,13 +18,18 @@ from aimctexturegen.jobs.models import (
     JobStateRecord,
     JobSummary,
 )
-from aimctexturegen.jobs.store import LoadedJob
-from aimctexturegen.projects.models import ProjectManifest, ProjectSummary
-from aimctexturegen.projects.repository import ProjectScanResult
+from aimctexturegen.jobs.store import JobScanResult, JobStore, LoadedJob
+from aimctexturegen.projects.models import (
+    ProjectManifest,
+    ProjectSummary,
+    dump_project_manifest,
+)
+from aimctexturegen.projects.repository import ProjectRepository, ProjectScanResult
 
 
 PROJECT_ID = UUID("11111111-1111-4111-8111-111111111111")
 JOB_ID = UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+CORRUPT_JOB_ID = UUID("00000000-0000-4000-8000-000000000001")
 NOW = datetime(2026, 7, 29, 12, 0, tzinfo=timezone.utc)
 
 
@@ -59,10 +64,10 @@ def _project_summary() -> ProjectSummary:
     )
 
 
-def _loaded_job() -> LoadedJob:
+def _loaded_job(job_id: UUID = JOB_ID) -> LoadedJob:
     request = JobRequest(
         schema_version=1,
-        job_id=JOB_ID,
+        job_id=job_id,
         project_id=PROJECT_ID,
         retry_of_job_id=None,
         catalog_id="java-format-34-dev",
@@ -90,7 +95,7 @@ def _loaded_job() -> LoadedJob:
     )
     state = JobStateRecord(
         schema_version=1,
-        job_id=JOB_ID,
+        job_id=job_id,
         project_id=PROJECT_ID,
         revision=0,
         status="queued",
@@ -184,9 +189,9 @@ class _Repository:
 class _Store:
     jobs: tuple[LoadedJob, ...]
 
-    def list(self, project_id: UUID) -> tuple[LoadedJob, ...]:
+    def scan(self, project_id: UUID) -> JobScanResult:
         assert project_id == PROJECT_ID
-        return self.jobs
+        return JobScanResult(jobs=self.jobs, issues=())
 
 
 def test_service_rebuilds_summaries_from_canonical_models(tmp_path):
@@ -207,6 +212,41 @@ def test_service_rebuilds_summaries_from_canonical_models(tmp_path):
     database_bytes = index.database_path.read_bytes()
     assert b"private prompt" not in database_bytes
     assert b"assets/minecraft" not in database_bytes
+
+
+def test_service_rebuild_with_real_store_indexes_valid_job_beside_corrupt_job(
+    tmp_path,
+):
+    projects_root = tmp_path / "projects"
+    project_root = projects_root / str(PROJECT_ID)
+    project_root.mkdir(parents=True)
+    (project_root / "project.json").write_bytes(
+        dump_project_manifest(_manifest())
+    )
+    repository = ProjectRepository(projects_root)
+    store = JobStore(repository)
+    valid = store.create(_loaded_job().request)
+    corrupt = store.create(_loaded_job(CORRUPT_JOB_ID).request)
+    corrupt_bytes = b"{corrupt state remains canonical input"
+    (corrupt.root / "state.json").write_bytes(corrupt_bytes)
+    index = ProjectIndex(projects_root)
+    service = IndexService(
+        repository=repository,
+        store=store,
+        index=index,
+    )
+
+    snapshot = service.rebuild()
+
+    assert tuple(summary.job_id for summary in snapshot.jobs) == (
+        valid.request.job_id,
+    )
+    assert tuple(summary.job_id for summary in index.list_jobs(PROJECT_ID)) == (
+        valid.request.job_id,
+    )
+    scan = store.scan(PROJECT_ID)
+    assert tuple(issue.job_id for issue in scan.issues) == (CORRUPT_JOB_ID,)
+    assert (corrupt.root / "state.json").read_bytes() == corrupt_bytes
 
 
 class _FlakyIndex:
