@@ -725,7 +725,7 @@ git commit -m "feat: persist and manage four-candidate jobs"
   attempt one rebuild after an SQLite failure.
 - Uses only Python `sqlite3`; no runtime dependency is added.
 
-- [ ] **Step 1: Write schema and query RED tests**
+- [x] **Step 1: Write schema and query RED tests**
 
 Verify `PRAGMA user_version == 1`, foreign keys are enabled, project/job IDs
 are canonical UUID text, timestamps sort correctly, retry lineage is
@@ -734,7 +734,7 @@ appear in the database schema or rows.
 
 Assert queries return frozen summary models rather than raw SQLite rows.
 
-- [ ] **Step 2: Implement the connection and schema**
+- [x] **Step 2: Implement the connection and schema**
 
 Open one connection per operation with a finite busy timeout and:
 
@@ -756,7 +756,7 @@ than silently upgrading them. Every public operation lazily ensures the
 schema, so tests and injected services remain usable even when FastAPI lifespan
 has not run.
 
-- [ ] **Step 3: Write atomic rebuild tests**
+- [x] **Step 3: Write atomic rebuild tests**
 
 Build an `IndexSnapshot`, replace the index, reopen it, and compare every
 summary. Inject population/validation/replace failures and assert the previous
@@ -765,14 +765,14 @@ index remains usable and `index.sqlite3.tmp` is removed.
 Delete the final index, call `replace_snapshot`, and verify identical project
 and job visibility.
 
-- [ ] **Step 4: Implement `replace_snapshot`**
+- [x] **Step 4: Implement `replace_snapshot`**
 
 Create `.aimctexturegen` as a plain directory, populate
 `index.sqlite3.tmp`, run `PRAGMA integrity_check`, verify row counts and
 foreign keys, close all handles, then `os.replace` it onto the final path.
 Never inspect or change resource-pack files.
 
-- [ ] **Step 5: Implement disk-to-index coordination**
+- [x] **Step 5: Implement disk-to-index coordination**
 
 `IndexService` receives `ProjectRepository`, `JobStore`, and `ProjectIndex`.
 `rebuild()` scans valid project manifests and jobs, constructs an
@@ -781,7 +781,7 @@ database operation once; on `sqlite3.DatabaseError`, they perform one rebuild
 and retry once. A second failure raises `IndexUnavailableError` without
 changing canonical JSON.
 
-- [ ] **Step 6: Run index tests**
+- [x] **Step 6: Run index tests**
 
 ```powershell
 .\.venv\Scripts\python -m pytest backend\tests\index -v
@@ -789,7 +789,7 @@ changing canonical JSON.
 
 Expected: all pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```powershell
 git add backend/src/aimctexturegen/index backend/tests/index
