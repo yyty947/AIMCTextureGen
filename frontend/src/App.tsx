@@ -18,6 +18,8 @@ import {
   listProjects,
   type ApiError,
   type CoverageReport,
+  type JobDetail,
+  type JobSummary,
   type ProjectManifest,
   type ProjectSummary,
   type RecoveryReport,
@@ -49,18 +51,25 @@ export default function App() {
     useState<ProjectManifest | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
   const dashboardRequest = useRef(0);
+  const projectsEpoch = useRef(0);
+  const selectedProject = useRef<string | null>(null);
 
   useEffect(() => {
     let active = true;
+    const requestEpoch = projectsEpoch.current;
     void listProjects()
       .then((loadedProjects) => {
         if (active) {
-          setProjects(loadedProjects);
+          setProjects((current) =>
+            projectsEpoch.current === requestEpoch
+              ? loadedProjects
+              : mergeProjectLists(current, loadedProjects),
+          );
           setProjectsError(null);
         }
       })
       .catch((cause: unknown) => {
-        if (active) {
+        if (active && projectsEpoch.current === requestEpoch) {
           setProjectsError(toApiError(cause));
         }
       })
@@ -103,23 +112,26 @@ export default function App() {
 
     setActiveRequest("import");
     setError(null);
-    setDashboardError(null);
-    setSelectedProjectId(null);
-    setPendingImportedProject(null);
-    setManifest(null);
-    setCoverage(null);
-    setJobs([]);
     try {
       const imported = await importProject(trimmedProjectName, pack);
+      dashboardRequest.current += 1;
+      projectsEpoch.current += 1;
+      selectedProject.current = imported.projectId;
+      setDashboardError(null);
       setSelectedProjectId(imported.projectId);
+      setDashboardLoading(false);
       setPendingImportedProject(imported);
       setManifest(imported);
+      setCoverage(null);
+      setJobs([]);
       setProjects((current) =>
         mergeImportedProject(current, summaryFromManifest(imported)),
       );
       const report = await getCoverage(imported.projectId);
-      setCoverage(report);
-      setPendingImportedProject(null);
+      if (selectedProject.current === imported.projectId) {
+        setCoverage(report);
+        setPendingImportedProject(null);
+      }
     } catch (cause) {
       setError(toApiError(cause));
     } finally {
@@ -162,12 +174,20 @@ export default function App() {
   }
 
   async function refreshProjects() {
+    const requestEpoch = projectsEpoch.current;
     setProjectsLoading(true);
     try {
-      setProjects(await listProjects());
-      setProjectsError(null);
+      const loadedProjects = await listProjects();
+      if (projectsEpoch.current === requestEpoch) {
+        setProjects(loadedProjects);
+        setProjectsError(null);
+      } else {
+        setProjects((current) => mergeProjectLists(current, loadedProjects));
+      }
     } catch (cause) {
-      setProjectsError(toApiError(cause));
+      if (projectsEpoch.current === requestEpoch) {
+        setProjectsError(toApiError(cause));
+      }
     } finally {
       setProjectsLoading(false);
     }
@@ -183,6 +203,7 @@ export default function App() {
   }
 
   function handleProjectSelect(projectId: string) {
+    selectedProject.current = projectId;
     setSelectedProjectId(projectId);
     setPendingImportedProject(null);
     setError(null);
@@ -206,24 +227,32 @@ export default function App() {
       const details = await Promise.all(
         summaries.map((summary) => getJob(projectId, summary.jobId)),
       );
-      if (dashboardRequest.current !== requestId) {
+      if (
+        dashboardRequest.current !== requestId ||
+        selectedProject.current !== projectId
+      ) {
         return;
       }
       setManifest(loadedManifest);
       setCoverage(loadedCoverage);
       setJobs(
-        summaries.map((summary, index) => ({
-          summary,
-          detail: details[index],
-        })),
+        summaries.map((summary, index) =>
+          reconcileJobHistory(summary, details[index]),
+        ),
       );
       setDashboardError(null);
     } catch (cause) {
-      if (dashboardRequest.current === requestId) {
+      if (
+        dashboardRequest.current === requestId &&
+        selectedProject.current === projectId
+      ) {
         setDashboardError(toApiError(cause));
       }
     } finally {
-      if (dashboardRequest.current === requestId) {
+      if (
+        dashboardRequest.current === requestId &&
+        selectedProject.current === projectId
+      ) {
         setDashboardLoading(false);
       }
     }
@@ -429,10 +458,52 @@ function mergeImportedProject(
   projects: readonly ProjectSummary[],
   imported: ProjectSummary,
 ): readonly ProjectSummary[] {
+  return mergeProjectLists([imported], projects);
+}
+
+function mergeProjectLists(
+  preferred: readonly ProjectSummary[],
+  incoming: readonly ProjectSummary[],
+): readonly ProjectSummary[] {
+  const preferredIds = new Set(preferred.map((project) => project.projectId));
   return [
-    imported,
-    ...projects.filter((project) => project.projectId !== imported.projectId),
+    ...preferred,
+    ...incoming.filter((project) => !preferredIds.has(project.projectId)),
   ];
+}
+
+function reconcileJobHistory(
+  summary: JobSummary,
+  detail: JobDetail,
+): JobHistoryEntry {
+  const { request, state } = detail;
+  if (
+    summary.jobId !== request.jobId ||
+    summary.projectId !== request.projectId ||
+    summary.retryOfJobId !== request.retryOfJobId ||
+    summary.targetSemanticId !== request.targetSemanticId ||
+    summary.targetDisplayName !== request.targetDisplayName ||
+    summary.resolution !== request.resolution ||
+    summary.parallelism !== request.parallelism ||
+    summary.createdAt !== state.createdAt
+  ) {
+    throw new TypeError("Job list and detail immutable fields do not match");
+  }
+  return {
+    summary: {
+      ...summary,
+      status: state.status,
+      revision: state.revision,
+      candidateStatuses: [
+        state.candidates[0].status,
+        state.candidates[1].status,
+        state.candidates[2].status,
+        state.candidates[3].status,
+      ],
+      updatedAt: state.updatedAt,
+    },
+    detail,
+  };
 }
 
 function ErrorPanel({

@@ -54,8 +54,10 @@ export default function JobHistory({
               key={summary.jobId}
             >
               <div className="job-card-heading">
-                <div>
-                  <h4>{summary.targetDisplayName}</h4>
+                <div style={{ minWidth: 0 }}>
+                  <h4 style={{ overflowWrap: "anywhere" }}>
+                    {summary.targetDisplayName}
+                  </h4>
                   <code>{summary.targetSemanticId}</code>
                 </div>
                 <span className={`status-badge status-${summary.status}`}>

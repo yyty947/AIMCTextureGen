@@ -33,7 +33,9 @@ export default function ProjectList({
                   aria-current={selected ? "true" : undefined}
                   onClick={() => onSelect(project.projectId)}
                 >
-                  <strong>{project.projectName}</strong>
+                  <strong style={{ minWidth: 0, overflowWrap: "anywhere" }}>
+                    {project.projectName}
+                  </strong>
                   <span>资源格式 {project.javaPackFormat}</span>
                   <time dateTime={project.updatedAt}>
                     更新于 {formatTimestamp(project.updatedAt)}

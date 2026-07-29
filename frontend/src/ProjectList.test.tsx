@@ -57,3 +57,28 @@ it("marks the current project without owning any loading state", () => {
     "true",
   );
 });
+
+it("allows an unbroken project name to wrap inside a narrow list", () => {
+  const longName = "UnbrokenProjectName".repeat(12);
+  render(
+    <ProjectList
+      projects={[
+        {
+          projectId: "6fda5078-1246-4cac-91e8-541808da14f4",
+          projectName: longName,
+          edition: "java",
+          javaPackFormat: 34,
+          catalogId: "java-dev-format-34",
+          createdAt: "2026-07-29T10:00:00+08:00",
+          updatedAt: "2026-07-29T11:00:00+08:00",
+        },
+      ]}
+      selectedProjectId={null}
+      onSelect={() => undefined}
+    />,
+  );
+
+  const name = screen.getByText(longName);
+  expect(name.tagName).toBe("STRONG");
+  expect(name).toHaveStyle({ minWidth: "0", overflowWrap: "anywhere" });
+});

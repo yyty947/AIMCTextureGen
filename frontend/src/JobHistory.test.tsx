@@ -134,3 +134,22 @@ it("clearly states that an empty project has no generation jobs", () => {
 
   expect(screen.getByText("当前项目还没有生成任务。")).toBeInTheDocument();
 });
+
+it("allows an unbroken target title to wrap inside a narrow job card", () => {
+  const longTitle = "UnbrokenTargetTitle".repeat(12);
+  render(
+    <JobHistory
+      jobs={[
+        {
+          summary: { ...summary, targetDisplayName: longTitle },
+          detail,
+        },
+      ]}
+    />,
+  );
+
+  const title = screen.getByRole("heading", { name: longTitle });
+  expect(title.tagName).toBe("H4");
+  expect(title).toHaveStyle({ overflowWrap: "anywhere" });
+  expect(title.parentElement).toHaveStyle({ minWidth: "0" });
+});

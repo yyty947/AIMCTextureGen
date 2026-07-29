@@ -435,6 +435,15 @@ function parseJobRequest(value: unknown): JobRequest {
   if (retryOfJobId === jobId) {
     throw new TypeError("A job cannot retry itself");
   }
+  const styleReferences = requireBoundedStringArray(
+    data.style_references,
+    1,
+    8,
+  ).map(requireProjectRelativePath);
+  const structureReference =
+    data.structure_reference === null
+      ? null
+      : requireProjectRelativePath(data.structure_reference);
   return {
     schemaVersion: requireLiteral(data.schema_version, 1),
     jobId,
@@ -443,12 +452,12 @@ function parseJobRequest(value: unknown): JobRequest {
     catalogId: requireNonemptyString(data.catalog_id),
     targetSemanticId: requireNonemptyString(data.target_semantic_id),
     targetDisplayName: requireNonemptyString(data.target_display_name),
-    targetRelativePath: requireNonemptyString(data.target_relative_path),
+    targetRelativePath: requireProjectRelativePath(data.target_relative_path),
     prompt: requireNonemptyString(data.prompt),
     resolution: requireResolution(data.resolution),
     parallelism: requireParallelism(data.parallelism),
-    styleReferences: requireBoundedStringArray(data.style_references, 1, 8),
-    structureReference: requireNullableString(data.structure_reference),
+    styleReferences,
+    structureReference,
     seeds: parseFourSeeds(data.seeds),
     createdAt: requireTimestamp(data.created_at),
   };
@@ -459,7 +468,7 @@ function parseJobState(value: unknown): JobStateRecord {
   const status = requireJobStatus(data.status);
   const failure = parseNullableFailure(data.failure);
   requireFailureConsistency(status, failure);
-  return {
+  const state: JobStateRecord = {
     schemaVersion: requireLiteral(data.schema_version, 1),
     jobId: requireCanonicalUuid(data.job_id),
     projectId: requireCanonicalUuid(data.project_id),
@@ -472,6 +481,8 @@ function parseJobState(value: unknown): JobStateRecord {
     startedAt: requireNullableTimestamp(data.started_at),
     finishedAt: requireNullableTimestamp(data.finished_at),
   };
+  validateJobLifecycle(state);
+  return state;
 }
 
 function parseFourCandidates(
@@ -494,7 +505,7 @@ function parseCandidate(value: unknown): CandidateRecord {
   const status = requireCandidateStatus(data.status);
   const failure = parseNullableFailure(data.failure);
   requireFailureConsistency(status, failure);
-  return {
+  const candidate: CandidateRecord = {
     candidateIndex: requireCandidateIndex(data.candidate_index),
     seed: requireNonnegativeInteger(data.seed),
     status,
@@ -502,6 +513,129 @@ function parseCandidate(value: unknown): CandidateRecord {
     startedAt: requireNullableTimestamp(data.started_at),
     finishedAt: requireNullableTimestamp(data.finished_at),
   };
+  validateCandidateLifecycle(candidate);
+  return candidate;
+}
+
+function validateCandidateLifecycle(candidate: CandidateRecord): void {
+  const { status, startedAt, finishedAt } = candidate;
+  if (status === "pending") {
+    if (startedAt !== null || finishedAt !== null) {
+      throw new TypeError("Pending candidate has lifecycle timestamps");
+    }
+  } else if (status === "generating" || status === "postprocessing") {
+    if (startedAt === null || finishedAt !== null) {
+      throw new TypeError("Active candidate lifecycle is inconsistent");
+    }
+  } else if (status === "completed") {
+    if (startedAt === null || finishedAt === null) {
+      throw new TypeError("Completed candidate lifecycle is incomplete");
+    }
+  } else if (finishedAt === null) {
+    throw new TypeError("Terminal candidate has no finish timestamp");
+  }
+  if (
+    startedAt !== null &&
+    finishedAt !== null &&
+    timestampValue(finishedAt) < timestampValue(startedAt)
+  ) {
+    throw new TypeError("Candidate finished before it started");
+  }
+}
+
+function validateJobLifecycle(state: JobStateRecord): void {
+  const createdAt = timestampValue(state.createdAt);
+  const updatedAt = timestampValue(state.updatedAt);
+  const startedAt =
+    state.startedAt === null ? null : timestampValue(state.startedAt);
+  const finishedAt =
+    state.finishedAt === null ? null : timestampValue(state.finishedAt);
+  if (updatedAt < createdAt) {
+    throw new TypeError("Job updated before it was created");
+  }
+  for (const timestamp of [startedAt, finishedAt]) {
+    if (timestamp !== null && (timestamp < createdAt || timestamp > updatedAt)) {
+      throw new TypeError("Job lifecycle timestamp is out of range");
+    }
+  }
+  if (
+    startedAt !== null &&
+    finishedAt !== null &&
+    finishedAt < startedAt
+  ) {
+    throw new TypeError("Job finished before it started");
+  }
+
+  if (state.status === "queued") {
+    if (startedAt !== null || finishedAt !== null) {
+      throw new TypeError("Queued job has lifecycle timestamps");
+    }
+  } else if (
+    state.status === "generating" ||
+    state.status === "postprocessing"
+  ) {
+    if (startedAt === null || finishedAt !== null) {
+      throw new TypeError("Active job lifecycle is inconsistent");
+    }
+  } else if (state.status === "completed" || state.status === "failed") {
+    if (startedAt === null || finishedAt === null) {
+      throw new TypeError("Completed or failed job lifecycle is incomplete");
+    }
+  } else if (finishedAt === null) {
+    throw new TypeError("Canceled job has no finish timestamp");
+  }
+
+  const candidateStatuses = state.candidates.map(
+    (candidate) => candidate.status,
+  );
+  if (
+    state.status === "queued" &&
+    candidateStatuses.some((status) => status !== "pending")
+  ) {
+    throw new TypeError("Queued job has a nonpending candidate");
+  }
+  if (
+    state.status === "completed" &&
+    candidateStatuses.some((status) => status !== "completed")
+  ) {
+    throw new TypeError("Completed job has an incomplete candidate");
+  }
+  if (
+    isTerminalJobStatus(state.status) &&
+    candidateStatuses.some((status) => !isTerminalCandidateStatus(status))
+  ) {
+    throw new TypeError("Terminal job has an active candidate");
+  }
+
+  for (const candidate of state.candidates) {
+    for (const value of [candidate.startedAt, candidate.finishedAt]) {
+      if (value === null) {
+        continue;
+      }
+      const timestamp = timestampValue(value);
+      if (timestamp < createdAt || timestamp > updatedAt) {
+        throw new TypeError("Candidate timestamp is outside the job lifetime");
+      }
+      if (startedAt !== null && timestamp < startedAt) {
+        throw new TypeError("Candidate timestamp precedes the job lifecycle");
+      }
+      if (finishedAt !== null && timestamp > finishedAt) {
+        throw new TypeError("Candidate timestamp exceeds the job lifecycle");
+      }
+    }
+  }
+}
+
+function isTerminalJobStatus(status: JobStatus): boolean {
+  return status === "completed" || status === "failed" || status === "canceled";
+}
+
+function isTerminalCandidateStatus(status: CandidateStatus): boolean {
+  return status === "completed" || status === "failed" || status === "canceled";
+}
+
+function timestampValue(timestamp: string): number {
+  return Date.parse(timestamp);
 }
 
 function parseNullableFailure(value: unknown): JobFailure | null {
@@ -579,6 +713,42 @@ function requireNonemptyString(value: unknown): string {
     throw new TypeError("Expected a nonempty string response field");
   }
   return text;
+}
+
+function requireProjectRelativePath(value: unknown): string {
+  const path = requireString(value);
+  if (
+    path.length === 0 ||
+    path.startsWith("/") ||
+    path.endsWith("/") ||
+    path.includes("\\") ||
+    path.includes("\0")
+  ) {
+    throw new TypeError("Expected a safe project-relative path");
+  }
+  const windowsDeviceStems = new Set([
+    "con",
+    "prn",
+    "aux",
+    "nul",
+    ...Array.from({ length: 9 }, (_, index) => `com${index + 1}`),
+    ...Array.from({ length: 9 }, (_, index) => `lpt${index + 1}`),
+  ]);
+  for (const segment of path.split("/")) {
+    if (
+      segment.length === 0 ||
+      segment === "." ||
+      segment === ".." ||
+      /[<>:"|?*]/.test(segment) ||
+      Array.from(segment).some((character) => character.codePointAt(0)! < 32) ||
+      segment.endsWith(" ") ||
+      segment.endsWith(".") ||
+      windowsDeviceStems.has(segment.split(".", 1)[0].toLocaleLowerCase("en-US"))
+    ) {
+      throw new TypeError("Expected a safe project-relative path");
+    }
+  }
+  return path;
 }
 
 function requireNonnegativeInteger(value: unknown): number {

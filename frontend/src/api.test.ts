@@ -89,6 +89,15 @@ const recoveryReport = {
   completed_at: "2026-07-29T12:00:00Z",
 };
 
+const failure = {
+  code: "JOB_INTERRUPTED",
+  stage: "recovery",
+  user_message: "unexpected failure",
+  recommended_actions: [],
+  technical_details: null,
+  log_reference: null,
+};
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -279,6 +288,202 @@ describe("strict project and durable-job API parsing", () => {
     ],
   ])("rejects job detail with %s", async (_label, invalidDetail) => {
     respondWith(invalidDetail);
+    await expectInvalidResponse(() => getJob(projectId, jobId));
+  });
+
+  it.each([
+    ["parent traversal target", "../escape.png", jobDetail.request.style_references, null],
+    [
+      "backslash target",
+      "assets\\minecraft\\textures\\block\\stone.png",
+      jobDetail.request.style_references,
+      null,
+    ],
+    [
+      "empty target segment",
+      "assets//stone.png",
+      jobDetail.request.style_references,
+      null,
+    ],
+    [
+      "Windows device style reference",
+      jobDetail.request.target_relative_path,
+      ["assets/minecraft/CON.png"],
+      null,
+    ],
+    [
+      "trailing-dot style reference",
+      jobDetail.request.target_relative_path,
+      ["assets/minecraft/stone./reference.png"],
+      null,
+    ],
+    [
+      "absolute structure reference",
+      jobDetail.request.target_relative_path,
+      jobDetail.request.style_references,
+      "/uploads/reference.png",
+    ],
+  ])(
+    "rejects job detail with %s",
+    async (_label, targetRelativePath, styleReferences, structureReference) => {
+      respondWith({
+        ...jobDetail,
+        request: {
+          ...jobDetail.request,
+          target_relative_path: targetRelativePath,
+          style_references: styleReferences,
+          structure_reference: structureReference,
+        },
+      });
+      await expectInvalidResponse(() => getJob(projectId, jobId));
+    },
+  );
+
+  it.each([
+    [
+      "pending candidate with a start time",
+      { ...candidates[0], started_at: createdAt },
+    ],
+    [
+      "active candidate without a start time",
+      { ...candidates[0], status: "generating" },
+    ],
+    [
+      "completed candidate without a finish time",
+      { ...candidates[0], status: "completed", started_at: createdAt },
+    ],
+    [
+      "canceled candidate without a finish time",
+      { ...candidates[0], status: "canceled" },
+    ],
+    [
+      "candidate finishing before it started",
+      {
+        ...candidates[0],
+        status: "completed",
+        started_at: "2026-07-29T10:04:00+08:00",
+        finished_at: "2026-07-29T10:03:00+08:00",
+      },
+    ],
+  ])("rejects %s", async (_label, invalidCandidate) => {
+    respondWith({
+      ...jobDetail,
+      state: {
+        ...jobDetail.state,
+        status: "generating",
+        updated_at: "2026-07-29T10:05:00+08:00",
+        started_at: createdAt,
+        candidates: [invalidCandidate, ...candidates.slice(1)],
+      },
+    });
+    await expectInvalidResponse(() => getJob(projectId, jobId));
+  });
+
+  it.each([
+    [
+      "state updated before creation",
+      {
+        ...jobDetail.state,
+        updated_at: "2026-07-29T09:59:00+08:00",
+      },
+    ],
+    [
+      "queued state with lifecycle timestamps",
+      { ...jobDetail.state, started_at: createdAt },
+    ],
+    [
+      "active state without a start time",
+      { ...jobDetail.state, status: "generating" },
+    ],
+    [
+      "completed state without a finish time",
+      {
+        ...jobDetail.state,
+        status: "completed",
+        started_at: createdAt,
+      },
+    ],
+    [
+      "canceled state without a finish time",
+      { ...jobDetail.state, status: "canceled" },
+    ],
+    [
+      "state finishing before it started",
+      {
+        ...jobDetail.state,
+        status: "canceled",
+        updated_at: "2026-07-29T10:05:00+08:00",
+        started_at: "2026-07-29T10:04:00+08:00",
+        finished_at: "2026-07-29T10:03:00+08:00",
+        candidates: candidates.map((candidate) => ({
+          ...candidate,
+          status: "canceled",
+          finished_at: "2026-07-29T10:03:00+08:00",
+        })),
+      },
+    ],
+    [
+      "queued state containing a nonpending candidate",
+      {
+        ...jobDetail.state,
+        candidates: [
+          {
+            ...candidates[0],
+            status: "generating",
+            started_at: createdAt,
+          },
+          ...candidates.slice(1),
+        ],
+      },
+    ],
+    [
+      "completed state containing pending candidates",
+      {
+        ...jobDetail.state,
+        status: "completed",
+        updated_at: "2026-07-29T10:05:00+08:00",
+        started_at: createdAt,
+        finished_at: "2026-07-29T10:05:00+08:00",
+      },
+    ],
+    [
+      "terminal state containing an active candidate",
+      {
+        ...jobDetail.state,
+        status: "failed",
+        failure,
+        updated_at: "2026-07-29T10:05:00+08:00",
+        started_at: createdAt,
+        finished_at: "2026-07-29T10:05:00+08:00",
+        candidates: [
+          {
+            ...candidates[0],
+            status: "generating",
+            started_at: createdAt,
+          },
+          ...candidates.slice(1),
+        ],
+      },
+    ],
+    [
+      "candidate timestamp outside the job lifetime",
+      {
+        ...jobDetail.state,
+        status: "generating",
+        updated_at: "2026-07-29T10:05:00+08:00",
+        started_at: createdAt,
+        candidates: [
+          {
+            ...candidates[0],
+            status: "generating",
+            started_at: "2026-07-29T09:59:00+08:00",
+          },
+          ...candidates.slice(1),
+        ],
+      },
+    ],
+  ])("rejects %s", async (_label, invalidState) => {
+    respondWith({ ...jobDetail, state: invalidState });
     await expectInvalidResponse(() => getJob(projectId, jobId));
   });
 
