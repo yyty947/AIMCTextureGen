@@ -89,6 +89,7 @@ class RecoveryService:
         """Migrate projects, recover active jobs, and index final disk state."""
 
         recovery_time = self._clock()
+        latest_recovery_time = recovery_time
         project_scan = self._repository.list_manifests()
         issues = [
             RecoveryIssue(
@@ -117,9 +118,17 @@ class RecoveryService:
             for loaded in job_scan.jobs:
                 if loaded.state.status not in _ACTIVE_JOB_STATUSES:
                     continue
+                effective_recovery_time = max(
+                    recovery_time,
+                    loaded.state.updated_at,
+                )
+                latest_recovery_time = max(
+                    latest_recovery_time,
+                    effective_recovery_time,
+                )
                 replacement = recover_interrupted_state(
                     loaded.state,
-                    now=recovery_time,
+                    now=effective_recovery_time,
                 )
                 try:
                     self._store.replace_state(
@@ -153,7 +162,7 @@ class RecoveryService:
             job_count=job_count,
             recovered_job_count=recovered_job_count,
             issues=tuple(issues),
-            completed_at=self._clock(),
+            completed_at=max(self._clock(), latest_recovery_time),
         )
 
 

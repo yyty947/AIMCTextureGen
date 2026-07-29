@@ -46,6 +46,7 @@ CREATED_AT = datetime(2026, 7, 29, 8, 0, tzinfo=timezone.utc)
 ACTIVE_AT = CREATED_AT + timedelta(hours=1)
 RECOVERED_AT = CREATED_AT + timedelta(hours=2)
 COMPLETED_AT = RECOVERED_AT + timedelta(seconds=1)
+FUTURE_ACTIVE_AT = RECOVERED_AT + timedelta(hours=2)
 SECOND_RECOVERY_AT = COMPLETED_AT + timedelta(hours=1)
 SECOND_COMPLETED_AT = SECOND_RECOVERY_AT + timedelta(seconds=1)
 
@@ -119,6 +120,8 @@ def _candidate(
     loaded: LoadedJob,
     index: int,
     status: str,
+    *,
+    now: datetime = ACTIVE_AT,
 ) -> LoadedJob:
     return _persist(
         store,
@@ -127,7 +130,7 @@ def _candidate(
             loaded.state,
             index,
             status,
-            now=ACTIVE_AT,
+            now=now,
         ),
     )
 
@@ -138,6 +141,7 @@ def _job(
     status: str,
     *,
     failure: JobFailure | None = None,
+    now: datetime = ACTIVE_AT,
 ) -> LoadedJob:
     return _persist(
         store,
@@ -145,7 +149,7 @@ def _job(
         transition_job_state(
             loaded.state,
             status,
-            now=ACTIVE_AT,
+            now=now,
             failure=failure,
         ),
     )
@@ -175,20 +179,28 @@ def _prepare_jobs(store: JobStore) -> None:
         store,
         store.create(_request("postprocessing", 3)),
         "generating",
+        now=FUTURE_ACTIVE_AT,
     )
     postprocessing = _candidate(
         store,
         postprocessing,
         0,
         "generating",
+        now=FUTURE_ACTIVE_AT,
     )
     postprocessing = _candidate(
         store,
         postprocessing,
         0,
         "postprocessing",
+        now=FUTURE_ACTIVE_AT,
     )
-    postprocessing = _job(store, postprocessing, "postprocessing")
+    postprocessing = _job(
+        store,
+        postprocessing,
+        "postprocessing",
+        now=FUTURE_ACTIVE_AT,
+    )
     assert postprocessing.state.status == "postprocessing"
 
     completed = _job(
@@ -330,7 +342,7 @@ def test_startup_recovery_migrates_recovers_reports_and_rebuilds_idempotently(
     assert report.project_count == 1
     assert report.job_count == 6
     assert report.recovered_job_count == 2
-    assert report.completed_at == COMPLETED_AT
+    assert report.completed_at == FUTURE_ACTIVE_AT
     assert len(report.issues) == 1
     assert report.issues[0].project_id == PROJECT_ID
     assert report.issues[0].job_id == MALFORMED_JOB_ID
@@ -357,6 +369,7 @@ def test_startup_recovery_migrates_recovers_reports_and_rebuilds_idempotently(
     assert generating.status == "failed"
     assert generating.failure is not None
     assert generating.failure.code == "JOB_INTERRUPTED"
+    assert generating.finished_at == RECOVERED_AT
     assert tuple(item.status for item in generating.candidates) == (
         "completed",
         "failed",
@@ -374,6 +387,7 @@ def test_startup_recovery_migrates_recovers_reports_and_rebuilds_idempotently(
     assert postprocessing.status == "failed"
     assert postprocessing.failure is not None
     assert postprocessing.failure.code == "JOB_INTERRUPTED"
+    assert postprocessing.finished_at == FUTURE_ACTIVE_AT
     assert (
         project_root / "jobs" / str(MALFORMED_JOB_ID) / "state.json"
     ).read_bytes() == malformed_before
@@ -407,3 +421,36 @@ def test_startup_recovery_migrates_recovers_reports_and_rebuilds_idempotently(
         name: _tree_hashes(project_root / name)
         for name in ("source", "pack")
     } == protected_before
+
+
+def test_report_completion_does_not_move_backward_with_the_wall_clock(
+    tmp_path: Path,
+) -> None:
+    projects_root = tmp_path / "projects"
+    projects_root.mkdir()
+    repository = ProjectRepository(projects_root)
+    store = JobStore(repository)
+    index = ProjectIndex(projects_root)
+    recovery_started_at = datetime(
+        2026,
+        7,
+        29,
+        12,
+        0,
+        tzinfo=timezone.utc,
+    )
+    rolled_back_clock = recovery_started_at - timedelta(hours=1)
+
+    report = RecoveryService(
+        repository=repository,
+        store=store,
+        index=IndexService(
+            repository=repository,
+            store=store,
+            index=index,
+        ),
+        clock=_clock(recovery_started_at, rolled_back_clock),
+    ).run()
+
+    assert report.completed_at == recovery_started_at
+    assert index.database_path.is_file()
