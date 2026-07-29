@@ -636,7 +636,7 @@ git commit -m "feat: define durable job contracts and state machine"
   `retry_job`.
 - Consumes project repository, catalog registry and an index-writer protocol.
 
-- [ ] **Step 1: Write job-store creation and safety tests**
+- [x] **Step 1: Write job-store creation and safety tests**
 
 Assert creation:
 
@@ -648,7 +648,7 @@ Assert creation:
   oversized JSON, request/state ID mismatch and noncanonical job directories;
 - never reads or writes `source/` or `pack/`.
 
-- [ ] **Step 2: Implement `JobStore`**
+- [x] **Step 2: Implement `JobStore`**
 
 Create `<job-id>.tmp`, capture its identity, create the four artifact
 directories, atomically write and re-read both JSON files, verify the tree has
@@ -658,7 +658,7 @@ State replacement holds the project, jobs and job directory identities, checks
 `expected_revision`, writes a validated `state.json.tmp`, and replaces only
 `state.json`. A stale revision raises `JOB_REVISION_CONFLICT`.
 
-- [ ] **Step 3: Write cancel, retry and concurrency tests**
+- [x] **Step 3: Write cancel, retry and concurrency tests**
 
 Cover:
 
@@ -672,7 +672,7 @@ Cover:
   `JOB_REVISION_CONFLICT`;
 - repeated load/list order is deterministic (`created_at DESC`, job ID ASC).
 
-- [ ] **Step 4: Implement `JobService` validation and seed creation**
+- [x] **Step 4: Implement `JobService` validation and seed creation**
 
 `CreateJobCommand` identifies a catalog target and user inputs but contains no
 job ID or seeds. `JobService.create_job`:
@@ -690,7 +690,7 @@ job ID or seeds. `JobService.create_job`:
 Use an injected deterministic seed source in tests. Retry calls `JobStore.retry`
 and preserves seeds; it does not call the seed source.
 
-- [ ] **Step 5: Run store/service tests**
+- [x] **Step 5: Run store/service tests**
 
 ```powershell
 .\.venv\Scripts\python -W error -m pytest backend\tests\jobs -v
@@ -698,7 +698,7 @@ and preserves seeds; it does not call the seed source.
 
 Expected: all pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add backend/src/aimctexturegen/jobs backend/tests/jobs

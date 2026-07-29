@@ -1,6 +1,6 @@
 # AIMCTextureGen 当前交接
 
-最后核对日期：2026-07-27
+最后核对日期：2026-07-29
 
 ## 当前状态
 
@@ -22,6 +22,7 @@
 - 第三阶段 Task 2 已由提交 `d4ee5cf` 实现并完成第一轮评审加固：项目清单严格区分 schema 1/2，schema 1 可保持原字段和双时间戳迁移到 schema 2；新导入直接写入默认分辨率 16、并行度 1、空风格参考的 schema 2。共享项目相对路径语法现在同时拒绝 Windows 非法字符、控制字符、尾随点/空格和设备名。清单原子替换在 Windows 上从写入、`fsync`、回读验证到发布始终绑定同一不共享删除权限的文件句柄，再通过 `SetFileInformationByHandle` 发布，验证回调无法把同名未验证文件换入。
 - 第三阶段 Task 3 已按用户确认的 [`ADR-0001`](docs/adr/0001-running-project-mutation-boundary.md) 收敛：`ProjectRepository` 在持有项目根和项目目录身份期间安全读取有界清单，并串行、原子迁移 schema 1 的 `project.json`；迁移验证会复核可观察到的目标身份和原始字节，冲突时保留新文件并返回 `PROJECT_MANIFEST_CONFLICT`。单个运行中的应用进程拥有项目根，应用内写入保证验证、原子发布和串行化；运行时手工或外部强制修改项目内部文件不受支持，不承诺最终系统调用窗口的敌对外部 CAS，也不使用已弃用的 TxF 或要求 NTFS 事务。直接扫描只接受规范 UUID 目录，以 `updated_at DESC, project_id ASC` 返回有效项目，并把损坏或不安全的规范项目隔离成类型化问题。`ProjectService` 现负责导入、获取、列表和实时覆盖业务，以磁盘项目为权威并在索引写入失败后只尝试一次重建；项目 API 新增 `GET /api/projects`，其余路由不再直接打开 `project.json`、遍历 `pack/` 或执行目录配置匹配。导入已落盘但索引重建失败时，API 保留 `INDEX_UNAVAILABLE` 并明确提示从项目列表重新打开或重启重建，避免误导用户重复导入。
 - 第三阶段 Task 4 已实现严格冻结的 schema-1 任务请求/状态/候选/失败/摘要契约、四个唯一 JavaScript-safe seed、共享项目相对路径语法、跨文件 ID/候选顺序/seed 一致性校验和确定性 JSON。模型拒绝 job/candidate 状态与时间戳不一致、queued job 含非 pending 候选、终态 job 含非终态候选或 completed job 含非 completed 候选的记录；候选时间戳还必须处于 aggregate 的 `started_at..finished_at` 活跃窗口内（对应边界存在时）。纯状态机完整限制 job/candidate 合法边，queued job 不接受候选跃迁；取消或失败在同一 revision 中终止全部非终态候选，重启恢复只把 active job 置为 `failed/JOB_INTERRUPTED`，保留已完成候选并取消未开始候选。`CreateJobCommand` 是严格 service/domain 命令；Task 8 的 HTTP DTO 必须把 JSON 数组显式映射为 tuple，不能直接放宽持久化合同。
+- 第三阶段 Task 5 已实现 JSON 权威的 `JobStore` 与 `JobService`：任务创建只发布包含 `request.json`、`state.json` 和四个空产物目录的规范 UUID 目录，状态更新使用期望 revision 和验证后的同目录原子替换；加载和列表限制 JSON 大小、复核项目/任务/seed 身份并拒绝 reparse tree。取消、重试与重启恢复均复用 Task 4 纯状态机，重试保留全部请求参数和四个 seed，只更新任务 ID、直接来源 ID 与创建时间。服务只允许当前目录中 MVP-eligible 且缺失的精确目标，绑定并验证 `pack/` 内 1–8 个普通风格参考和 `uploads/structure-references/` 内可选结构参考，随后生成并持久化四个唯一 JavaScript-safe seed；索引写入发生在 JSON 提交之后，失败不回滚任务。SQLite、API、WebUI、ComfyUI 与真实模型仍未接入。
 
 ## 已确认边界
 
@@ -37,13 +38,13 @@
 
 ## 当前工作入口
 
-当前工作分支为 `codex/phase-3-durable-jobs`。第三阶段 Task 1 至 Task 4 已完成；下一项是 Task 5“原子任务存储、四 seed、取消与重试”，负责将已验证合同接入安全项目目录和服务边界。继续只执行 `docs/superpowers/plans/2026-07-27-phase-3-durable-jobs-and-recovery.md`，不接入真实模型、ComfyUI 或生产目录。
+当前工作分支为 `codex/phase-3-durable-jobs`。第三阶段 Task 1 至 Task 5 已完成；下一项是 Task 6“可丢弃 SQLite 查询索引”，负责在不改变 JSON 权威地位的前提下实现可重建项目/任务摘要查询。继续只执行 `docs/superpowers/plans/2026-07-27-phase-3-durable-jobs-and-recovery.md`，不接入真实模型、ComfyUI 或生产目录。
 
 ## 接手步骤
 
 1. 运行 `git status --short`，确认并保留当前未提交改动。
 2. 阅读 `AGENTS.md`、路线图、第二阶段计划和第三阶段可执行计划，了解已合并的 processing 契约以及即将建立的持久化接口。
-3. 从 Task 5 开始继续逐项完成 RED → GREEN → commit；不要重复 Task 1–4 或提前执行后续任务。
+3. 从 Task 6 开始继续逐项完成 RED → GREEN → commit；不要重复 Task 1–5 或提前执行后续任务。
 4. 不要在第三阶段接入真实模型、ComfyUI 或生产目录，也不要采用候选或导出资源包。
 
 ## 当前可用验证
@@ -78,6 +79,8 @@ git status --short
 2026-07-29 第三阶段 Task 3 按 ADR-0001 收敛后，`.\.venv\Scripts\python -W error -m pytest backend\tests\projects backend\tests\api -v` 为 120 passed；额外完整后端回归 `.\.venv\Scripts\python -W error -m pytest backend\tests` 为 306 passed。应用内并发打开只执行一次 schema-1 迁移的回归额外连续运行 20 次且全部通过；不再保留或声称敌对外部 CAS 测试。Task 2 移交的三个旧 schema-1 API 夹具已改为当前 schema-2 构造，完整后端门禁恢复通过。
 
 2026-07-29 第三阶段 Task 4 经两轮评审加固后，严格任务合同与纯状态机门禁 `.\.venv\Scripts\python -W error -m pytest backend\tests\jobs\test_models.py backend\tests\jobs\test_state_machine.py -v` 为 196 passed；完整后端回归 `.\.venv\Scripts\python -W error -m pytest backend\tests` 为 502 passed。测试覆盖全部 job/candidate 合法和非法边、aggregate-status × candidate-transition 矩阵、取消/失败/恢复候选分类、单次 revision 增量、状态/时间戳和 aggregate/candidate 生命周期一致性、候选与 aggregate 活跃时间窗边界、严格序列化与跨文件四候选一致性；`backend/tests/jobs/__init__.py` 避免 brief 指定的 `test_models.py` 与既有 packs 同名测试发生 pytest 收集冲突。
+
+2026-07-29 第三阶段 Task 5 的任务存储/服务门禁 `.\.venv\Scripts\python -W error -m pytest backend\tests\jobs -v` 为 229 passed；完整后端回归 `.\.venv\Scripts\python -W error -m pytest backend\tests` 为 535 passed。新增覆盖精确目录发布与失败清理、JSON 大小和跨文件身份、nested reparse、同 revision 竞争、bounded stale state temp、取消/重试/恢复、确定性列表、目标覆盖与引用绑定、四个唯一安全 seed，以及 JSON 提交先于索引更新；全程未接入 SQLite、API、WebUI、ComfyUI 或模型。
 
 ## 需要在对应阶段确定的事项
 
