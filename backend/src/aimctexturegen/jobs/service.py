@@ -187,7 +187,9 @@ class JobService:
         return self._store.load(project_id, job_id)
 
     def list_jobs(self, project_id: UUID) -> tuple[LoadedJob, ...]:
-        return self._store.list(project_id)
+        """List valid jobs while recovery reports malformed siblings."""
+
+        return self._store.scan(project_id).jobs
 
     def cancel_job(
         self,

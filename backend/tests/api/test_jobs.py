@@ -434,6 +434,44 @@ def test_corrupt_job_json_is_reported_without_leaking_bytes(
     assert secret not in response.text
 
 
+def test_list_jobs_keeps_valid_sibling_visible_when_one_record_is_malformed(
+    tmp_path: Path,
+) -> None:
+    projects_root = tmp_path / "projects"
+    _write_project(projects_root)
+    app = create_app(project_root=projects_root, catalog_root=CATALOG_ROOT)
+    valid = _create_job(app)
+    malformed = _create_job(
+        app,
+        {
+            **_create_payload(),
+            "prompt": "malformed sibling",
+        },
+    )
+    assert valid.status_code == malformed.status_code == 201
+    valid_id = valid.json()["request"]["job_id"]
+    malformed_id = malformed.json()["request"]["job_id"]
+    malformed_state = (
+        projects_root
+        / str(PROJECT_ID)
+        / "jobs"
+        / malformed_id
+        / "state.json"
+    )
+    malformed_bytes = b"{malformed state remains canonical"
+    malformed_state.write_bytes(malformed_bytes)
+
+    response = _request(
+        app,
+        "GET",
+        f"/api/projects/{PROJECT_ID}/jobs",
+    )
+
+    assert response.status_code == 200, response.text
+    assert [summary["job_id"] for summary in response.json()] == [valid_id]
+    assert malformed_state.read_bytes() == malformed_bytes
+
+
 def test_index_failure_after_job_commit_uses_stable_recovery_guidance(
     tmp_path: Path,
 ) -> None:

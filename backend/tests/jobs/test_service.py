@@ -423,6 +423,30 @@ def test_service_get_list_cancel_and_retry_update_index_without_new_seeds(
     ]
 
 
+def test_public_job_listing_keeps_valid_jobs_visible_beside_malformed_sibling(
+    tmp_path: Path,
+) -> None:
+    projects_root = tmp_path / "projects"
+    _write_project(projects_root)
+    service, store, _seeds, _ids, _index = _service(projects_root)
+    valid = service.create_job(PROJECT_ID, _command())
+    malformed = store.create(
+        valid.request.model_copy(
+            update={
+                "job_id": RETRY_ID,
+                "created_at": CREATED_AT + timedelta(seconds=1),
+            }
+        )
+    )
+    malformed_state = b"{malformed state remains for recovery reporting"
+    (malformed.root / "state.json").write_bytes(malformed_state)
+
+    assert service.list_jobs(PROJECT_ID) == (valid,)
+    scan = store.scan(PROJECT_ID)
+    assert tuple(issue.job_id for issue in scan.issues) == (RETRY_ID,)
+    assert (malformed.root / "state.json").read_bytes() == malformed_state
+
+
 def _summary(loaded) -> JobSummary:
     return JobSummary(
         job_id=loaded.request.job_id,
