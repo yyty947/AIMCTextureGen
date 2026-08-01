@@ -13,7 +13,7 @@
 - Task 10 的 UI/浏览器修复：`9f71adacdfb2d55c8381d80fab7366b102fb87dd`；重启审计加固：`6fb7beb22e1e6518310066d88517042486d51d89`。
 - 最终评审修复波：`75b6806`、`00bb904`、`ad03538`、`f6d2f0e`、
   `a11302f`、`e02d229`、`d587cae`、`0f41b03`、`678fb3a`、
-  `2358f61`、`efb719f`、`14496b1`、`a82c1c9`。
+  `2358f61`、`efb719f`、`14496b1`、`a82c1c9`、`dfe80b8`。
 
 项目目录中的 schema-2 `project.json` 和任务 JSON 是权威数据；schema-1
 项目会只原子替换 `project.json`，保留 `source/` 与 `pack/`。任务在创建时
@@ -25,7 +25,7 @@
 
 最终评审修复波进一步保证：索引扫描—发布与增量写入按项目根目录串行化，任务
 revision 只能前进；坏任务 sibling 不再隐藏有效历史；活动任务恢复写失败会阻断
-启动；SQLite 语义坏值只触发一次集中重建；前端项目列表与恢复报告只接受最新重试
+启动；SQLite 语义坏值或索引文件系统错误只触发一次集中重建；前端项目列表与恢复报告只接受最新重试
 结果。Windows `COM¹`—`COM³`/`LPT¹`—`LPT³` 别名、原子临时文件清理、
 严格公历时间戳与 favicon ARIA 引用也已有回归覆盖。ADR-0001 的边界没有扩大，
 没有引入 TxF 或敌对外部 rename 防御。
@@ -58,7 +58,7 @@ git status --short
   `8ec378c876fe12b17e784c2d03ee59e7ea8a6c1601d7bf00e0a36980e2d24478`，
   分类为资源格式 34、1 covered、1 missing、0 unknown。ZIP 只含仓库自有的
   `pack.mcmeta` 与纯合成 2×2 RGB PNG，不含 Mojang/Microsoft 资产。
-- 后端：Python 3.12.10、pytest 9.1.1，614/614 通过，3483 语句、392 未覆盖、总覆盖率 89%。
+- 后端：Python 3.12.10、pytest 9.1.1，616/616 通过，3483 语句、392 未覆盖、总覆盖率 89%。
 - 前端：Vitest 4.1.10，6 个测试文件、113/113 通过；TypeScript 与
   Vite 8.1.5 生产构建通过（19 个模块）。
 - 独立重启审计：1/1 通过；它在真实临时导入项目中删除 `index.sqlite3`、写入严格 schema-1 清单并启动第二个 repository/store/index/recovery 服务图，确认迁移回 schema 2、queued/active/completed 任务可见、active 变为 `JOB_INTERRUPTED`，以及 `source/`/`pack/` 的完整路径—SHA-256 映射完全相等。

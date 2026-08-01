@@ -1180,7 +1180,10 @@ order project/recovery UI retries, and add the deterministic synthetic fixture
 generator. Commit `14496b1` aligns the API failure fixture with the centralized
 index error contract discovered by the full backend gate. Commit `a82c1c9`
 makes publication over an existing generated output compatible with Windows
-PowerShell/.NET Framework and adds the same-path rerun regression.
+PowerShell/.NET Framework and adds the same-path rerun regression. Final
+read-only review found that an initial index `OSError` still escaped the
+central boundary; commit `dfe80b8` now gives filesystem failures the same
+single rebuild/retry and stable terminal error contract.
 
 - [x] **Step 2: Fix both Minor findings with RED → GREEN evidence**
 
@@ -1201,7 +1204,7 @@ Mojang/Microsoft asset is committed.
 
 - [x] **Step 4: Rerun and record the complete final gate**
 
-Fresh 2026-08-01 evidence: backend `-W error` coverage gate 614/614 at 89%
+Fresh 2026-08-01 evidence: backend `-W error` coverage gate 616/616 at 89%
 (3,483 statements, 392 missing); frontend 6 files / 113 tests; Vite production
 build 19 modules; restart audit 1/1; generator audit 1/1; `git diff --check`
 and the final tracked worktree check pass. The prior user-confirmed

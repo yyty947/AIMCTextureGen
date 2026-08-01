@@ -54,7 +54,7 @@ The MVP spans independent subsystems whose external versions and measured behavi
 **Deliverable:** Persisted request records, four seeds, candidate artifact layout, validated state transitions, cancellation/retry lineage, SQLite query index, index rebuild from project directories, and restart recovery.
 
 **Exit gate (verified 2026-08-01):** `-W error` backend coverage gate passed
-614/614 tests at 89% total coverage; 6 frontend test files/113 tests and the
+616/616 tests at 89% total coverage; 6 frontend test files/113 tests and the
 Vite production build passed. The separate real-project restart audit deletes
 the SQLite index, migrates a schema-1 manifest, recovers an active task as
 `JOB_INTERRUPTED`, preserves queued/completed task state, restores project/job
@@ -64,7 +64,7 @@ format-34 synthetic manual fixture at `.generated\phase-3-synthetic-pack.zip`
 with one covered and one missing catalog item, and its independent test passes.
 The final review regressions also prove serialized index rebuild/upsert,
 monotonic indexed revisions, malformed-sibling isolation, fail-closed active
-recovery, one-shot semantic-index repair, ordered UI retries, Windows
+recovery, one-shot semantic/filesystem-index repair, ordered UI retries, Windows
 superscript device aliases, atomic cleanup error preservation, strict Gregorian
 timestamps and resolved favicon ARIA references. The user also confirmed
 import, queued-job persistence after service
