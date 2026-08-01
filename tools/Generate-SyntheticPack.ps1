@@ -61,9 +61,13 @@ if ([System.IO.Path]::GetExtension($resolvedOutput) -cne ".zip") {
 
 $outputDirectory = Split-Path -Parent $resolvedOutput
 [System.IO.Directory]::CreateDirectory($outputDirectory) | Out-Null
+$publicationId = [Guid]::NewGuid().ToString("N")
 $temporaryPath = Join-Path (
     $outputDirectory
-) (".phase-3-synthetic-pack-{0}.tmp" -f [Guid]::NewGuid().ToString("N"))
+) (".phase-3-synthetic-pack-{0}.tmp" -f $publicationId)
+$backupPath = Join-Path (
+    $outputDirectory
+) (".phase-3-synthetic-pack-{0}.backup" -f $publicationId)
 
 # Both payloads are project-owned synthetic bytes. No Mojang assets are used.
 $metadata = [System.Text.UTF8Encoding]::new($false).GetBytes(
@@ -105,7 +109,12 @@ try {
     }
 
     if ([System.IO.File]::Exists($resolvedOutput)) {
-        [System.IO.File]::Replace($temporaryPath, $resolvedOutput, $null)
+        [System.IO.File]::Replace(
+            $temporaryPath,
+            $resolvedOutput,
+            $backupPath
+        )
+        [System.IO.File]::Delete($backupPath)
     }
     else {
         [System.IO.File]::Move($temporaryPath, $resolvedOutput)
@@ -128,5 +137,8 @@ try {
 finally {
     if ([System.IO.File]::Exists($temporaryPath)) {
         Remove-Item -LiteralPath $temporaryPath -Force
+    }
+    if ([System.IO.File]::Exists($backupPath)) {
+        Remove-Item -LiteralPath $backupPath -Force
     }
 }

@@ -54,9 +54,12 @@ def test_powershell_generator_builds_one_deterministic_synthetic_pack(
 
     first_bytes = first.read_bytes()
     assert second.read_bytes() == first_bytes
+    repeated_run = _generate(first)
+    assert first.read_bytes() == first_bytes
     digest = hashlib.sha256(first_bytes).hexdigest()
     assert f"SHA256={digest}" in first_run.stdout
     assert f"SHA256={digest}" in second_run.stdout
+    assert f"SHA256={digest}" in repeated_run.stdout
     assert "COVERAGE=pack_format=34;covered=1;missing=1;unknown=0" in (
         first_run.stdout
     )
