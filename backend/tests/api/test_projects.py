@@ -18,6 +18,7 @@ from fastapi import FastAPI
 import aimctexturegen.main as main_module
 import aimctexturegen.projects.service as project_service_module
 from aimctexturegen.catalog.registry import CatalogRegistry
+from aimctexturegen.index.service import IndexUnavailableError
 from aimctexturegen.main import create_app
 from aimctexturegen.projects.models import ProjectManifest
 from aimctexturegen.projects.workspace import ProjectWorkspace
@@ -539,22 +540,13 @@ def test_import_maps_index_failure_after_persisting_project(
     client = build_client(project_root)
 
     def fail_upsert(_index, _manifest):
-        raise OSError("injected index upsert failure")
-
-    def fail_rebuild(_index):
-        raise OSError("injected index rebuild failure")
+        raise IndexUnavailableError()
 
     monkeypatch.setattr(
         project_service_module.RepositoryProjectIndex,
         "upsert_project",
         fail_upsert,
     )
-    monkeypatch.setattr(
-        project_service_module.RepositoryProjectIndex,
-        "rebuild",
-        fail_rebuild,
-    )
-
     with source.open("rb") as upload:
         response = client.post(
             "/api/projects/import",
