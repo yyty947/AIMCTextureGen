@@ -10,6 +10,7 @@ import pytest
 from aimctexturegen.index.database import ProjectIndex
 from aimctexturegen.index.models import IndexSnapshot
 from aimctexturegen.index.service import IndexService
+from aimctexturegen.jobs.errors import JobError
 from aimctexturegen.jobs.models import (
     JobFailure,
     JobRequest,
@@ -303,6 +304,15 @@ def _clock(*values: datetime):
     return iterator.__next__
 
 
+class _RecordingRecoveryIndex:
+    def __init__(self) -> None:
+        self.rebuild_calls = 0
+
+    def rebuild(self) -> IndexSnapshot:
+        self.rebuild_calls += 1
+        return IndexSnapshot(projects=(), jobs=())
+
+
 def test_startup_recovery_migrates_recovers_reports_and_rebuilds_idempotently(
     tmp_path: Path,
 ) -> None:
@@ -421,6 +431,172 @@ def test_startup_recovery_migrates_recovers_reports_and_rebuilds_idempotently(
         name: _tree_hashes(project_root / name)
         for name in ("source", "pack")
     } == protected_before
+
+
+def test_recovery_reloads_and_retries_one_genuine_revision_conflict(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    projects_root = tmp_path / "projects"
+    projects_root.mkdir()
+    _write_project(projects_root)
+    repository = ProjectRepository(projects_root)
+    store = JobStore(repository)
+    active = _job(
+        store,
+        store.create(_request("generating", 2)),
+        "generating",
+    )
+    original_replace = store.replace_state
+    replacement_attempts = 0
+
+    def conflict_once(
+        project_id,
+        job_id,
+        state,
+        *,
+        expected_revision,
+    ):
+        nonlocal replacement_attempts
+        replacement_attempts += 1
+        if replacement_attempts == 1:
+            current = store.load(project_id, job_id)
+            concurrent_active = current.state.model_copy(
+                update={
+                    "revision": current.state.revision + 1,
+                    "updated_at": FUTURE_ACTIVE_AT,
+                }
+            )
+            original_replace(
+                project_id,
+                job_id,
+                concurrent_active,
+                expected_revision=current.state.revision,
+            )
+            raise JobError(
+                "JOB_REVISION_CONFLICT",
+                "任务状态已被其他操作更新",
+            )
+        return original_replace(
+            project_id,
+            job_id,
+            state,
+            expected_revision=expected_revision,
+        )
+
+    monkeypatch.setattr(store, "replace_state", conflict_once)
+    index = _RecordingRecoveryIndex()
+    report = RecoveryService(
+        repository=repository,
+        store=store,
+        index=index,
+        clock=_clock(RECOVERED_AT, COMPLETED_AT),
+    ).run()
+
+    recovered = store.load(PROJECT_ID, active.request.job_id)
+    assert replacement_attempts == 2
+    assert recovered.state.revision == active.state.revision + 2
+    assert recovered.state.status == "failed"
+    assert recovered.state.failure is not None
+    assert recovered.state.failure.code == "JOB_INTERRUPTED"
+    assert recovered.state.updated_at == FUTURE_ACTIVE_AT
+    assert report.recovered_job_count == 1
+    assert report.issues == ()
+    assert report.completed_at == FUTURE_ACTIVE_AT
+    assert index.rebuild_calls == 1
+
+
+def test_recovery_accepts_terminal_state_that_won_revision_conflict(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    projects_root = tmp_path / "projects"
+    projects_root.mkdir()
+    _write_project(projects_root)
+    repository = ProjectRepository(projects_root)
+    store = JobStore(repository)
+    active = _job(
+        store,
+        store.create(_request("generating", 2)),
+        "generating",
+    )
+    original_replace = store.replace_state
+    replacement_attempts = 0
+
+    def terminal_conflict(
+        project_id,
+        job_id,
+        _state,
+        *,
+        expected_revision,
+    ):
+        nonlocal replacement_attempts
+        replacement_attempts += 1
+        current = store.load(project_id, job_id)
+        terminal = cancel_state(current.state, now=RECOVERED_AT)
+        original_replace(
+            project_id,
+            job_id,
+            terminal,
+            expected_revision=current.state.revision,
+        )
+        raise JobError(
+            "JOB_REVISION_CONFLICT",
+            "任务状态已被其他操作更新",
+        )
+
+    monkeypatch.setattr(store, "replace_state", terminal_conflict)
+    index = _RecordingRecoveryIndex()
+    report = RecoveryService(
+        repository=repository,
+        store=store,
+        index=index,
+        clock=_clock(RECOVERED_AT, COMPLETED_AT),
+    ).run()
+
+    assert replacement_attempts == 1
+    assert store.load(PROJECT_ID, active.request.job_id).state.status == "canceled"
+    assert report.recovered_job_count == 0
+    assert report.issues == ()
+    assert index.rebuild_calls == 1
+
+
+def test_recovery_stops_before_indexing_when_active_state_cannot_be_failed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    projects_root = tmp_path / "projects"
+    projects_root.mkdir()
+    _write_project(projects_root)
+    repository = ProjectRepository(projects_root)
+    store = JobStore(repository)
+    active = _job(
+        store,
+        store.create(_request("generating", 2)),
+        "generating",
+    )
+
+    def deny_replacement(*_args, **_kwargs):
+        raise JobError(
+            "JOB_STORAGE_UNAVAILABLE",
+            "无法安全保存任务",
+        )
+
+    monkeypatch.setattr(store, "replace_state", deny_replacement)
+    index = _RecordingRecoveryIndex()
+    recovery = RecoveryService(
+        repository=repository,
+        store=store,
+        index=index,
+        clock=_clock(RECOVERED_AT, COMPLETED_AT),
+    )
+
+    with pytest.raises(JobError) as raised:
+        recovery.run()
+
+    assert raised.value.code == "JOB_STORAGE_UNAVAILABLE"
+    assert store.load(PROJECT_ID, active.request.job_id).state.status == "generating"
+    assert index.rebuild_calls == 0
 
 
 def test_report_completion_does_not_move_backward_with_the_wall_clock(

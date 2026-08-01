@@ -55,6 +55,8 @@ class ProjectRepositoryPort(Protocol):
 class JobStorePort(Protocol):
     def scan(self, project_id: UUID) -> JobScanResult: ...
 
+    def load(self, project_id: UUID, job_id: UUID) -> LoadedJob: ...
+
     def replace_state(
         self,
         project_id: UUID,
@@ -118,35 +120,15 @@ class RecoveryService:
             for loaded in job_scan.jobs:
                 if loaded.state.status not in _ACTIVE_JOB_STATUSES:
                     continue
-                effective_recovery_time = max(
-                    recovery_time,
-                    loaded.state.updated_at,
+                recovered, effective_recovery_time = self._recover_active_job(
+                    loaded,
+                    recovery_time=recovery_time,
                 )
                 latest_recovery_time = max(
                     latest_recovery_time,
                     effective_recovery_time,
                 )
-                replacement = recover_interrupted_state(
-                    loaded.state,
-                    now=effective_recovery_time,
-                )
-                try:
-                    self._store.replace_state(
-                        manifest.project_id,
-                        loaded.request.job_id,
-                        replacement,
-                        expected_revision=loaded.state.revision,
-                    )
-                except JobError as error:
-                    issues.append(
-                        RecoveryIssue(
-                            project_id=manifest.project_id,
-                            job_id=loaded.request.job_id,
-                            code=error.code,
-                            user_message=error.user_message,
-                        )
-                    )
-                else:
+                if recovered:
                     recovered_job_count += 1
 
         self._index.rebuild()
@@ -164,6 +146,44 @@ class RecoveryService:
             issues=tuple(issues),
             completed_at=max(self._clock(), latest_recovery_time),
         )
+
+    def _recover_active_job(
+        self,
+        loaded: LoadedJob,
+        *,
+        recovery_time: datetime,
+    ) -> tuple[bool, datetime]:
+        """Retry one revision race, but never publish a zombie active job."""
+
+        current = loaded
+        for attempt in range(2):
+            effective_recovery_time = max(
+                recovery_time,
+                current.state.updated_at,
+            )
+            if current.state.status not in _ACTIVE_JOB_STATUSES:
+                return False, effective_recovery_time
+            replacement = recover_interrupted_state(
+                current.state,
+                now=effective_recovery_time,
+            )
+            try:
+                self._store.replace_state(
+                    current.request.project_id,
+                    current.request.job_id,
+                    replacement,
+                    expected_revision=current.state.revision,
+                )
+            except JobError as error:
+                if error.code != "JOB_REVISION_CONFLICT" or attempt == 1:
+                    raise
+                current = self._store.load(
+                    current.request.project_id,
+                    current.request.job_id,
+                )
+                continue
+            return True, effective_recovery_time
+        raise AssertionError("recovery retry loop exhausted")
 
 
 def _utc_now() -> datetime:
