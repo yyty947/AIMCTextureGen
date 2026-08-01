@@ -6,6 +6,11 @@ _WINDOWS_DEVICE_STEMS = frozenset(
     {"con", "prn", "aux", "nul"}
     | {f"com{number}" for number in range(1, 10)}
     | {f"lpt{number}" for number in range(1, 10)}
+    | {
+        f"{prefix}{number}"
+        for prefix in ("com", "lpt")
+        for number in ("¹", "²", "³")
+    }
 )
 _WINDOWS_INVALID_CHARACTERS = frozenset('<>:"|?*')
 

@@ -390,6 +390,25 @@ describe("strict project and durable-job API parsing", () => {
   );
 
   it.each([
+    "COM¹",
+    "com².txt",
+    "CoM³.bin",
+    "LPT¹",
+    "lpt².txt",
+    "LpT³.bin",
+  ])("rejects the Windows reserved superscript alias %s", async (alias) => {
+    respondWith({
+      ...jobDetail,
+      request: {
+        ...jobDetail.request,
+        style_references: [`assets/minecraft/${alias}`],
+      },
+    });
+
+    await expectInvalidResponse(() => getJob(projectId, jobId));
+  });
+
+  it.each([
     [
       "pending candidate with a start time",
       { ...candidates[0], started_at: createdAt },

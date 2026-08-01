@@ -777,6 +777,12 @@ function requireProjectRelativePath(value: unknown): string {
     "nul",
     ...Array.from({ length: 9 }, (_, index) => `com${index + 1}`),
     ...Array.from({ length: 9 }, (_, index) => `lpt${index + 1}`),
+    "com¹",
+    "com²",
+    "com³",
+    "lpt¹",
+    "lpt²",
+    "lpt³",
   ]);
   for (const segment of path.split("/")) {
     if (
