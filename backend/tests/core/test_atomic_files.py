@@ -161,6 +161,67 @@ def test_publication_failure_removes_only_the_created_temporary_file(
     assert not (tmp_path / "state.json.tmp").exists()
 
 
+def test_cleanup_denial_does_not_mask_the_primary_atomic_write_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    destination = tmp_path / "state.json"
+    destination.write_bytes(b"old")
+    temporary = tmp_path / "state.json.tmp"
+    real_unlink = Path.unlink
+
+    def fail_publish(_handle: int, _destination: Path) -> None:
+        raise OSError("forced publication failure")
+
+    def deny_temporary_unlink(path: Path, *args, **kwargs) -> None:
+        if path == temporary:
+            raise PermissionError("forced cleanup denial")
+        real_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(atomic_files_module, "_publish_open_file", fail_publish)
+    monkeypatch.setattr(Path, "unlink", deny_temporary_unlink)
+
+    with pytest.raises(AtomicWriteError, match="replace") as raised:
+        atomic_replace_bytes(destination, b"new", lambda _payload: None)
+
+    assert isinstance(raised.value.__cause__, OSError)
+    assert "publication failure" in str(raised.value.__cause__)
+    assert destination.read_bytes() == b"old"
+    assert temporary.read_bytes() == b"new"
+
+
+def test_cleanup_only_denial_is_reported_as_atomic_write_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    destination = tmp_path / "state.json"
+    destination.write_bytes(b"old")
+    temporary = tmp_path / "state.json.tmp"
+    real_unlink = Path.unlink
+
+    def leave_temporary_unpublished(_handle: int, _destination: Path) -> None:
+        return None
+
+    def deny_temporary_unlink(path: Path, *args, **kwargs) -> None:
+        if path == temporary:
+            raise PermissionError("forced cleanup denial")
+        real_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(
+        atomic_files_module,
+        "_publish_open_file",
+        leave_temporary_unpublished,
+    )
+    monkeypatch.setattr(Path, "unlink", deny_temporary_unlink)
+
+    with pytest.raises(AtomicWriteError, match="cleanup") as raised:
+        atomic_replace_bytes(destination, b"new", lambda _payload: None)
+
+    assert isinstance(raised.value.__cause__, PermissionError)
+    assert destination.read_bytes() == b"old"
+    assert temporary.read_bytes() == b"new"
+
+
 def test_bounded_stale_regular_temporary_file_is_removed_before_write(
     tmp_path: Path,
 ) -> None:

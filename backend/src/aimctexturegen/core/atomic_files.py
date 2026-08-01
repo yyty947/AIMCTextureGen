@@ -28,49 +28,66 @@ def atomic_replace_bytes(
     parent = destination.parent
     temporary = parent / f"{destination.name}.tmp"
     created_identity: _FileIdentity | None = None
+    primary_error: BaseException | None = None
 
     try:
-        _require_plain_directory(parent)
-        _remove_bounded_stale_temporary(temporary)
-
         try:
-            with _open_created_file(temporary) as (output, native_handle):
-                created_identity = _identity(os.fstat(output.fileno()))
-                output.write(payload)
-                output.flush()
-                os.fsync(output.fileno())
-                output.seek(0)
-                readback = output.read(len(payload) + 1)
-                if len(readback) != len(payload):
-                    raise AtomicWriteError("atomic readback size mismatch")
+            _require_plain_directory(parent)
+            _remove_bounded_stale_temporary(temporary)
 
-                try:
-                    validator(readback)
-                except Exception as error:
-                    raise AtomicWriteError("atomic validation failed") from error
+            try:
+                with _open_created_file(temporary) as (output, native_handle):
+                    created_identity = _identity(os.fstat(output.fileno()))
+                    output.write(payload)
+                    output.flush()
+                    os.fsync(output.fileno())
+                    output.seek(0)
+                    readback = output.read(len(payload) + 1)
+                    if len(readback) != len(payload):
+                        raise AtomicWriteError("atomic readback size mismatch")
 
-                try:
-                    if os.name == "nt":
-                        _publish_open_file(native_handle, destination)
-                    else:
-                        _publish_portable_file(
-                            temporary,
-                            destination,
-                            created_identity,
-                        )
-                except OSError as error:
-                    raise AtomicWriteError("atomic replace failed") from error
+                    try:
+                        validator(readback)
+                    except Exception as error:
+                        raise AtomicWriteError(
+                            "atomic validation failed"
+                        ) from error
+
+                    try:
+                        if os.name == "nt":
+                            _publish_open_file(native_handle, destination)
+                        else:
+                            _publish_portable_file(
+                                temporary,
+                                destination,
+                                created_identity,
+                            )
+                    except OSError as error:
+                        raise AtomicWriteError(
+                            "atomic replace failed"
+                        ) from error
+            except AtomicWriteError:
+                raise
+            except OSError as error:
+                raise AtomicWriteError("atomic write failed") from error
         except AtomicWriteError:
             raise
         except OSError as error:
-            raise AtomicWriteError("atomic write failed") from error
-    except AtomicWriteError:
+            raise AtomicWriteError(
+                "atomic path is unsafe or unavailable"
+            ) from error
+    except BaseException as error:
+        primary_error = error
         raise
-    except OSError as error:
-        raise AtomicWriteError("atomic path is unsafe or unavailable") from error
     finally:
         if created_identity is not None:
-            _remove_exact_regular_file(temporary, created_identity)
+            try:
+                _remove_exact_regular_file(temporary, created_identity)
+            except OSError as cleanup_error:
+                if primary_error is None:
+                    raise AtomicWriteError(
+                        "atomic temporary cleanup failed"
+                    ) from cleanup_error
 
 
 @contextmanager
