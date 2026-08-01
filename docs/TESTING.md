@@ -59,9 +59,10 @@ Verify the generator independently:
 .\.venv\Scripts\python -W error -m pytest backend\tests\tools\test_synthetic_pack_generator.py -vv
 ```
 
-The test runs the PowerShell generator twice at paths containing spaces,
-compares the ZIP bytes, checks the reported digest/classification, and validates
-member order, fixed timestamps, metadata and synthetic pixels.
+The test runs the PowerShell generator three times across two paths containing
+spaces, including replacement at an existing output path. It compares the ZIP
+bytes, checks the reported digest/classification, and validates member order,
+fixed timestamps, metadata and synthetic pixels.
 
 ## Manual desktop recovery check
 

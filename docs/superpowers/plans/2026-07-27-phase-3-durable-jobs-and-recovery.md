@@ -1178,7 +1178,9 @@ unrecoverable active job, reject Windows superscript device aliases, preserve
 the primary atomic-write error, centralize one-shot semantic-index repair,
 order project/recovery UI retries, and add the deterministic synthetic fixture
 generator. Commit `14496b1` aligns the API failure fixture with the centralized
-index error contract discovered by the full backend gate.
+index error contract discovered by the full backend gate. Commit `a82c1c9`
+makes publication over an existing generated output compatible with Windows
+PowerShell/.NET Framework and adds the same-path rerun regression.
 
 - [x] **Step 2: Fix both Minor findings with RED → GREEN evidence**
 
@@ -1193,8 +1195,9 @@ accepting RFC3339 timestamps. Commit `efb719f` resolves the favicon
 deterministic SHA-256 is
 `8ec378c876fe12b17e784c2d03ee59e7ea8a6c1601d7bf00e0a36980e2d24478`;
 classification is format 34, one covered, one missing and zero unknown paths.
-The tracked Python test runs the PowerShell generator twice and validates the
-complete archive contract. No Mojang/Microsoft asset is committed.
+The tracked Python test runs the PowerShell generator across two paths and
+repeats one existing output, then validates the complete archive contract. No
+Mojang/Microsoft asset is committed.
 
 - [x] **Step 4: Rerun and record the complete final gate**
 

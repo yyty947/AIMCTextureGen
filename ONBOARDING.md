@@ -13,7 +13,7 @@
 - Task 10 的 UI/浏览器修复：`9f71adacdfb2d55c8381d80fab7366b102fb87dd`；重启审计加固：`6fb7beb22e1e6518310066d88517042486d51d89`。
 - 最终评审修复波：`75b6806`、`00bb904`、`ad03538`、`f6d2f0e`、
   `a11302f`、`e02d229`、`d587cae`、`0f41b03`、`678fb3a`、
-  `2358f61`、`efb719f`、`14496b1`。
+  `2358f61`、`efb719f`、`14496b1`、`a82c1c9`。
 
 项目目录中的 schema-2 `project.json` 和任务 JSON 是权威数据；schema-1
 项目会只原子替换 `project.json`，保留 `source/` 与 `pack/`。任务在创建时
