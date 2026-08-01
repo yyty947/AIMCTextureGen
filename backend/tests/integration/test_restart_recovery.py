@@ -20,6 +20,11 @@ from aimctexturegen.jobs.state_machine import (
 )
 from aimctexturegen.jobs.store import JobStore, LoadedJob
 from aimctexturegen.packs.java_adapter import JavaPackAdapter
+from aimctexturegen.projects.models import (
+    ProjectManifest,
+    ProjectManifestV1,
+    load_project_manifest,
+)
 from aimctexturegen.projects.repository import ProjectRepository
 from aimctexturegen.projects.workspace import ProjectWorkspace
 
@@ -249,7 +254,29 @@ def _tree_hashes(root: Path) -> dict[str, str]:
     }
 
 
-def test_restart_recovers_index_and_jobs_without_mutating_pack_assets(
+def _write_schema_1_manifest(
+    project_root: Path,
+    manifest: ProjectManifest,
+) -> bytes:
+    values = {
+        field: getattr(manifest, field)
+        for field in ProjectManifestV1.model_fields
+    }
+    values["schema_version"] = 1
+    legacy = ProjectManifestV1.model_validate(values)
+    payload = (
+        json.dumps(
+            legacy.model_dump(mode="json"),
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        + "\n"
+    ).encode("utf-8")
+    (project_root / "project.json").write_bytes(payload)
+    return payload
+
+
+def test_restart_migrates_project_recovers_index_and_jobs_without_mutating_pack_assets(
     tmp_path: Path,
 ) -> None:
     projects_root = tmp_path / "projects"
@@ -271,6 +298,7 @@ def test_restart_recovers_index_and_jobs_without_mutating_pack_assets(
         manifest.project_id,
         created_at,
     )
+    legacy_manifest = _write_schema_1_manifest(project_root, manifest)
     queued_path = (
         project_root / "jobs" / str(JOB_IDS["queued"]) / "state.json"
     )
@@ -287,6 +315,11 @@ def test_restart_recovers_index_and_jobs_without_mutating_pack_assets(
     first_instance.index.database_path.unlink()
     second_instance = _ApplicationInstance.start(projects_root)
 
+    migrated_payload = (project_root / "project.json").read_bytes()
+    assert migrated_payload != legacy_manifest
+    migrated_manifest, needs_migration = load_project_manifest(migrated_payload)
+    assert needs_migration is False
+    assert migrated_manifest == manifest
     assert second_instance.recovery_report.project_count == 1
     assert second_instance.recovery_report.job_count == 3
     assert second_instance.recovery_report.recovered_job_count == 1
