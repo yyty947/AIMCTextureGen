@@ -375,7 +375,7 @@ export default function App() {
     <main className="app-shell">
       <header className="hero">
         <p className="eyebrow">AIMCTextureGen / 项目面板</p>
-        <h1>Java 资源包项目</h1>
+        <h1 className="hero-title">Java 资源包项目</h1>
         <p className="intro">
           导入新资源包或恢复已有项目，查看覆盖情况与持久化任务历史。
         </p>

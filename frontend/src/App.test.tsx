@@ -125,6 +125,14 @@ async function completeForm(
 }
 
 describe("资源包导入与覆盖摘要", () => {
+  it("marks the hero title for a desktop-specific layout rule", () => {
+    renderImportApp();
+
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Java 资源包项目" }),
+    ).toHaveClass("hero-title");
+  });
+
   it("导入 ZIP 后显示资源格式和覆盖统计", async () => {
     mockSuccessfulImport();
     renderImportApp();

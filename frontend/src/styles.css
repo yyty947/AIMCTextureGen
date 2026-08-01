@@ -74,6 +74,11 @@ h1 {
   letter-spacing: -0.055em;
 }
 
+.hero-title {
+  max-width: none;
+  white-space: nowrap;
+}
+
 h2 {
   margin-bottom: 6px;
   font-size: clamp(1.45rem, 5vw, 2rem);
@@ -563,6 +568,11 @@ details code {
 
   .section-heading {
     gap: 12px;
+  }
+
+  .hero-title {
+    max-width: 100%;
+    white-space: normal;
   }
 
   input[type="file"]::file-selector-button {
