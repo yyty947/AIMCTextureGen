@@ -1056,7 +1056,7 @@ git commit -m "feat: restore projects and show durable job history"
 - No new runtime interface.
 - Records exact automated and manual evidence and identifies Phase 4 as next.
 
-- [ ] **Step 1: Run the complete automated gate**
+- [x] **Step 1: Run the complete automated gate**
 
 ```powershell
 .\.venv\Scripts\python -W error -m pytest backend\tests --cov=aimctexturegen --cov-report=term-missing
@@ -1070,13 +1070,13 @@ git status --short
 
 Record exact test counts and coverage. Do not copy the Phase 2 totals.
 
-- [ ] **Step 2: Run the no-pack-mutation recovery audit**
+- [x] **Step 2: Run the no-pack-mutation recovery audit**
 
 Run the restart integration test separately with `-W error -vv`, then inspect
 its recorded source/pack hash maps. The test must prove index deletion,
 schema migration and interrupted-job recovery do not change any pack file.
 
-- [ ] **Step 3: Give the user the manual desktop test procedure**
+- [x] **Step 3: Give the user the manual desktop test procedure**
 
 Ask the user to:
 
@@ -1100,7 +1100,7 @@ application code. `JOB_INTERRUPTED` presentation remains an automated component
 and restart-integration assertion; the manual procedure does not edit job JSON
 or expose an internal transition endpoint merely to manufacture that state.
 
-- [ ] **Step 4: Update handoff documents**
+- [x] **Step 4: Update handoff documents**
 
 Update `ONBOARDING.md` with:
 
@@ -1113,14 +1113,14 @@ Update `ONBOARDING.md` with:
 Update the roadmap Phase 3 exit gate only with facts actually demonstrated.
 Do not claim real GPU, model, ComfyUI or production catalog support.
 
-- [ ] **Step 5: Commit closure**
+- [x] **Step 5: Commit closure**
 
 ```powershell
 git add ONBOARDING.md docs
 git commit -m "docs: record Phase 3 recovery gate results"
 ```
 
-- [ ] **Step 6: Prepare the branch for review**
+- [x] **Step 6: Prepare the branch for review**
 
 Use `superpowers:requesting-code-review`, address findings, rerun the full
 gate, then use `superpowers:finishing-a-development-branch`. Merge or push only

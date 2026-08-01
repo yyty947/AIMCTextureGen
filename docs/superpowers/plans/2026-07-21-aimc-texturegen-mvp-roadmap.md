@@ -53,7 +53,17 @@ The MVP spans independent subsystems whose external versions and measured behavi
 
 **Deliverable:** Persisted request records, four seeds, candidate artifact layout, validated state transitions, cancellation/retry lineage, SQLite query index, index rebuild from project directories, and restart recovery.
 
-**Exit gate:** State-machine tests reject illegal transitions; deleting the SQLite index and rebuilding it preserves project/job visibility; restart integration tests recover completed and interrupted jobs without modifying pack files.
+**Exit gate (verified 2026-08-01):** `-W error` backend coverage gate passed
+589/589 tests at 89% total coverage; 5 frontend test files/98 tests and the
+Vite production build passed. The separate real-project restart audit deletes
+the SQLite index, migrates a schema-1 manifest, recovers an active task as
+`JOB_INTERRUPTED`, preserves queued/completed task state, restores project/job
+visibility, and proves the complete `source/` and `pack/` path-to-SHA-256 maps
+unchanged. The user also confirmed import, queued-job persistence after service
+restart, and normal/400/600/900 px desktop presentation without horizontal
+overflow or clipped controls. This does not verify GPU, models, ComfyUI, a
+production catalog, candidate adoption, export, mobile support, or Java/Bedrock
+conversion.
 
 ## Phase 4: Managed ComfyUI and Model Profiles
 
