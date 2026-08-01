@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
 from collections.abc import Callable
 from typing import Protocol, TypeVar
 from uuid import UUID
@@ -66,6 +67,11 @@ class IndexService:
         self._repository = repository
         self._store = store
         self._index = index
+        self._coordination_lock = getattr(
+            index,
+            "coordination_lock",
+            threading.RLock(),
+        )
 
     def rebuild(self) -> IndexSnapshot:
         """Replace the index from validated canonical project and job models."""
@@ -90,29 +96,31 @@ class IndexService:
         return self._guarded(lambda: self._index.list_jobs(project_id))
 
     def _rebuild_once(self) -> IndexSnapshot:
-        projects: list[ProjectSummary] = []
-        jobs: list[JobSummary] = []
-        scan = self._repository.list_manifests()
-        for manifest in scan.manifests:
-            projects.append(_project_summary(manifest))
-            job_scan = self._store.scan(manifest.project_id)
-            jobs.extend(
-                _job_summary(loaded)
-                for loaded in job_scan.jobs
-            )
-        snapshot = IndexSnapshot(projects=tuple(projects), jobs=tuple(jobs))
-        self._index.replace_snapshot(snapshot)
-        return snapshot
+        with self._coordination_lock:
+            projects: list[ProjectSummary] = []
+            jobs: list[JobSummary] = []
+            scan = self._repository.list_manifests()
+            for manifest in scan.manifests:
+                projects.append(_project_summary(manifest))
+                job_scan = self._store.scan(manifest.project_id)
+                jobs.extend(
+                    _job_summary(loaded)
+                    for loaded in job_scan.jobs
+                )
+            snapshot = IndexSnapshot(projects=tuple(projects), jobs=tuple(jobs))
+            self._index.replace_snapshot(snapshot)
+            return snapshot
 
     def _guarded(self, operation: Callable[[], _ResultT]) -> _ResultT:
-        try:
-            return operation()
-        except sqlite3.DatabaseError:
+        with self._coordination_lock:
             try:
-                self._rebuild_once()
                 return operation()
-            except (sqlite3.DatabaseError, OSError) as error:
-                raise IndexUnavailableError() from error
+            except sqlite3.DatabaseError:
+                try:
+                    self._rebuild_once()
+                    return operation()
+                except (sqlite3.DatabaseError, OSError) as error:
+                    raise IndexUnavailableError() from error
 
 
 def _project_summary(manifest: ProjectManifest) -> ProjectSummary:

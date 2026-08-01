@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from threading import Event
 from types import SimpleNamespace
 from uuid import UUID
 
@@ -212,6 +214,100 @@ def test_service_rebuilds_summaries_from_canonical_models(tmp_path):
     database_bytes = index.database_path.read_bytes()
     assert b"private prompt" not in database_bytes
     assert b"assets/minecraft" not in database_bytes
+
+
+def test_rebuild_cannot_erase_a_concurrent_job_upsert(tmp_path):
+    projects_root = tmp_path / "projects"
+    projects_root.mkdir()
+    index = ProjectIndex(projects_root)
+    index.upsert_project(_manifest())
+    index.upsert_job(_job_summary())
+    scan_started = Event()
+    release_scan = Event()
+
+    class BlockingStore:
+        def scan(self, project_id: UUID) -> JobScanResult:
+            assert project_id == PROJECT_ID
+            scan_started.set()
+            assert release_scan.wait(timeout=5)
+            return JobScanResult(jobs=(_loaded_job(),), issues=())
+
+    service = IndexService(
+        repository=_Repository((_manifest(),)),
+        store=BlockingStore(),
+        index=index,
+    )
+    newer = _job_summary().model_copy(
+        update={
+            "status": "canceled",
+            "revision": 1,
+            "candidate_statuses": ("canceled",) * 4,
+        }
+    )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        rebuild = executor.submit(service.rebuild)
+        assert scan_started.wait(timeout=5)
+        upsert = executor.submit(service.upsert_job, newer)
+        try:
+            upsert.result(timeout=0.25)
+        except FutureTimeout:
+            pass
+        finally:
+            release_scan.set()
+        rebuild.result(timeout=5)
+        upsert.result(timeout=5)
+
+    assert service.list_jobs(PROJECT_ID) == (newer,)
+
+
+def test_concurrent_rebuilds_share_one_temporary_index_path_safely(tmp_path):
+    projects_root = tmp_path / "projects"
+    projects_root.mkdir()
+    first_populated = Event()
+    release_first = Event()
+    second_scan_started = Event()
+
+    class HoldingIndex(ProjectIndex):
+        def _populate_snapshot(self, path, snapshot):
+            super()._populate_snapshot(path, snapshot)
+            first_populated.set()
+            assert release_first.wait(timeout=5)
+
+    class SignalingRepository(_Repository):
+        def list_manifests(self) -> ProjectScanResult:
+            second_scan_started.set()
+            return super().list_manifests()
+
+    first_index = HoldingIndex(projects_root)
+    second_index = ProjectIndex(projects_root)
+    first_service = IndexService(
+        repository=_Repository((_manifest(),)),
+        store=_Store((_loaded_job(),)),
+        index=first_index,
+    )
+    second_service = IndexService(
+        repository=SignalingRepository((_manifest(),)),
+        store=_Store((_loaded_job(),)),
+        index=second_index,
+    )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(first_service.rebuild)
+        assert first_populated.wait(timeout=5)
+        second = executor.submit(second_service.rebuild)
+        second_entered = second_scan_started.wait(timeout=0.25)
+        try:
+            if second_entered:
+                second.result(timeout=5)
+        finally:
+            release_first.set()
+        first.result(timeout=5)
+        second.result(timeout=5)
+
+    assert second_service.list_projects() == (_project_summary(),)
+    assert second_service.list_jobs(PROJECT_ID) == (_job_summary(),)
+    assert not first_index.temporary_path.exists()
 
 
 def test_service_rebuild_with_real_store_indexes_valid_job_beside_corrupt_job(

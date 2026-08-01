@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 import sqlite3
 import stat
+import threading
+import weakref
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -20,6 +22,7 @@ from aimctexturegen.projects.models import ProjectManifest, ProjectSummary
 _SCHEMA_VERSION = 1
 _BUSY_TIMEOUT_SECONDS = 5.0
 _BUSY_TIMEOUT_MILLISECONDS = 5_000
+_ROOT_LOCKS_GUARD = threading.Lock()
 _UUID_CHECK = """
     length({column}) = 36
     AND substr({column}, 9, 1) = '-'
@@ -140,11 +143,30 @@ ORDER BY updated_at DESC, job_id ASC
 """
 
 
+class _RootLock:
+    __slots__ = ("lock", "__weakref__")
+
+    def __init__(self) -> None:
+        self.lock = threading.RLock()
+
+
+_ROOT_LOCKS: weakref.WeakValueDictionary[str, _RootLock] = (
+    weakref.WeakValueDictionary()
+)
+
+
 class ProjectIndex:
     """Query project and job summaries without owning canonical product state."""
 
     def __init__(self, projects_root: Path) -> None:
         self._projects_root = Path(os.path.abspath(projects_root))
+        self._root_lock = _root_lock(self._projects_root)
+
+    @property
+    def coordination_lock(self):
+        """Return the process-local reentrant lock for this project root."""
+
+        return self._root_lock.lock
 
     @property
     def database_path(self) -> Path:
@@ -160,60 +182,65 @@ class ProjectIndex:
         if not isinstance(manifest, ProjectManifest):
             raise TypeError("manifest must be a ProjectManifest")
         summary = _project_summary(manifest)
-        with self._operation_connection() as connection:
-            _write_transaction(
-                connection,
-                lambda: connection.execute(
-                    _PROJECT_UPSERT,
-                    _project_values(summary),
-                ),
-            )
+        with self.coordination_lock:
+            with self._operation_connection() as connection:
+                _write_transaction(
+                    connection,
+                    lambda: connection.execute(
+                        _PROJECT_UPSERT,
+                        _project_values(summary),
+                    ),
+                )
 
     def upsert_job(self, summary: JobSummary) -> None:
         """Insert or refresh one job summary in an explicit transaction."""
 
         if not isinstance(summary, JobSummary):
             raise TypeError("summary must be a JobSummary")
-        with self._operation_connection() as connection:
-            _write_transaction(
-                connection,
-                lambda: connection.execute(_JOB_UPSERT, _job_values(summary)),
-            )
+        with self.coordination_lock:
+            with self._operation_connection() as connection:
+                _write_transaction(
+                    connection,
+                    lambda: connection.execute(_JOB_UPSERT, _job_values(summary)),
+                )
 
     def list_projects(self) -> tuple[ProjectSummary, ...]:
         """Return frozen project summaries in stable query order."""
 
-        with self._operation_connection() as connection:
-            return tuple(
-                _project_from_row(row)
-                for row in connection.execute(_PROJECT_SELECT)
-            )
+        with self.coordination_lock:
+            with self._operation_connection() as connection:
+                return tuple(
+                    _project_from_row(row)
+                    for row in connection.execute(_PROJECT_SELECT)
+                )
 
     def list_jobs(self, project_id: UUID) -> tuple[JobSummary, ...]:
         """Return frozen job summaries for one canonical project UUID."""
 
         if not isinstance(project_id, UUID):
             raise TypeError("project_id must be a UUID")
-        with self._operation_connection() as connection:
-            return tuple(
-                _job_from_row(row)
-                for row in connection.execute(_JOB_SELECT, (str(project_id),))
-            )
+        with self.coordination_lock:
+            with self._operation_connection() as connection:
+                return tuple(
+                    _job_from_row(row)
+                    for row in connection.execute(_JOB_SELECT, (str(project_id),))
+                )
 
     def replace_snapshot(self, snapshot: IndexSnapshot) -> None:
         """Build, validate, close, and atomically publish a complete new index."""
 
         if not isinstance(snapshot, IndexSnapshot):
             raise TypeError("snapshot must be an IndexSnapshot")
-        self._ensure_metadata_root()
-        self._reject_unknown_final_schema()
-        self._remove_temporary_files()
-        try:
-            self._populate_snapshot(self.temporary_path, snapshot)
-            self._validate_snapshot(self.temporary_path, snapshot)
-            self._publish_snapshot(self.temporary_path, self.database_path)
-        finally:
+        with self.coordination_lock:
+            self._ensure_metadata_root()
+            self._reject_unknown_final_schema()
             self._remove_temporary_files()
+            try:
+                self._populate_snapshot(self.temporary_path, snapshot)
+                self._validate_snapshot(self.temporary_path, snapshot)
+                self._publish_snapshot(self.temporary_path, self.database_path)
+            finally:
+                self._remove_temporary_files()
 
     def _populate_snapshot(
         self,
@@ -363,6 +390,16 @@ def _ensure_schema(connection: sqlite3.Connection) -> None:
         connection.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
 
     _write_transaction(connection, create)
+
+
+def _root_lock(projects_root: Path) -> _RootLock:
+    key = os.path.normcase(os.path.realpath(projects_root))
+    with _ROOT_LOCKS_GUARD:
+        lock = _ROOT_LOCKS.get(key)
+        if lock is None:
+            lock = _RootLock()
+            _ROOT_LOCKS[key] = lock
+        return lock
 
 
 def _write_transaction(connection: sqlite3.Connection, operation) -> None:
