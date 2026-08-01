@@ -42,7 +42,7 @@ git status --short
 ```
 
 - 后端：Python 3.12.10、pytest 9.1.1，589/589 通过（10.19 s），3434 语句、393 未覆盖、总覆盖率 89%。
-- 前端：Vitest 4.1.10，5 个测试文件、98/98 通过（7.72 s）；TypeScript 与 Vite 8.1.5 生产构建通过（19 个模块）。
+- 前端：Vitest 4.1.10，6 个测试文件、100/100 通过（7.20 s）；TypeScript 与 Vite 8.1.5 生产构建通过（19 个模块）。
 - 独立重启审计：1/1 通过（0.55 s）；它在真实临时导入项目中删除 `index.sqlite3`、写入严格 schema-1 清单并启动第二个 repository/store/index/recovery 服务图，确认迁移回 schema 2、queued/active/completed 任务可见、active 变为 `JOB_INTERRUPTED`，以及 `source/`/`pack/` 的完整路径—SHA-256 映射完全相等。
 - `git diff --check` 通过；验证后的 tracked 工作树仅包含本交接文档收口变更。
 

@@ -1051,9 +1051,19 @@ git commit -m "feat: restore projects and show durable job history"
 - Modify: `docs/superpowers/plans/2026-07-21-aimc-texturegen-mvp-roadmap.md`
 - Create: `docs/TESTING.md` only if every command recorded below exists and was
   actually run by this task.
+- Modify: `frontend/index.html`
+- Create: `frontend/public/favicon.svg`
+- Modify: `frontend/src/App.tsx`
+- Modify: `frontend/src/styles.css`
+- Modify: `frontend/src/App.test.tsx`
+- Create: `frontend/test/favicon-artifact.test.mjs`
+- Create: `frontend/test/favicon-artifact-support.mjs`
+- Create: `frontend/test/favicon-artifact-cleanup.test.mjs`
 
 **Interfaces:**
-- No new runtime interface.
+- The manual-gate follow-up declares the project-owned favicon and gives only
+  the dashboard hero title a scoped layout marker; it adds no API, service,
+  generation, catalog, adoption or export interface.
 - Records exact automated and manual evidence and identifies Phase 4 as next.
 
 - [x] **Step 1: Run the complete automated gate**
@@ -1099,6 +1109,18 @@ MIME warnings remain third-party/development noise unless they originate from
 application code. `JOB_INTERRUPTED` presentation remains an automated component
 and restart-integration assertion; the manual procedure does not edit job JSON
 or expose an internal transition endpoint merely to manufacture that state.
+
+- [x] **Step 3a: Correct application-owned manual-gate presentation defects**
+
+The user identified a missing declared favicon, which produced a Vite 404, and
+a desktop title measure that could orphan its final Chinese character. Commit
+`9f71adacdfb2d55c8381d80fab7366b102fb87dd` declares an original project-owned
+SVG favicon and scopes the title layout rule to the dashboard hero. Its
+built-artifact test retrieves the declared favicon over HTTP, and its component
+test verifies the scoped title marker. The user then confirmed the normal
+desktop and 400/600/900 px post-fix browser recheck. This narrow follow-up does
+not add generation controls, ComfyUI, models, CUDA, a production catalog,
+candidate adoption, export, mobile support or Java/Bedrock conversion.
 
 - [x] **Step 4: Update handoff documents**
 
