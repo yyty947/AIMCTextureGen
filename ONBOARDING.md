@@ -4,35 +4,37 @@
 
 ## 当前状态
 
-第三阶段“持久化任务与项目恢复”已在分支
-`codex/phase-3-durable-jobs` 完成并具备评审证据。实现与加固提交为：
+Phase 3 已通过合并提交 `ae424b1` 进入 `master`/`origin/master`。当前 checkout
+位于新阶段分支 `codex/phase-4-managed-comfyui`。Phase 4 的设计和实施计划已
+落盘，但业务实现尚未开始，所有任务复选框都应保持未完成。
 
-- Task 1：`a89c924`；Task 2：`d4ee5cf`、`2d32c78`、`9f06d6c`、`cd26604`；Task 3：`d7bad0a`、`100822e`。
-- Task 4：`a0dbb50`、`c19a756`、`f3ab034`；Task 5：`cbf6649`、`57073ff`、`2be0c80`；Task 6：`6ec87d7`、`2b15e21`。
-- Task 7：`85cbf75`、`8a0d903`；Task 8：`ac89bd0`、`9508b41`；Task 9：`9c16126`、`441cec3`、`051a032`、`21b050c`、`5244dad`。
-- Task 10 的 UI/浏览器修复：`9f71adacdfb2d55c8381d80fab7366b102fb87dd`；重启审计加固：`6fb7beb22e1e6518310066d88517042486d51d89`。
-- 最终评审修复波：`75b6806`、`00bb904`、`ad03538`、`f6d2f0e`、
-  `a11302f`、`e02d229`、`d587cae`、`0f41b03`、`678fb3a`、
-  `2358f61`、`efb719f`、`14496b1`、`a82c1c9`、`dfe80b8`。
+已确认的 Phase 4 决策：
 
-项目目录中的 schema-2 `project.json` 和任务 JSON 是权威数据；schema-1
-项目会只原子替换 `project.json`，保留 `source/` 与 `pack/`。任务在创建时
-持久化四个唯一 seed、请求与状态，SQLite 仅保存可从 JSON 重建的查询摘要。重启时
-会重建删除的索引，将 `generating`/`postprocessing` 任务恢复为
-`failed/JOB_INTERRUPTED`，并保留 queued/终态任务；审计逐路径比较 `source/` 和
-`pack/` 的 SHA-256 映射，二者均不得改变。运行中外部手工/强制改写项目文件仍按
-[`ADR-0001`](docs/adr/0001-running-project-mutation-boundary.md) 不受支持。
+- v0.1 首个模型配置仍为 SDXL Base 1.0 + mapchipLora + IP-Adapter SDXL
+  ViT-H；以后 FLUX.2 Klein 4B 通过新增版本化配置接入，不原地替换 SDXL。
+- ComfyUI 使用官方 Windows NVIDIA portable 包，项目下载并校验固定版本和
+  SHA-256；其内置 Python/PyTorch 与后端 `.venv`、全局 Python、Conda 和用户
+  既有 ComfyUI 隔离。
+- 首个 runtime 候选为 ComfyUI `v0.29.2`、commit
+  `322122449c9d2ba8b8df1bb517364527dd0615f1`、官方 NVIDIA archive SHA-256
+  `e7a39a817002d85b4fb2d4f6bd176c10d104a0d04031f99b9d8b7b1fd920c6fc`。
+- 上述版本只是候选锁定值；只有真实下载复算哈希并完成 text2img、img2img
+  两个 GPU 冒烟后，才能标记为受支持配置。
+- 架构确认不等于同意立即下载约 13.18 GB 运行时/模型。真实下载前还必须通过
+  实现后的安装界面展示全部来源、许可、大小和磁盘需求，并再次取得明确确认。
 
-最终评审修复波进一步保证：索引扫描—发布与增量写入按项目根目录串行化，任务
-revision 只能前进；坏任务 sibling 不再隐藏有效历史；活动任务恢复写失败会阻断
-启动；SQLite 语义坏值或索引文件系统错误只触发一次集中重建；前端项目列表与恢复报告只接受最新重试
-结果。Windows `COM¹`—`COM³`/`LPT¹`—`LPT³` 别名、原子临时文件清理、
-严格公历时间戳与 favicon ARIA 引用也已有回归覆盖。ADR-0001 的边界没有扩大，
-没有引入 TxF 或敌对外部 rename 防御。
+权威入口：
+
+- Phase 4 设计：
+  [`docs/superpowers/specs/2026-08-01-phase-4-managed-comfyui-and-model-profiles-design.md`](docs/superpowers/specs/2026-08-01-phase-4-managed-comfyui-and-model-profiles-design.md)
+- Phase 4 计划：
+  [`docs/superpowers/plans/2026-08-01-phase-4-managed-comfyui-and-model-profiles.md`](docs/superpowers/plans/2026-08-01-phase-4-managed-comfyui-and-model-profiles.md)
+- 架构决定：
+  [`docs/adr/0002-managed-comfyui-runtime-and-versioned-model-profiles.md`](docs/adr/0002-managed-comfyui-runtime-and-versioned-model-profiles.md)
 
 ## 已验证的最终 Phase 3 门禁
 
-在本 worktree 于 2026-08-01 实际运行：
+Phase 3 在合并前于 2026-08-01 实际运行：
 
 ```powershell
 powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\tools\Generate-SyntheticPack.ps1
@@ -73,6 +75,11 @@ git status --short
 
 ## 下一入口
 
-下一阶段仅为 Phase 4“托管 ComfyUI 与模型配置”的规划入口：先固定 runtime、ComfyUI/节点 commit、模型来源/许可证/SHA-256、确认式下载、健康检查、假服务 CI 与受支持 NVIDIA 环境的人工配置验证，再开始实现。不要在本阶段接入 GPU、模型、ComfyUI、生产目录、候选采用、导出、移动端或 Java/Bedrock 转换。
+从 Phase 4 计划 Task 1 开始，按测试先行逐任务执行。Task 1 先实现严格 manifests
+并独立复核自定义节点 commit archive 已记录的大小/SHA-256；不得提前下载多 GB
+runtime/model，不得跳到真实 GPU 冒烟。
 
-接手先阅读 `AGENTS.md`、路线图、Phase 4 计划（建立后）和设计规格；以当前代码与可重复验证结果为准。
+当前工作树预计只有本轮文档变更和用户已有的未跟踪 `temp/`；`temp/` 不属于
+项目变更，必须保留。接手按 `AGENTS.md` 的必读顺序阅读，以当前代码和可重复
+验证结果为准。Phase 4 不做生产目录、候选采用、导出、移动端或 Java/Bedrock
+转换。

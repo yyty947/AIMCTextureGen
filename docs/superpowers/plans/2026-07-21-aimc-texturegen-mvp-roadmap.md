@@ -75,9 +75,23 @@ conversion.
 
 ## Phase 4: Managed ComfyUI and Model Profiles
 
-**Planned ownership:** `runtime/`, `backend/src/aimctexturegen/comfy/`, `backend/src/aimctexturegen/models/`, fixed workflow fixtures, and `docs/MODEL_PROFILES.md`.
+**Executable plan:** [`2026-08-01-phase-4-managed-comfyui-and-model-profiles.md`](2026-08-01-phase-4-managed-comfyui-and-model-profiles.md)
 
-**Deliverable:** Explicit runtime manifest, supported Python/CUDA checks, fixed ComfyUI and node commits, model source/license/hash records, confirmation-gated download, health checks, process/log management, a fake transport for CI, and a manually verified real workflow profile.
+**Approved design:** [`../specs/2026-08-01-phase-4-managed-comfyui-and-model-profiles-design.md`](../specs/2026-08-01-phase-4-managed-comfyui-and-model-profiles-design.md)
+
+**Planned ownership:** ignored `runtime/`, tracked runtime/profile manifests,
+`backend/src/aimctexturegen/comfy/`,
+`backend/src/aimctexturegen/model_profiles/`, fixed API workflow fixtures,
+the focused setup UI, and `docs/MODEL_PROFILES.md` after real verification.
+
+**Deliverable:** The SHA-256-pinned official Windows NVIDIA portable ComfyUI
+runtime in an isolated project directory; separate versioned model profiles;
+supported driver/CUDA checks; fixed node/model/workflow sources and licenses;
+confirmation-gated safe downloads; health/process/log management; a fake
+transport for CI; frozen model identity on new durable jobs; and one manually
+verified real SDXL workflow profile. The boundary must accept a second fake
+profile without changing the installer, manager or transport, so a later
+FLUX.2 Klein profile is additive rather than a product rewrite.
 
 **Exit gate:** Missing or mismatched dependencies are reported without mutation; fake-service tests cover startup and transport errors; the fixed real profile completes one recorded text2img and one img2img inference on a supported NVIDIA environment.
 
