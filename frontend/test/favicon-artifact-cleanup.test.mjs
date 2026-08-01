@@ -1,5 +1,6 @@
 // @vitest-environment node
 
+import { createServer } from "node:http";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -39,14 +40,11 @@ it("removes the artifact directory when setup fails before a server starts", asy
 
 it("removes the artifact directory even when server shutdown reports an error", async () => {
   const artifactDirectory = populatedBuildDirectory();
-  const shutdownError = new Error("server shutdown failed");
-  const server = {
-    close(callback) {
-      callback(shutdownError);
-    },
-  };
+  const server = createServer();
 
-  await expect(cleanupFaviconArtifact({ buildDirectory: artifactDirectory, server })).rejects.toBe(shutdownError);
+  await expect(cleanupFaviconArtifact({ buildDirectory: artifactDirectory, server })).rejects.toMatchObject({
+    code: "ERR_SERVER_NOT_RUNNING",
+  });
 
   expect(existsSync(artifactDirectory)).toBe(false);
 });
