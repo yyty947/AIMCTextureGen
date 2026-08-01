@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, extname, join, normalize, resolve, sep } from "node:path";
 import { spawnSync } from "node:child_process";
 
+import { JSDOM } from "jsdom";
 import { afterAll, beforeAll, expect, it } from "vitest";
 
 import { cleanupFaviconArtifact } from "./favicon-artifact-support.mjs";
@@ -56,5 +57,26 @@ it("serves the favicon declared by the built application", async () => {
   const icon = await fetch(new URL(href, baseUrl));
   expect(icon.status).toBe(200);
   expect(icon.headers.get("content-type")).toContain("image/svg+xml");
-  expect((await icon.text()).length).toBeGreaterThan(0);
+  const svg = await icon.text();
+  expect(svg.length).toBeGreaterThan(0);
+
+  const dom = new JSDOM(svg, { contentType: "image/svg+xml" });
+  try {
+    const labelledElements = dom.window.document.querySelectorAll(
+      "[aria-labelledby]",
+    );
+    expect(labelledElements.length).toBeGreaterThan(0);
+    for (const element of labelledElements) {
+      const ids = element.getAttribute("aria-labelledby")?.trim().split(/\s+/);
+      expect(ids?.length).toBeGreaterThan(0);
+      for (const id of ids ?? []) {
+        expect(
+          dom.window.document.getElementById(id),
+          `aria-labelledby references missing id "${id}"`,
+        ).not.toBeNull();
+      }
+    }
+  } finally {
+    dom.window.close();
+  }
 });
