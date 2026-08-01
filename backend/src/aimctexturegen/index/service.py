@@ -115,7 +115,7 @@ class IndexService:
         with self._coordination_lock:
             try:
                 return operation()
-            except sqlite3.DatabaseError:
+            except (sqlite3.DatabaseError, OSError):
                 try:
                     self._rebuild_once()
                     return operation()

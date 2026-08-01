@@ -386,16 +386,18 @@ class _FlakyIndex:
         *,
         fail_retry: bool = False,
         fail_rebuild: bool = False,
+        operation_error: type[Exception] = sqlite3.DatabaseError,
     ) -> None:
         self.fail_retry = fail_retry
         self.fail_rebuild = fail_rebuild
+        self.operation_error = operation_error
         self.calls = 0
         self.rebuild_calls = 0
 
     def list_projects(self):
         self.calls += 1
         if self.calls == 1 or self.fail_retry:
-            raise sqlite3.DatabaseError("database unavailable")
+            raise self.operation_error("index operation unavailable")
         return (_project_summary(),)
 
     def replace_snapshot(self, _snapshot):
@@ -413,6 +415,35 @@ def test_guarded_query_rebuilds_once_then_retries():
     )
 
     assert service.list_projects() == (_project_summary(),)
+    assert index.calls == 2
+    assert index.rebuild_calls == 1
+
+
+def test_guarded_os_error_rebuilds_once_then_retries():
+    index = _FlakyIndex(operation_error=OSError)
+    service = IndexService(
+        repository=_Repository((_manifest(),)),
+        store=_Store((_loaded_job(),)),
+        index=index,
+    )
+
+    assert service.list_projects() == (_project_summary(),)
+    assert index.calls == 2
+    assert index.rebuild_calls == 1
+
+
+def test_second_os_error_is_stable_after_one_rebuild():
+    index = _FlakyIndex(fail_retry=True, operation_error=OSError)
+    service = IndexService(
+        repository=_Repository((_manifest(),)),
+        store=_Store((_loaded_job(),)),
+        index=index,
+    )
+
+    with pytest.raises(IndexUnavailableError) as raised:
+        service.list_projects()
+
+    assert raised.value.code == "INDEX_UNAVAILABLE"
     assert index.calls == 2
     assert index.rebuild_calls == 1
 
