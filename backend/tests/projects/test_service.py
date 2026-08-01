@@ -7,6 +7,7 @@ import pytest
 from PIL import Image
 
 from aimctexturegen.catalog.registry import CatalogRegistry
+from aimctexturegen.index.service import IndexUnavailableError
 from aimctexturegen.projects.models import (
     ProjectManifest,
     ProjectSummary,
@@ -124,12 +125,12 @@ class RecordingIndex:
     def upsert_project(self, manifest: ProjectManifest) -> None:
         self.upserts.append(manifest)
         if self.fail_upsert:
-            raise OSError("injected index upsert failure")
+            raise IndexUnavailableError()
 
     def list_projects(self) -> tuple[ProjectSummary, ...]:
         self.list_calls += 1
         if self.fail_list:
-            raise OSError("injected index list failure")
+            raise IndexUnavailableError()
         return self.projects
 
     def rebuild(self) -> None:
@@ -151,13 +152,13 @@ def _service(
     )
 
 
-def test_import_is_disk_authoritative_and_repairs_one_index_failure(
+def test_import_is_disk_authoritative_when_index_upsert_succeeds(
     tmp_path: Path,
 ) -> None:
     projects_root = tmp_path / "projects"
     manifest = _manifest(UUID("11111111-1111-4111-8111-111111111111"))
     workspace = RecordingWorkspace(projects_root, manifest)
-    index = RecordingIndex(fail_upsert=True)
+    index = RecordingIndex()
     service = _service(projects_root, workspace, index)
     source = tmp_path / "source.zip"
     source.write_bytes(b"synthetic")
@@ -167,17 +168,17 @@ def test_import_is_disk_authoritative_and_repairs_one_index_failure(
     assert imported == manifest
     assert workspace.calls == [(source, "Imported")]
     assert index.upserts == [manifest]
-    assert index.rebuild_calls == 1
+    assert index.rebuild_calls == 0
     assert (projects_root / str(manifest.project_id) / "project.json").is_file()
 
 
-def test_import_reports_second_index_failure_without_deleting_project(
+def test_import_maps_central_index_failure_without_a_second_repair(
     tmp_path: Path,
 ) -> None:
     projects_root = tmp_path / "projects"
     manifest = _manifest(UUID("22222222-2222-4222-8222-222222222222"))
     workspace = RecordingWorkspace(projects_root, manifest)
-    index = RecordingIndex(fail_upsert=True, fail_rebuild=True)
+    index = RecordingIndex(fail_upsert=True)
     service = _service(projects_root, workspace, index)
     source = tmp_path / "source.zip"
     source.write_bytes(b"synthetic")
@@ -186,7 +187,7 @@ def test_import_reports_second_index_failure_without_deleting_project(
         service.import_pack(source, "Imported")
 
     assert captured.value.code == "INDEX_UNAVAILABLE"
-    assert index.rebuild_calls == 1
+    assert index.rebuild_calls == 0
     assert (projects_root / str(manifest.project_id) / "project.json").is_file()
 
 
@@ -203,7 +204,7 @@ def test_get_and_list_projects_return_service_contracts(tmp_path: Path) -> None:
     assert index.list_calls == 1
 
 
-def test_list_projects_rebuilds_and_retries_one_failed_query(
+def test_list_projects_maps_central_index_failure_without_a_second_repair(
     tmp_path: Path,
 ) -> None:
     projects_root = tmp_path / "projects"
@@ -216,8 +217,8 @@ def test_list_projects_rebuilds_and_retries_one_failed_query(
         service.list_projects()
 
     assert captured.value.code == "INDEX_UNAVAILABLE"
-    assert index.list_calls == 2
-    assert index.rebuild_calls == 1
+    assert index.list_calls == 1
+    assert index.rebuild_calls == 0
 
 
 def test_coverage_uses_opened_working_copy_and_matching_catalog(

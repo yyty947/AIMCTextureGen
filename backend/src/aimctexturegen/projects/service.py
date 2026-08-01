@@ -8,6 +8,7 @@ from uuid import UUID
 
 from aimctexturegen.catalog.models import CatalogProfile
 from aimctexturegen.catalog.registry import UnsupportedPackFormat
+from aimctexturegen.index.service import IndexUnavailableError
 from aimctexturegen.packs.coverage import (
     CoverageReport,
     CoverageValidationError,
@@ -35,8 +36,6 @@ class ProjectIndexPort(Protocol):
 
     def list_projects(self) -> tuple[ProjectSummary, ...]: ...
 
-    def rebuild(self) -> None: ...
-
 
 class ProjectServiceError(Exception):
     """A stable project-domain failure independent of FastAPI."""
@@ -62,10 +61,6 @@ class RepositoryProjectIndex:
             for manifest in self._repository.list_manifests().manifests
         )
 
-    def rebuild(self) -> None:
-        self._repository.list_manifests()
-
-
 class ProjectService:
     """Compose project import, open, listing, and coverage behavior."""
 
@@ -85,16 +80,13 @@ class ProjectService:
         )
 
     def import_pack(self, source: Path, project_name: str) -> ProjectManifest:
-        """Import to canonical disk first, then repair the disposable index."""
+        """Import to canonical disk first, then update the disposable index."""
 
         manifest = self._workspace.import_pack(source, project_name)
         try:
             self._index.upsert_project(manifest)
-        except Exception:
-            try:
-                self._index.rebuild()
-            except Exception as error:
-                raise _service_error("INDEX_UNAVAILABLE") from error
+        except IndexUnavailableError as error:
+            raise _service_error("INDEX_UNAVAILABLE") from error
         return manifest
 
     def get_project(self, project_id: UUID) -> ProjectManifest:
@@ -104,12 +96,8 @@ class ProjectService:
     def list_projects(self) -> tuple[ProjectSummary, ...]:
         try:
             return self._index.list_projects()
-        except Exception:
-            try:
-                self._index.rebuild()
-                return self._index.list_projects()
-            except Exception as error:
-                raise _service_error("INDEX_UNAVAILABLE") from error
+        except IndexUnavailableError as error:
+            raise _service_error("INDEX_UNAVAILABLE") from error
 
     def get_coverage(self, project_id: UUID) -> CoverageReport:
         with self._repository.open(project_id) as opened:

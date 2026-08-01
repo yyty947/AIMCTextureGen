@@ -216,6 +216,41 @@ def test_service_rebuilds_summaries_from_canonical_models(tmp_path):
     assert b"assets/minecraft" not in database_bytes
 
 
+def test_semantic_row_corruption_rebuilds_once_then_retries(
+    tmp_path,
+    monkeypatch,
+):
+    projects_root = tmp_path / "projects"
+    projects_root.mkdir()
+    index = ProjectIndex(projects_root)
+    index.upsert_project(_manifest())
+    connection = sqlite3.connect(index.database_path)
+    try:
+        connection.execute(
+            "UPDATE projects SET updated_at = 'not-a-timestamp'"
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    replace_calls = 0
+    original_replace_snapshot = index.replace_snapshot
+
+    def counting_replace_snapshot(snapshot):
+        nonlocal replace_calls
+        replace_calls += 1
+        original_replace_snapshot(snapshot)
+
+    monkeypatch.setattr(index, "replace_snapshot", counting_replace_snapshot)
+    service = IndexService(
+        repository=_Repository((_manifest(),)),
+        store=_Store((_loaded_job(),)),
+        index=index,
+    )
+
+    assert service.list_projects() == (_project_summary(),)
+    assert replace_calls == 1
+
+
 def test_rebuild_cannot_erase_a_concurrent_job_upsert(tmp_path):
     projects_root = tmp_path / "projects"
     projects_root.mkdir()

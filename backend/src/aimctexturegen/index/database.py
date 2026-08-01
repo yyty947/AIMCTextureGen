@@ -41,6 +41,12 @@ _CANDIDATE_STATUS_CHECK = """
         )
     )
 """
+
+
+class IndexCorruptionError(sqlite3.DatabaseError):
+    """A structurally readable index row violates the summary contract."""
+
+
 _CREATE_PROJECTS = f"""
 CREATE TABLE projects (
     project_id TEXT PRIMARY KEY CHECK ({_UUID_CHECK.format(column="project_id")}),
@@ -459,40 +465,50 @@ def _job_values(summary: JobSummary) -> tuple[object, ...]:
 
 
 def _project_from_row(row: sqlite3.Row) -> ProjectSummary:
-    return ProjectSummary(
-        project_id=UUID(row["project_id"]),
-        project_name=row["project_name"],
-        edition=row["edition"],
-        java_pack_format=row["java_pack_format"],
-        catalog_id=row["catalog_id"],
-        created_at=_decode_timestamp(row["created_at"]),
-        updated_at=_decode_timestamp(row["updated_at"]),
-    )
+    try:
+        return ProjectSummary(
+            project_id=UUID(row["project_id"]),
+            project_name=row["project_name"],
+            edition=row["edition"],
+            java_pack_format=row["java_pack_format"],
+            catalog_id=row["catalog_id"],
+            created_at=_decode_timestamp(row["created_at"]),
+            updated_at=_decode_timestamp(row["updated_at"]),
+        )
+    except (AttributeError, OverflowError, TypeError, ValueError) as error:
+        raise IndexCorruptionError(
+            "index row is semantically invalid"
+        ) from error
 
 
 def _job_from_row(row: sqlite3.Row) -> JobSummary:
-    retry_of_job_id = row["retry_of_job_id"]
-    return JobSummary(
-        job_id=UUID(row["job_id"]),
-        project_id=UUID(row["project_id"]),
-        retry_of_job_id=(
-            None if retry_of_job_id is None else UUID(retry_of_job_id)
-        ),
-        target_semantic_id=row["target_semantic_id"],
-        target_display_name=row["target_display_name"],
-        resolution=row["resolution"],
-        parallelism=row["parallelism"],
-        status=row["status"],
-        revision=row["revision"],
-        candidate_statuses=(
-            row["candidate_status_0"],
-            row["candidate_status_1"],
-            row["candidate_status_2"],
-            row["candidate_status_3"],
-        ),
-        created_at=_decode_timestamp(row["created_at"]),
-        updated_at=_decode_timestamp(row["updated_at"]),
-    )
+    try:
+        retry_of_job_id = row["retry_of_job_id"]
+        return JobSummary(
+            job_id=UUID(row["job_id"]),
+            project_id=UUID(row["project_id"]),
+            retry_of_job_id=(
+                None if retry_of_job_id is None else UUID(retry_of_job_id)
+            ),
+            target_semantic_id=row["target_semantic_id"],
+            target_display_name=row["target_display_name"],
+            resolution=row["resolution"],
+            parallelism=row["parallelism"],
+            status=row["status"],
+            revision=row["revision"],
+            candidate_statuses=(
+                row["candidate_status_0"],
+                row["candidate_status_1"],
+                row["candidate_status_2"],
+                row["candidate_status_3"],
+            ),
+            created_at=_decode_timestamp(row["created_at"]),
+            updated_at=_decode_timestamp(row["updated_at"]),
+        )
+    except (AttributeError, OverflowError, TypeError, ValueError) as error:
+        raise IndexCorruptionError(
+            "index row is semantically invalid"
+        ) from error
 
 
 def _encode_timestamp(value: datetime) -> str:

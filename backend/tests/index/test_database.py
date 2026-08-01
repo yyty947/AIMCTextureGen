@@ -151,6 +151,29 @@ def test_project_queries_sort_instants_and_return_frozen_summaries(tmp_path):
         summaries[0].project_name = "changed"  # type: ignore[misc]
 
 
+def test_semantically_invalid_row_raises_dedicated_index_corruption_error(
+    tmp_path,
+):
+    projects_root = tmp_path / "projects"
+    projects_root.mkdir()
+    index = ProjectIndex(projects_root)
+    index.upsert_project(_manifest())
+    connection = sqlite3.connect(index.database_path)
+    try:
+        connection.execute(
+            "UPDATE projects SET updated_at = 'not-a-timestamp'"
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    with pytest.raises(sqlite3.DatabaseError) as raised:
+        index.list_projects()
+
+    assert type(raised.value).__name__ == "IndexCorruptionError"
+    assert str(raised.value) == "index row is semantically invalid"
+
+
 def test_job_queries_sort_and_preserve_retry_lineage(tmp_path):
     projects_root = tmp_path / "projects"
     projects_root.mkdir()
