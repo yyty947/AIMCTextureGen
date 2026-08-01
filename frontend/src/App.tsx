@@ -1,14 +1,32 @@
-import { useState, type ChangeEvent, type FormEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+} from "react";
 
 import {
   ApiRequestError,
   MAX_PROJECT_NAME_LENGTH,
   getCoverage,
+  getJob,
+  getProject,
+  getRecoveryReport,
   importProject,
+  invalidResponseError,
+  listJobs,
+  listProjects,
   type ApiError,
   type CoverageReport,
+  type JobDetail,
+  type JobSummary,
   type ProjectManifest,
+  type ProjectSummary,
+  type RecoveryReport,
 } from "./api";
+import JobHistory, { type JobHistoryEntry } from "./JobHistory";
+import ProjectList from "./ProjectList";
 
 export default function App() {
   const [projectName, setProjectName] = useState("");
@@ -19,9 +37,54 @@ export default function App() {
   const [activeRequest, setActiveRequest] = useState<
     "idle" | "import" | "coverage"
   >("idle");
+  const [projects, setProjects] = useState<readonly ProjectSummary[]>([]);
+  const [projectsLoading, setProjectsLoading] = useState(true);
+  const [projectsError, setProjectsError] = useState<ApiError | null>(null);
+  const [recovery, setRecovery] = useState<RecoveryReport | null>(null);
+  const [recoveryLoading, setRecoveryLoading] = useState(true);
+  const [recoveryError, setRecoveryError] = useState<ApiError | null>(null);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [dashboardLoading, setDashboardLoading] = useState(false);
+  const [dashboardError, setDashboardError] = useState<ApiError | null>(null);
   const [manifest, setManifest] = useState<ProjectManifest | null>(null);
   const [coverage, setCoverage] = useState<CoverageReport | null>(null);
+  const [jobs, setJobs] = useState<readonly JobHistoryEntry[]>([]);
+  const [pendingImportedProject, setPendingImportedProject] =
+    useState<ProjectManifest | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
+  const componentGeneration = useRef(0);
+  const dashboardRequest = useRef(0);
+  const coverageRequest = useRef(0);
+  const operationGeneration = useRef(0);
+  const projectsEpoch = useRef(0);
+  const projectsRequestGeneration = useRef(0);
+  const recoveryRequestGeneration = useRef(0);
+  const selectedProject = useRef<string | null>(null);
+
+  useEffect(() => {
+    const generation = componentGeneration.current + 1;
+    componentGeneration.current = generation;
+    void refreshProjects();
+    void refreshRecovery();
+    return () => {
+      if (componentGeneration.current === generation) {
+        componentGeneration.current = generation + 1;
+      }
+      dashboardRequest.current += 1;
+      coverageRequest.current += 1;
+      operationGeneration.current += 1;
+      projectsEpoch.current += 1;
+      projectsRequestGeneration.current += 1;
+      recoveryRequestGeneration.current += 1;
+      selectedProject.current = null;
+    };
+  }, []);
+
+  function isCurrentComponentGeneration(generation: number): boolean {
+    return (
+      generation !== 0 && componentGeneration.current === generation
+    );
+  }
 
   const trimmedProjectName = projectName.trim();
   const projectNameLength = Array.from(trimmedProjectName).length;
@@ -30,7 +93,7 @@ export default function App() {
     projectNameLength <= MAX_PROJECT_NAME_LENGTH &&
     pack !== null;
   const isBusy = activeRequest !== "idle";
-  const needsCoverageRetry = manifest !== null && coverage === null;
+  const needsCoverageRetry = pendingImportedProject !== null;
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -38,19 +101,68 @@ export default function App() {
       return;
     }
 
+    const componentRequestGeneration = componentGeneration.current;
+    const operationRequestGeneration = operationGeneration.current + 1;
+    operationGeneration.current = operationRequestGeneration;
     setActiveRequest("import");
     setError(null);
-    setManifest(null);
-    setCoverage(null);
+    let importedProjectId: string | null = null;
+    let importedCoverageRequestId: number | null = null;
     try {
       const imported = await importProject(trimmedProjectName, pack);
+      if (!isCurrentComponentGeneration(componentRequestGeneration)) {
+        return;
+      }
+      if (operationGeneration.current !== operationRequestGeneration) {
+        projectsEpoch.current += 1;
+        setProjects((current) =>
+          mergeImportedProject(current, summaryFromManifest(imported)),
+        );
+        return;
+      }
+      importedProjectId = imported.projectId;
+      dashboardRequest.current += 1;
+      projectsEpoch.current += 1;
+      selectedProject.current = imported.projectId;
+      setDashboardError(null);
+      setSelectedProjectId(imported.projectId);
+      setDashboardLoading(false);
+      setPendingImportedProject(imported);
       setManifest(imported);
+      setCoverage(null);
+      setJobs([]);
+      setProjects((current) =>
+        mergeImportedProject(current, summaryFromManifest(imported)),
+      );
+      importedCoverageRequestId = coverageRequest.current + 1;
+      coverageRequest.current = importedCoverageRequestId;
       const report = await getCoverage(imported.projectId);
-      setCoverage(report);
+      if (
+        isCurrentComponentGeneration(componentRequestGeneration) &&
+        operationGeneration.current === operationRequestGeneration &&
+        coverageRequest.current === importedCoverageRequestId &&
+        selectedProject.current === imported.projectId
+      ) {
+        setCoverage(report);
+        setPendingImportedProject(null);
+      }
     } catch (cause) {
-      setError(toApiError(cause));
+      if (
+        isCurrentComponentGeneration(componentRequestGeneration) &&
+        operationGeneration.current === operationRequestGeneration &&
+        (importedCoverageRequestId === null ||
+          (coverageRequest.current === importedCoverageRequestId &&
+            selectedProject.current === importedProjectId))
+      ) {
+        setError(toApiError(cause));
+      }
     } finally {
-      setActiveRequest("idle");
+      if (
+        isCurrentComponentGeneration(componentRequestGeneration) &&
+        operationGeneration.current === operationRequestGeneration
+      ) {
+        setActiveRequest("idle");
+      }
     }
   }
 
@@ -71,29 +183,196 @@ export default function App() {
   }
 
   async function handleCoverageRetry() {
-    if (manifest === null || isBusy) {
+    if (pendingImportedProject === null || isBusy) {
       return;
     }
 
+    const projectId = pendingImportedProject.projectId;
+    const componentRequestGeneration = componentGeneration.current;
+    const operationRequestGeneration = operationGeneration.current + 1;
+    operationGeneration.current = operationRequestGeneration;
+    const requestId = coverageRequest.current + 1;
+    coverageRequest.current = requestId;
     setActiveRequest("coverage");
     try {
-      const report = await getCoverage(manifest.projectId);
-      setCoverage(report);
-      setError(null);
+      const report = await getCoverage(projectId);
+      if (
+        isCurrentComponentGeneration(componentRequestGeneration) &&
+        operationGeneration.current === operationRequestGeneration &&
+        coverageRequest.current === requestId &&
+        selectedProject.current === projectId
+      ) {
+        setCoverage(report);
+        setPendingImportedProject(null);
+        setError(null);
+      }
     } catch (cause) {
-      setError(toApiError(cause));
+      if (
+        isCurrentComponentGeneration(componentRequestGeneration) &&
+        operationGeneration.current === operationRequestGeneration &&
+        coverageRequest.current === requestId &&
+        selectedProject.current === projectId
+      ) {
+        setError(toApiError(cause));
+      }
     } finally {
-      setActiveRequest("idle");
+      if (
+        isCurrentComponentGeneration(componentRequestGeneration) &&
+        operationGeneration.current === operationRequestGeneration &&
+        coverageRequest.current === requestId
+      ) {
+        setActiveRequest("idle");
+      }
+    }
+  }
+
+  async function refreshProjects() {
+    const componentRequestGeneration = componentGeneration.current;
+    const requestGeneration = projectsRequestGeneration.current + 1;
+    projectsRequestGeneration.current = requestGeneration;
+    const requestEpoch = projectsEpoch.current;
+    setProjectsLoading(true);
+    try {
+      const loadedProjects = await listProjects();
+      if (
+        !isCurrentComponentGeneration(componentRequestGeneration) ||
+        projectsRequestGeneration.current !== requestGeneration
+      ) {
+        return;
+      }
+      if (projectsEpoch.current === requestEpoch) {
+        setProjects(loadedProjects);
+      } else {
+        setProjects((current) => mergeProjectLists(current, loadedProjects));
+      }
+      setProjectsError(null);
+    } catch (cause) {
+      if (
+        isCurrentComponentGeneration(componentRequestGeneration) &&
+        projectsRequestGeneration.current === requestGeneration &&
+        projectsEpoch.current === requestEpoch
+      ) {
+        setProjectsError(toApiError(cause));
+      }
+    } finally {
+      if (
+        isCurrentComponentGeneration(componentRequestGeneration) &&
+        projectsRequestGeneration.current === requestGeneration
+      ) {
+        setProjectsLoading(false);
+      }
+    }
+  }
+
+  async function refreshRecovery() {
+    const componentRequestGeneration = componentGeneration.current;
+    const requestGeneration = recoveryRequestGeneration.current + 1;
+    recoveryRequestGeneration.current = requestGeneration;
+    setRecoveryLoading(true);
+    try {
+      const report = await getRecoveryReport();
+      if (
+        !isCurrentComponentGeneration(componentRequestGeneration) ||
+        recoveryRequestGeneration.current !== requestGeneration
+      ) {
+        return;
+      }
+      setRecovery(report);
+      setRecoveryError(null);
+    } catch (cause) {
+      if (
+        isCurrentComponentGeneration(componentRequestGeneration) &&
+        recoveryRequestGeneration.current === requestGeneration
+      ) {
+        setRecoveryError(toApiError(cause));
+      }
+    } finally {
+      if (
+        isCurrentComponentGeneration(componentRequestGeneration) &&
+        recoveryRequestGeneration.current === requestGeneration
+      ) {
+        setRecoveryLoading(false);
+      }
+    }
+  }
+
+  function handleProjectSelect(projectId: string) {
+    operationGeneration.current += 1;
+    coverageRequest.current += 1;
+    selectedProject.current = projectId;
+    setActiveRequest("idle");
+    setSelectedProjectId(projectId);
+    setPendingImportedProject(null);
+    setError(null);
+    setDashboardError(null);
+    setManifest(null);
+    setCoverage(null);
+    setJobs([]);
+    void loadProjectDashboard(projectId);
+  }
+
+  async function loadProjectDashboard(projectId: string) {
+    const componentRequestGeneration = componentGeneration.current;
+    const requestId = dashboardRequest.current + 1;
+    dashboardRequest.current = requestId;
+    setDashboardLoading(true);
+    try {
+      const [loadedManifest, loadedCoverage, summaries] = await Promise.all([
+        getProject(projectId),
+        getCoverage(projectId),
+        listJobs(projectId),
+      ]);
+      if (
+        !isCurrentComponentGeneration(componentRequestGeneration) ||
+        dashboardRequest.current !== requestId ||
+        selectedProject.current !== projectId
+      ) {
+        return;
+      }
+      const details = await Promise.all(
+        summaries.map((summary) => getJob(projectId, summary.jobId)),
+      );
+      if (
+        !isCurrentComponentGeneration(componentRequestGeneration) ||
+        dashboardRequest.current !== requestId ||
+        selectedProject.current !== projectId
+      ) {
+        return;
+      }
+      setManifest(loadedManifest);
+      setCoverage(loadedCoverage);
+      setJobs(
+        summaries.map((summary, index) =>
+          reconcileJobHistory(summary, details[index]),
+        ),
+      );
+      setDashboardError(null);
+    } catch (cause) {
+      if (
+        isCurrentComponentGeneration(componentRequestGeneration) &&
+        dashboardRequest.current === requestId &&
+        selectedProject.current === projectId
+      ) {
+        setDashboardError(toApiError(cause));
+      }
+    } finally {
+      if (
+        isCurrentComponentGeneration(componentRequestGeneration) &&
+        dashboardRequest.current === requestId &&
+        selectedProject.current === projectId
+      ) {
+        setDashboardLoading(false);
+      }
     }
   }
 
   return (
     <main className="app-shell">
       <header className="hero">
-        <p className="eyebrow">AIMCTextureGen / Phase 1</p>
-        <h1>导入 Java 资源包</h1>
+        <p className="eyebrow">AIMCTextureGen / 项目面板</p>
+        <h1 className="hero-title">Java 资源包项目</h1>
         <p className="intro">
-          上传 ZIP，建立只读快照与独立工作副本，并查看当前目录配置下的材质覆盖情况。
+          导入新资源包或恢复已有项目，查看覆盖情况与持久化任务历史。
         </p>
       </header>
 
@@ -169,11 +448,182 @@ export default function App() {
           onCoverageRetry={handleCoverageRetry}
         />
       )}
-      {manifest !== null && coverage !== null && (
-        <CoverageSummary manifest={manifest} coverage={coverage} />
+
+      {(recovery?.issues.length ?? 0) > 0 && (
+        <RecoveryWarning report={recovery as RecoveryReport} />
       )}
+      {recoveryError !== null && (
+        <InlineRequestError
+          title="恢复报告读取失败"
+          error={recoveryError}
+          retryLabel="重试恢复报告"
+          isRetrying={recoveryLoading}
+          onRetry={() => void refreshRecovery()}
+        />
+      )}
+
+      <div className="dashboard-layout">
+        <section className="panel project-navigation">
+          <ProjectList
+            projects={projects}
+            selectedProjectId={selectedProjectId}
+            onSelect={handleProjectSelect}
+          />
+          {projectsLoading && <p className="loading-note">正在读取已有项目…</p>}
+          {projectsError !== null && (
+            <InlineRequestError
+              title="项目列表读取失败"
+              error={projectsError}
+              retryLabel="重试项目列表"
+              isRetrying={projectsLoading}
+              onRetry={() => void refreshProjects()}
+            />
+          )}
+        </section>
+
+        <section
+          className="panel project-dashboard"
+          aria-label="所选项目概览"
+          aria-busy={dashboardLoading}
+        >
+          {selectedProjectId === null ? (
+            <p className="empty-state">选择已有项目，或导入新的 Java 资源包。</p>
+          ) : dashboardLoading ? (
+            <p className="loading-note">正在读取项目覆盖与任务历史…</p>
+          ) : dashboardError !== null ? (
+            <InlineRequestError
+              title="当前项目读取失败"
+              error={dashboardError}
+              retryLabel="重试当前项目"
+              onRetry={() => void loadProjectDashboard(selectedProjectId)}
+            />
+          ) : manifest !== null && coverage !== null ? (
+            <>
+              <CoverageSummary manifest={manifest} coverage={coverage} />
+              <JobHistory jobs={jobs} />
+            </>
+          ) : (
+            <p className="empty-state">项目已创建，覆盖分析尚未完成。</p>
+          )}
+        </section>
+      </div>
     </main>
   );
+}
+
+function RecoveryWarning({ report }: { readonly report: RecoveryReport }) {
+  return (
+    <section className="panel recovery-warning" role="status">
+      <p className="eyebrow">启动恢复警告</p>
+      <h2>部分损坏记录已隔离</h2>
+      <p>
+        有效项目仍可正常打开；应用没有猜测、修改或删除损坏的 JSON 记录。
+      </p>
+      <ul>
+        {report.issues.map((issue, index) => (
+          <li key={`${issue.projectId}:${issue.jobId ?? "project"}:${issue.code}:${index}`}>
+            <strong>{issue.code}</strong>：{issue.userMessage}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function InlineRequestError({
+  title,
+  error,
+  retryLabel,
+  isRetrying = false,
+  onRetry,
+}: {
+  readonly title: string;
+  readonly error: ApiError;
+  readonly retryLabel: string;
+  readonly isRetrying?: boolean;
+  readonly onRetry: () => void;
+}) {
+  return (
+    <div className="inline-error" role="alert">
+      <h3>{title}</h3>
+      <p>{error.userMessage}</p>
+      <button
+        aria-busy={isRetrying}
+        className="retry-button"
+        disabled={isRetrying}
+        type="button"
+        onClick={onRetry}
+      >
+        {isRetrying ? `正在${retryLabel}…` : retryLabel}
+      </button>
+    </div>
+  );
+}
+
+function summaryFromManifest(manifest: ProjectManifest): ProjectSummary {
+  return {
+    projectId: manifest.projectId,
+    projectName: manifest.projectName,
+    edition: manifest.edition,
+    javaPackFormat: manifest.javaPackFormat,
+    catalogId: manifest.catalogId,
+    createdAt: manifest.createdAt,
+    updatedAt: manifest.updatedAt,
+  };
+}
+
+function mergeImportedProject(
+  projects: readonly ProjectSummary[],
+  imported: ProjectSummary,
+): readonly ProjectSummary[] {
+  return mergeProjectLists([imported], projects);
+}
+
+function mergeProjectLists(
+  preferred: readonly ProjectSummary[],
+  incoming: readonly ProjectSummary[],
+): readonly ProjectSummary[] {
+  const preferredIds = new Set(preferred.map((project) => project.projectId));
+  return [
+    ...preferred,
+    ...incoming.filter((project) => !preferredIds.has(project.projectId)),
+  ];
+}
+
+function reconcileJobHistory(
+  summary: JobSummary,
+  detail: JobDetail,
+): JobHistoryEntry {
+  const { request, state } = detail;
+  if (
+    summary.jobId !== request.jobId ||
+    summary.projectId !== request.projectId ||
+    summary.retryOfJobId !== request.retryOfJobId ||
+    summary.targetSemanticId !== request.targetSemanticId ||
+    summary.targetDisplayName !== request.targetDisplayName ||
+    summary.resolution !== request.resolution ||
+    summary.parallelism !== request.parallelism ||
+    summary.createdAt !== request.createdAt
+  ) {
+    throw invalidResponseError(
+      new TypeError("Job list and detail immutable fields do not match"),
+    );
+  }
+  return {
+    summary: {
+      ...summary,
+      status: state.status,
+      revision: state.revision,
+      candidateStatuses: [
+        state.candidates[0].status,
+        state.candidates[1].status,
+        state.candidates[2].status,
+        state.candidates[3].status,
+      ],
+      updatedAt: state.updatedAt,
+    },
+    detail,
+  };
 }
 
 function ErrorPanel({

@@ -10,4 +10,5 @@ frontend/dist/
 *.tsbuildinfo
 runtime/
 /projects/
+/.generated/
 *.log

@@ -17,7 +17,11 @@ from pydantic import ValidationError
 import aimctexturegen.projects.workspace as workspace_module
 from aimctexturegen.catalog.registry import CatalogRegistry
 from aimctexturegen.packs.java_adapter import JavaPackAdapter, PackValidationError
-from aimctexturegen.projects.models import MAX_PROJECT_MANIFEST_BYTES, ProjectManifest
+from aimctexturegen.projects.models import (
+    MAX_PROJECT_MANIFEST_BYTES,
+    ProjectManifest,
+    load_project_manifest,
+)
 from aimctexturegen.projects.workspace import ProjectWorkspace
 
 
@@ -118,13 +122,19 @@ def test_import_creates_snapshot_and_working_copy(
         "source_sha256",
         "created_at",
         "updated_at",
+        "default_resolution",
+        "default_parallelism",
+        "style_references",
     }
-    persisted = ProjectManifest.model_validate_json(
-        (project_root / "project.json").read_text("utf-8"),
-        strict=True,
+    persisted, migrated = load_project_manifest(
+        (project_root / "project.json").read_bytes()
     )
     assert persisted == manifest
-    assert persisted.schema_version == 1
+    assert migrated is False
+    assert persisted.schema_version == 2
+    assert persisted.default_resolution == 16
+    assert persisted.default_parallelism == 1
+    assert persisted.style_references == ()
     assert persisted.edition == "java"
     assert persisted.created_at.utcoffset() is not None
     assert persisted.updated_at.utcoffset() is not None
@@ -478,7 +488,7 @@ def test_corrupt_crc_in_normal_member_is_stable_and_cleans_stage(
 def _manifest_values() -> dict[str, object]:
     timestamp = datetime.now(timezone.utc)
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "project_id": uuid4(),
         "project_name": "Strict manifest",
         "edition": "java",
@@ -488,6 +498,9 @@ def _manifest_values() -> dict[str, object]:
         "source_sha256": "0" * 64,
         "created_at": timestamp,
         "updated_at": timestamp,
+        "default_resolution": 16,
+        "default_parallelism": 1,
+        "style_references": (),
     }
 
 
@@ -495,10 +508,12 @@ def _manifest_values() -> dict[str, object]:
     ("field", "invalid_value"),
     [
         ("schema_version", "1"),
-        ("schema_version", 2),
+        ("schema_version", 1),
         ("edition", "bedrock"),
         ("project_id", str(uuid4())),
         ("java_pack_format", "34"),
+        ("default_resolution", "16"),
+        ("default_parallelism", "1"),
         ("created_at", datetime.now()),
         ("updated_at", datetime.now()),
     ],

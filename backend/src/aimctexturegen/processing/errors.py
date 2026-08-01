@@ -9,6 +9,8 @@ from __future__ import annotations
 
 
 class ProcessingError(Exception):
+    """A stable, processing-domain failure with a user-safe code and message."""
+
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
         self.code = code

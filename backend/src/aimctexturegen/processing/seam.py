@@ -1,3 +1,5 @@
+"""Normalized horizontal and vertical wrap-seam scoring for RGB textures."""
+
 from __future__ import annotations
 
 import math

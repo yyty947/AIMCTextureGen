@@ -1,3 +1,5 @@
+"""Deterministic lower-median grid snapping for RGB candidate canvases."""
+
 from __future__ import annotations
 
 from PIL import Image

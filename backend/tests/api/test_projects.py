@@ -16,7 +16,9 @@ from PIL import Image
 from fastapi import FastAPI
 
 import aimctexturegen.main as main_module
+import aimctexturegen.projects.service as project_service_module
 from aimctexturegen.catalog.registry import CatalogRegistry
+from aimctexturegen.index.service import IndexUnavailableError
 from aimctexturegen.main import create_app
 from aimctexturegen.projects.models import ProjectManifest
 from aimctexturegen.projects.workspace import ProjectWorkspace
@@ -159,7 +161,7 @@ def write_project(
         stone.write_bytes(stone_png)
     timestamp = datetime.now(timezone.utc)
     manifest = ProjectManifest(
-        schema_version=1,
+        schema_version=2,
         project_id=project_id,
         project_name="Persisted Pack",
         edition="java",
@@ -169,6 +171,9 @@ def write_project(
         source_sha256="0" * 64,
         created_at=timestamp,
         updated_at=timestamp,
+        default_resolution=16,
+        default_parallelism=1,
+        style_references=(),
     )
     (project_directory / "project.json").write_text(
         manifest.model_dump_json(indent=2),
@@ -290,6 +295,56 @@ def test_unknown_project_returns_stable_not_found_error(tmp_path: Path) -> None:
         status_code=404,
         code="PROJECT_NOT_FOUND",
         stage="loading_project",
+    )
+
+
+def test_lists_projects_in_stable_summary_order(tmp_path: Path) -> None:
+    project_root = tmp_path / "projects"
+    first_id = uuid4()
+    second_id = uuid4()
+    write_project(project_root, project_id=first_id)
+    first_manifest_path = project_root / str(first_id) / "project.json"
+    first_document = json.loads(first_manifest_path.read_text(encoding="utf-8"))
+    first_document["project_name"] = "First"
+    first_document["updated_at"] = "2026-07-26T08:00:00Z"
+    first_manifest_path.write_text(
+        json.dumps(first_document),
+        encoding="utf-8",
+    )
+    write_project(project_root, project_id=second_id)
+    second_manifest_path = project_root / str(second_id) / "project.json"
+    second_document = json.loads(second_manifest_path.read_text(encoding="utf-8"))
+    second_document["project_name"] = "Second"
+    second_document["updated_at"] = "2026-07-27T08:00:00Z"
+    second_manifest_path.write_text(
+        json.dumps(second_document),
+        encoding="utf-8",
+    )
+    client = build_client(project_root)
+
+    response = client.get("/api/projects")
+
+    assert response.status_code == 200
+    assert [project["project_id"] for project in response.json()] == [
+        str(second_id),
+        str(first_id),
+    ]
+    assert [project["project_name"] for project in response.json()] == [
+        "Second",
+        "First",
+    ]
+    assert all(
+        set(project)
+        == {
+            "project_id",
+            "project_name",
+            "edition",
+            "java_pack_format",
+            "catalog_id",
+            "created_at",
+            "updated_at",
+        }
+        for project in response.json()
     )
 
 
@@ -473,6 +528,44 @@ def test_unexpected_import_error_is_logged_but_not_leaked_and_temp_is_removed(
     assert body["technical_details"] is None
     assert secret not in response.text
     assert list(project_root.iterdir()) == []
+
+
+def test_import_maps_index_failure_after_persisting_project(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    api_pack_zip_factory: Callable[[str, dict[str, bytes], int], Path],
+) -> None:
+    source = api_pack_zip_factory("index-failure.zip", {})
+    project_root = tmp_path / "projects"
+    client = build_client(project_root)
+
+    def fail_upsert(_index, _manifest):
+        raise IndexUnavailableError()
+
+    monkeypatch.setattr(
+        project_service_module.RepositoryProjectIndex,
+        "upsert_project",
+        fail_upsert,
+    )
+    with source.open("rb") as upload:
+        response = client.post(
+            "/api/projects/import",
+            data={"project_name": "Persisted despite index failure"},
+            files={"pack": ("index-failure.zip", upload, "application/zip")},
+        )
+
+    body = assert_stable_error(
+        response,
+        status_code=500,
+        code="INDEX_UNAVAILABLE",
+        stage="importing",
+    )
+    assert body["recommended_actions"] == [
+        "项目已成功保存；请从项目列表重新打开，或重启应用重建索引"
+    ]
+    persisted = list(project_root.iterdir())
+    assert len(persisted) == 1
+    assert (persisted[0] / "project.json").is_file()
 
 
 def test_open_upload_handle_blocks_replacement_and_cleanup_stays_scoped(

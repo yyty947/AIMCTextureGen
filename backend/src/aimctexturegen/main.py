@@ -1,7 +1,8 @@
 import logging
 import os
 import stat
-from dataclasses import dataclass
+from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
@@ -9,14 +10,24 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from aimctexturegen.api import jobs as jobs_api
 from aimctexturegen.api import projects as projects_api
+from aimctexturegen.api import system as system_api
 from aimctexturegen.catalog.models import CatalogProfile
 from aimctexturegen.catalog.registry import CatalogRegistry
 from aimctexturegen.core.errors import ApiProblem, problem_response
 from aimctexturegen.core.request_limits import ImportBodyLimitMiddleware
+from aimctexturegen.index.database import ProjectIndex
+from aimctexturegen.index.service import IndexService
+from aimctexturegen.jobs.models import CreateJobCommand
+from aimctexturegen.jobs.recovery import RecoveryReport, RecoveryService
+from aimctexturegen.jobs.service import JobService
+from aimctexturegen.jobs.store import JobStore, LoadedJob
 from aimctexturegen.packs.java_adapter import JavaPackAdapter
 from aimctexturegen.projects._directory_guard import is_reparse_point
 from aimctexturegen.projects.models import ProjectManifest
+from aimctexturegen.projects.repository import ProjectRepository
+from aimctexturegen.projects.service import ProjectService
 from aimctexturegen.projects.workspace import ProjectWorkspace
 
 
@@ -34,11 +45,99 @@ class CatalogService(Protocol):
     def for_pack_format(self, pack_format: int) -> CatalogProfile: ...
 
 
+class JobApplicationService(Protocol):
+    def create_job(
+        self,
+        project_id,
+        command: CreateJobCommand,
+    ) -> LoadedJob: ...
+
+
+class RecoveryRunner(Protocol):
+    def run(self) -> RecoveryReport: ...
+
+
 @dataclass(frozen=True)
 class AppServices:
     workspace: WorkspaceService
     catalogs: CatalogService
     project_root: Path
+    repository: ProjectRepository | None = None
+    project_service: ProjectService | None = None
+    job_store: JobStore | None = None
+    job_service: JobService | JobApplicationService | None = None
+    project_index: ProjectIndex | None = None
+    index_service: IndexService | None = None
+    recovery_service: RecoveryService | RecoveryRunner | None = None
+    _project_service_injected: bool = field(
+        init=False,
+        repr=False,
+        compare=False,
+    )
+
+    def __post_init__(self) -> None:
+        project_service_injected = self.project_service is not None
+        repository = (
+            ProjectRepository(self.project_root)
+            if self.repository is None
+            else self.repository
+        )
+        store = JobStore(repository) if self.job_store is None else self.job_store
+        project_index = (
+            ProjectIndex(self.project_root)
+            if self.project_index is None
+            else self.project_index
+        )
+        index_service = (
+            IndexService(
+                repository=repository,
+                store=store,
+                index=project_index,
+            )
+            if self.index_service is None
+            else self.index_service
+        )
+        project_service = (
+            ProjectService(
+                workspace=self.workspace,
+                repository=repository,
+                catalogs=self.catalogs,
+                index=index_service,
+            )
+            if self.project_service is None
+            else self.project_service
+        )
+        job_service = (
+            JobService(
+                repository=repository,
+                catalogs=self.catalogs,
+                store=store,
+                index=index_service,
+            )
+            if self.job_service is None
+            else self.job_service
+        )
+        recovery_service = (
+            RecoveryService(
+                repository=repository,
+                store=store,
+                index=index_service,
+            )
+            if self.recovery_service is None
+            else self.recovery_service
+        )
+        object.__setattr__(self, "repository", repository)
+        object.__setattr__(self, "project_service", project_service)
+        object.__setattr__(self, "job_store", store)
+        object.__setattr__(self, "job_service", job_service)
+        object.__setattr__(self, "project_index", project_index)
+        object.__setattr__(self, "index_service", index_service)
+        object.__setattr__(self, "recovery_service", recovery_service)
+        object.__setattr__(
+            self,
+            "_project_service_injected",
+            project_service_injected,
+        )
 
 
 def create_app(
@@ -67,8 +166,26 @@ def create_app(
         )
     elif project_root is not None or catalog_root is not None:
         raise ValueError("services cannot be combined with project_root or catalog_root")
-    app = FastAPI(title="AIMCTextureGen API", version="0.1.0")
+    @asynccontextmanager
+    async def lifespan(runtime_app: FastAPI):
+        _ensure_runtime_project_root(runtime_app.state.services.project_root)
+        recovery_service = runtime_app.state.services.recovery_service
+        if recovery_service is None:
+            raise RuntimeError("recovery service is unavailable")
+        runtime_app.state.recovery_report = recovery_service.run()
+        runtime_app.state.startup_complete = True
+        try:
+            yield
+        finally:
+            runtime_app.state.startup_complete = False
+
+    app = FastAPI(
+        title="AIMCTextureGen API",
+        version="0.1.0",
+        lifespan=lifespan,
+    )
     app.state.services = services
+    app.state.startup_complete = False
     app.state.max_import_bytes = (
         projects_api.MAX_IMPORT_BYTES
         if max_import_bytes is None
@@ -95,16 +212,25 @@ def create_app(
 
     @app.exception_handler(RequestValidationError)
     async def request_validation_handler(
-        _request: Request,
+        request: Request,
         _error: RequestValidationError,
     ):
+        is_job_request = "/jobs" in request.url.path
         return problem_response(
             ApiProblem(
                 status_code=422,
                 code="INVALID_REQUEST",
                 stage="request_validation",
-                user_message="请求格式无效；导入只接受项目名称和 ZIP 文件上传",
-                recommended_actions=("选择 ZIP 文件并重新提交",),
+                user_message=(
+                    "任务请求格式无效"
+                    if is_job_request
+                    else "请求格式无效；导入只接受项目名称和 ZIP 文件上传"
+                ),
+                recommended_actions=(
+                    ("检查任务参数后重新提交",)
+                    if is_job_request
+                    else ("选择 ZIP 文件并重新提交",)
+                ),
                 technical_details=None,
             )
         )
@@ -158,6 +284,8 @@ def create_app(
         return {"status": "ok", "schema_version": 1}
 
     app.include_router(projects_api.router)
+    app.include_router(jobs_api.router)
+    app.include_router(system_api.router)
 
     return app
 
@@ -175,6 +303,14 @@ def _resolve_project_root(project_root: Path) -> Path:
     ):
         raise ValueError("project root must be a plain directory, not a reparse point")
     return project_root.resolve()
+
+
+def _ensure_runtime_project_root(project_root: Path) -> None:
+    try:
+        project_root.mkdir(parents=True, exist_ok=True)
+    except OSError as error:
+        raise RuntimeError("project root cannot be created safely") from error
+    _resolve_project_root(project_root)
 
 
 app = create_app()

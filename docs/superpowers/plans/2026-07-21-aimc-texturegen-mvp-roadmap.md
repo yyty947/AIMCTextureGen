@@ -47,11 +47,31 @@ The MVP spans independent subsystems whose external versions and measured behavi
 
 ## Phase 3: Durable Jobs and Project Recovery
 
+**Executable plan:** [`2026-07-27-phase-3-durable-jobs-and-recovery.md`](2026-07-27-phase-3-durable-jobs-and-recovery.md)
+
 **Planned ownership:** `backend/src/aimctexturegen/jobs/`, `backend/src/aimctexturegen/index/`, project JSON schemas, and API/UI job history.
 
 **Deliverable:** Persisted request records, four seeds, candidate artifact layout, validated state transitions, cancellation/retry lineage, SQLite query index, index rebuild from project directories, and restart recovery.
 
-**Exit gate:** State-machine tests reject illegal transitions; deleting the SQLite index and rebuilding it preserves project/job visibility; restart integration tests recover completed and interrupted jobs without modifying pack files.
+**Exit gate (verified 2026-08-01):** `-W error` backend coverage gate passed
+616/616 tests at 89% total coverage; 6 frontend test files/113 tests and the
+Vite production build passed. The separate real-project restart audit deletes
+the SQLite index, migrates a schema-1 manifest, recovers an active task as
+`JOB_INTERRUPTED`, preserves queued/completed task state, restores project/job
+visibility, and proves the complete `source/` and `pack/` path-to-SHA-256 maps
+unchanged. A tracked deterministic PowerShell generator now produces the
+format-34 synthetic manual fixture at `.generated\phase-3-synthetic-pack.zip`
+with one covered and one missing catalog item, and its independent test passes.
+The final review regressions also prove serialized index rebuild/upsert,
+monotonic indexed revisions, malformed-sibling isolation, fail-closed active
+recovery, one-shot semantic/filesystem-index repair, ordered UI retries, Windows
+superscript device aliases, atomic cleanup error preservation, strict Gregorian
+timestamps and resolved favicon ARIA references. The user also confirmed
+import, queued-job persistence after service
+restart, and normal/400/600/900 px desktop presentation without horizontal
+overflow or clipped controls. This does not verify GPU, models, ComfyUI, a
+production catalog, candidate adoption, export, mobile support, or Java/Bedrock
+conversion.
 
 ## Phase 4: Managed ComfyUI and Model Profiles
 

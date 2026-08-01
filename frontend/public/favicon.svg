@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">AIMCTextureGen</title>
+  <rect width="64" height="64" rx="8" fill="#0f172a"/>
+  <path fill="#22c55e" d="M12 52V24h8v8h8v-8h8v8h8v-8h8v28h-8V40h-8v12h-8V40h-8v12zm8-20v8h8v-8z"/>
+  <rect x="12" y="12" width="40" height="6" fill="#86efac"/>
+</svg>

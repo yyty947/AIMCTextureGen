@@ -1,87 +1,78 @@
 # AIMCTextureGen 当前交接
 
-最后核对日期：2026-07-26
+最后核对日期：2026-08-01
 
 ## 当前状态
 
-- Phase 1 实现已通过合并提交 `3f6c352` 合入 `master`，阶段分支与 worktree 已删除；MIT LICENSE 由 `3eb153e`（GitHub 网页端提交）加入。
-- MVP 产品设计已在提交 `026dec8` 中确认。
-- 已完成第一阶段任务 1：FastAPI 应用工厂、`GET /api/health` 健康契约、固定后端依赖清单和健康契约测试已实现。
-- 已完成第一阶段任务 2：严格且禁止数值/布尔强制转换的目录 Pydantic 契约、规范且唯一的 `semantic_id`/`relative_path`、明确标记为 `development_fixture` 的格式 34 开发目录，以及确定性的主 `pack_format` 选择已实现。
-- 已完成第一阶段任务 3：ZIP 与目录资源包的只读检查、严格不可变结果契约、安全路径和大小写/拓扑冲突校验、单一根目录识别、`pack.mcmeta` 主格式解析及稳定错误映射已实现。ZIP 在读取前限制 4096 个成员、1 MiB `pack.mcmeta`、256 MiB 单成员、1 GiB 总展开量和 200:1 压缩率，并拒绝加密成员与非 stored/deflate 压缩。
-- 已完成第一阶段任务 4：ZIP 与目录导入会先完成检查和目录配置解析，再通过 `<project-id>.tmp` 建立不可变 ZIP 快照、工作副本和经重新验证的 `project.json`，最后原子重命名；工作副本写入期间逐级持有不共享删除权限的 Windows 原生目录句柄并核对 file ID、最终路径和 reparse 属性，逐块复制还会核对实际单成员/总字节数并把 CRC、截断、加密和压缩错误转换为稳定资源包错误。项目名称上限为 128 个 Unicode code point，清单发布前确认序列化大小低于 1 MiB 读取边界。快照在发布前重新核对身份和 SHA-256，失败只清理身份未变化且不含 junction/symlink/reparse point 的本次临时目录。
-- 已完成第一阶段任务 5：覆盖分类以精确、保留大小写的相对路径比对工作副本；标准目录 PNG 必须可解码，损坏文件会产生显式验证错误；未知候选仅包含 `assets/*/textures/` 下可解码的方形 PNG，目录 junction/symlink 不会被遍历。
-- 已完成第一阶段任务 6：FastAPI 提供仅接受 multipart ZIP 上传的项目导入、规范 UUID 项目清单和实时覆盖端点；纯 ASGI 中间件先限制整个请求体，专用增量 multipart 解析器再从 `Request.stream()` 把 ZIP 直接写入项目根内的身份受检临时文件，不创建 Starlette 或系统临时目录 spool，并继续精确限制文件字节数、项目名长度、boundary、单字段、单值、单 part 头总量、头数量及重复/未知字段。按字节碎片输入、pack-first 顺序和缺失/重复/未知字段均有协议测试；目标文件写入失败稳定映射为 `PROJECT_STORAGE_UNAVAILABLE` 500 并精确清理，而畸形请求仍为 400。覆盖分类全过程持有项目根、项目、`pack/` 和清单文件的原生句柄，已知错误统一映射为稳定错误信封，意外异常只在日志保留技术详情；应用工厂支持显式注入服务和测试用大小限制。
-- 已完成第一阶段任务 7：React WebUI 提供单列 ZIP 导入和覆盖摘要，使用类型化 FastAPI 客户端，显示资源格式、开发目录警告、已覆盖/未覆盖计数、缺失可生成条目与未知文件计数；成功响应会验证规范 UUID、64 位十六进制 SHA-256、带 `Z` 或显式偏移的 RFC 3339 时间戳和非负整数格式/计数，项目名称与后端一致按 Unicode code point 限制为 128。稳定 API 错误、网络错误、非 JSON 响应和形状错误的成功 JSON 均显示可读警报，新导入开始时会清除旧摘要。若项目导入成功但覆盖请求失败，界面会保留已创建项目并只重试覆盖分析，避免重复导入。文件选择会按不区分大小写的 `.zip` 后缀校验，并通过输入关联的文字说明错误。
-- 已完成第一阶段任务 8：合成 ZIP 的完整 API 导入流会核对原输入、持久化哈希和不可变快照 SHA-256，重新打开快照 ZIP、`project.json` 与工作副本，并精确验证格式 34 开发目录的一项已覆盖和一项缺失。审计负载超过 1 MiB；应用导入和 API 流程运行在 `-B` 独立子进程中，audit hook 只允许项目根内写入并阻断外部网络与子进程事件，因此当前成功结果同时证明大上传未写入外部 spool。2026-07-22 用户已在正常 Windows 桌面窗口和 400–900 px 宽的窄桌面窗口完成当前 multipart 实现的手工复验，页面显示和导入结果均正确。375 px 不再是产品验收条件，v0.1 不声明移动端支持。
-- 前端固定 Node.js 24.18.0；首次 lockfile 和验证使用经 Node.js 官方 `SHASUMS256.txt` 校验的便携 Windows x64 ZIP，SHA-256 为 `0ae68406b42d7725661da979b1403ec9926da205c6770827f33aac9d8f26e821`。当前没有 ComfyUI 集成；FastAPI 应用可由 `aimctexturegen.main:create_app` 创建，运行时默认项目根和目录根从仓库位置解析，不依赖当前 PowerShell 目录。
-- 当前没有需要迁移的用户项目数据；本地 `projects/` 下可能存在 2026-07-22 手工验收残留项目（已被 `.gitignore` 忽略，可安全删除）。
-- 第二阶段“确定性材质处理”已通过合并提交 `4f5ba49` 合入 `master`，新增 `backend/src/aimctexturegen/processing/`：`models.py`（`ProcessingReport` 报告契约，`schema_version` 1、`ALGORITHM_VERSION` 1、`SCORE_DECIMALS` 6、确定性 `dump_report_json`）、`errors.py`（`ProcessingError`）、`validation.py`（仅接受 RGB 或完全不透明 RGBA、正方形且边长可被 16/32/64 整除的画布）、`grid_snap.py`（逐格逐通道下位中位数网格吸附）、`seam.py`（归一化环绕缝隙分数）、`previews.py`（512px 最近邻预览与 1536px 3x3 平铺预览）、`palette.py`（确定性 median-cut 调色板限制）、`pipeline.py`（`process_candidate` 编排，原子 temp + `os.replace` 写入）；对应测试位于 `backend/tests/processing/`，含子进程隔离门禁（验证导入图中无 fastapi/torch/comfy/numpy）。实现期间两处计划偏差已同步进 `docs/superpowers/plans/2026-07-26-phase-2-deterministic-texture-processing.md`：Pillow 12.3 弃用 `Image.getdata()`，全部调用点改用 `get_flattened_data()`（提交 `3d53e97`）；新增的 `backend/tests/processing/test_models.py` 与既有 `backend/tests/packs/test_models.py` 同名，导致合并后 pytest 单次收集 `backend\tests` 时报 `import file mismatch`，已重命名为 `test_report_models.py`（提交 `672c666`）。
+第三阶段“持久化任务与项目恢复”已在分支
+`codex/phase-3-durable-jobs` 完成并具备评审证据。实现与加固提交为：
 
-## 已确认边界
+- Task 1：`a89c924`；Task 2：`d4ee5cf`、`2d32c78`、`9f06d6c`、`cd26604`；Task 3：`d7bad0a`、`100822e`。
+- Task 4：`a0dbb50`、`c19a756`、`f3ab034`；Task 5：`cbf6649`、`57073ff`、`2be0c80`；Task 6：`6ec87d7`、`2b15e21`。
+- Task 7：`85cbf75`、`8a0d903`；Task 8：`ac89bd0`、`9508b41`；Task 9：`9c16126`、`441cec3`、`051a032`、`21b050c`、`5244dad`。
+- Task 10 的 UI/浏览器修复：`9f71adacdfb2d55c8381d80fab7366b102fb87dd`；重启审计加固：`6fb7beb22e1e6518310066d88517042486d51d89`。
+- 最终评审修复波：`75b6806`、`00bb904`、`ad03538`、`f6d2f0e`、
+  `a11302f`、`e02d229`、`d587cae`、`0f41b03`、`678fb3a`、
+  `2358f61`、`efb719f`、`14496b1`、`a82c1c9`、`dfe80b8`。
 
-- v0.1 是 Windows 本地 Java 版普通方块单张生成闭环。
-- 导入资源包只读，应用在独立项目目录中保存快照和工作副本。
-- 目录只包含“什么标准路径应存在什么材质”的元数据，不包含具体原版贴图。
-- 不从 JAR 提取材质，不扫描用户硬盘定位 Minecraft。
-- 缺失材质默认不要求结构参考；用户可选上传一张，提供时走 img2img，否则走 text2img。
-- 风格参考从导入包内手动选择 1–8 张，通过 IP-Adapter 输入。
-- 每个任务固定四候选；用户选择逐张、两张或四张并行。
-- OOM 时显示易懂说明和建议，不自动降低并行数或其他参数。
-- 默认路线是 React + TypeScript + Vite、FastAPI 和应用托管的 ComfyUI；启动脚本打开浏览器，桌面壳后置。
+项目目录中的 schema-2 `project.json` 和任务 JSON 是权威数据；schema-1
+项目会只原子替换 `project.json`，保留 `source/` 与 `pack/`。任务在创建时
+持久化四个唯一 seed、请求与状态，SQLite 仅保存可从 JSON 重建的查询摘要。重启时
+会重建删除的索引，将 `generating`/`postprocessing` 任务恢复为
+`failed/JOB_INTERRUPTED`，并保留 queued/终态任务；审计逐路径比较 `source/` 和
+`pack/` 的 SHA-256 映射，二者均不得改变。运行中外部手工/强制改写项目文件仍按
+[`ADR-0001`](docs/adr/0001-running-project-mutation-boundary.md) 不受支持。
 
-## 当前工作入口
+最终评审修复波进一步保证：索引扫描—发布与增量写入按项目根目录串行化，任务
+revision 只能前进；坏任务 sibling 不再隐藏有效历史；活动任务恢复写失败会阻断
+启动；SQLite 语义坏值或索引文件系统错误只触发一次集中重建；前端项目列表与恢复报告只接受最新重试
+结果。Windows `COM¹`—`COM³`/`LPT¹`—`LPT³` 别名、原子临时文件清理、
+严格公历时间戳与 favicon ARIA 引用也已有回归覆盖。ADR-0001 的边界没有扩大，
+没有引入 TxF 或敌对外部 rename 防御。
 
-第二阶段已完成全分支终审并于 2026-07-26 合入 `master`（合并提交 `4f5ba49`），阶段分支与 worktree 已清理。下一步是按路线图撰写第三阶段“持久任务与项目恢复”的可执行计划。第三阶段计划应包含一节“第二阶段延后清理”前置项（终审裁定不阻塞合并、但须在第五阶段接入 GenerationService 之前落地）：`process_candidate` 前置校验 `resolution` 并以 `ProcessingError` 报错（当前晚至报告构造才校验，且产物已写出）；写入失败时清理 `.tmp` 残留；校验 `stem` 参数不含路径分隔符；补一条 RGBA 输入的端到端管线测试；补齐 processing 各模块 docstring。不要提前接入真实模型或构建完整生产目录。
+## 已验证的最终 Phase 3 门禁
 
-## 接手步骤
-
-1. 运行 `git status --short`，确认并保留当前未提交改动。
-2. 阅读 `AGENTS.md`、路线图和第二阶段计划文档，了解已合并的 processing 契约（`ProcessingReport`、`process_candidate` 等接口名跨阶段稳定）。
-3. 为第三阶段“持久任务与项目恢复”编写可执行计划（含上文列出的第二阶段延后清理前置项），并在实施前确认范围和验收条件。
-4. 不要在第三阶段接入真实模型、ComfyUI 或生产目录，除非路线图已明确该阶段范围包含它们。
-
-## 当前可用验证
-
-`master` 检出不自带 `.venv`。首次接手先用 Python 3.12 创建（系统默认 Python 版本更高时必须用 `py -3.12`）：
+在本 worktree 于 2026-08-01 实际运行：
 
 ```powershell
-py -3.12 -m venv .venv
-.\.venv\Scripts\python -m pip install -e ".\backend[dev]"
-```
-
-当前可运行后端验证：
-
-```powershell
-.\.venv\Scripts\python -W error -m pytest backend\tests\test_health.py -v
-.\.venv\Scripts\python -W error -m pytest backend\tests\catalog\test_registry.py -v
-.\.venv\Scripts\python -W error -m pytest backend\tests\packs\test_coverage.py -v
-.\.venv\Scripts\python -W error -m pytest backend\tests\packs -v
-.\.venv\Scripts\python -W error -m pytest backend\tests\projects -v
-.\.venv\Scripts\python -W error -m pytest backend\tests\api -v
+powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\tools\Generate-SyntheticPack.ps1
+.\.venv\Scripts\python -W error -m pytest backend\tests\tools\test_synthetic_pack_generator.py -vv
 .\.venv\Scripts\python -W error -m pytest backend\tests --cov=aimctexturegen --cov-report=term-missing
 Push-Location frontend
-..\runtime\node-v24.18.0-win-x64\npm.cmd test
-..\runtime\node-v24.18.0-win-x64\npm.cmd run build
-Pop-Location
+try {
+    ..\runtime\node-v24.18.0-win-x64\npm.cmd test
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    ..\runtime\node-v24.18.0-win-x64\npm.cmd run build
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+finally {
+    Pop-Location
+}
+.\.venv\Scripts\python -W error -m pytest backend\tests\integration\test_restart_recovery.py -vv
 git diff --check
 git status --short
 ```
 
-已于 2026-07-26 在合并后的 `master`（合并提交 `4f5ba49`，`.venv` Python 3.12.10）复跑门禁：后端 217 passed（第一阶段 165 项 + 第二阶段 `processing/` 52 项），使用 `-W error` 且无警告；前端 1 个测试文件 21 个测试通过，Vite 生产构建成功（本次已在合并结果上重新执行）。覆盖率基线记录自阶段分支提交 `672c666` 的带覆盖率门禁：总覆盖率 88%，`processing/` 各模块中 `errors.py`、`grid_snap.py`、`models.py`、`pipeline.py`、`previews.py`、`seam.py`、`validation.py` 均 100%，`palette.py` 97%（87 语句、3 未覆盖）。`git diff --check` 无输出。
+- 合成包生成器：独立测试 1/1 通过；默认生成
+  `.generated\phase-3-synthetic-pack.zip`，SHA-256 为
+  `8ec378c876fe12b17e784c2d03ee59e7ea8a6c1601d7bf00e0a36980e2d24478`，
+  分类为资源格式 34、1 covered、1 missing、0 unknown。ZIP 只含仓库自有的
+  `pack.mcmeta` 与纯合成 2×2 RGB PNG，不含 Mojang/Microsoft 资产。
+- 后端：Python 3.12.10、pytest 9.1.1，616/616 通过，3483 语句、392 未覆盖、总覆盖率 89%。
+- 前端：Vitest 4.1.10，6 个测试文件、113/113 通过；TypeScript 与
+  Vite 8.1.5 生产构建通过（19 个模块）。
+- 独立重启审计：1/1 通过；它在真实临时导入项目中删除 `index.sqlite3`、写入严格 schema-1 清单并启动第二个 repository/store/index/recovery 服务图，确认迁移回 schema 2、queued/active/completed 任务可见、active 变为 `JOB_INTERRUPTED`，以及 `source/`/`pack/` 的完整路径—SHA-256 映射完全相等。
+- `git diff --check` 通过，最终 tracked 工作树干净；`.generated/`、
+  `.superpowers/`、覆盖率与构建缓存保持忽略且未提交。
 
-## 需要在对应阶段确定的事项
+用户于 2026-08-01 确认：合成 Java 资源包导入、FastAPI 创建 queued Deepslate 任务、FastAPI/Vite 重启后的“已有项目”恢复均成功；格式 34、1 个 covered、1 个 missing、queued 行和 4 个 pending 候选仍可见。正常桌面及 400、600、900 px 窗口均无横向溢出或控件裁切；最终复验也确认桌面标题不再孤字换行、应用声明的 favicon 不再产生应用来源的 404。此前名为 `1` 的项目是早期失败命令留下的独立有效项目，不是成功流程造成的重复导入。Phase 3 验收范围内未发现未解决缺陷；移动端、真实 GPU/模型/ComfyUI、生产目录、候选采用与导出均未验证也未实现。
 
-以下内容尚未形成运行时事实，应在相应阶段通过调研、固定版本和测试后写入专门文档，不应由接手者凭记忆猜测：
+最终评审新增的重试顺序、错误恢复、路径别名、时间戳与 SVG 语义均由确定性
+自动化覆盖，不需要重复 UI 密集型人工测试。今后从干净 checkout 复现人工恢复
+门禁时，先运行受跟踪的合成包生成器，不再依赖 `.superpowers/` 中的本地工件。
 
-- 后端 Python、前端 Node 和包管理器的最终固定版本；
-- 首批生产 Java `pack_format` 配置及目录元数据来源；
-- ComfyUI、IP-Adapter 节点和 workflow 的兼容 commit；
-- 模型文件名、来源、许可证、大小和 SHA-256；
-- 16、32、64 三档的 LoRA 触发词、权重和实测参数；
-- 8 GB NVIDIA 环境下并行度 1、2、4 的实测显存和耗时。
+## 下一入口
 
-## 交接更新规则
+下一阶段仅为 Phase 4“托管 ComfyUI 与模型配置”的规划入口：先固定 runtime、ComfyUI/节点 commit、模型来源/许可证/SHA-256、确认式下载、健康检查、假服务 CI 与受支持 NVIDIA 环境的人工配置验证，再开始实现。不要在本阶段接入 GPU、模型、ComfyUI、生产目录、候选采用、导出、移动端或 Java/Bedrock 转换。
 
-每次里程碑结束时，将本文件更新为：已完成内容、当前真实测试命令与结果、下一个未完成任务、已知阻塞和相关文件。删除已经失效的临时说明，不在这里累积历史日志；历史由 Git、计划复选框和后续 CHANGELOG 承担。
-
+接手先阅读 `AGENTS.md`、路线图、Phase 4 计划（建立后）和设计规格；以当前代码与可重复验证结果为准。

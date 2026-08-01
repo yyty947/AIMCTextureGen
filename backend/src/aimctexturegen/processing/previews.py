@@ -1,3 +1,5 @@
+"""Nearest-neighbor preview generation for processed RGB textures."""
+
 from __future__ import annotations
 
 from PIL import Image
@@ -10,6 +12,7 @@ def _scale_for(side: int) -> int:
 
 
 def nearest_neighbor_preview(texture: Image.Image) -> Image.Image:
+    """Return a nearest-neighbor preview with the configured target-side scale."""
     scale = _scale_for(texture.width)
     return texture.resize(
         (texture.width * scale, texture.height * scale), Image.Resampling.NEAREST
@@ -17,6 +20,7 @@ def nearest_neighbor_preview(texture: Image.Image) -> Image.Image:
 
 
 def tile_3x3(texture: Image.Image) -> Image.Image:
+    """Return a nearest-neighbor preview of a 3-by-3 repeating texture tile."""
     side = texture.width
     tiled = Image.new("RGB", (side * 3, side * 3))
     for tile_y in range(3):
