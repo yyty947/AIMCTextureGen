@@ -175,6 +175,38 @@ def test_job_queries_sort_and_preserve_retry_lineage(tmp_path):
         summaries[0].revision = 99  # type: ignore[misc]
 
 
+def test_job_upsert_is_revision_monotonic_and_equal_revision_is_idempotent(
+    tmp_path,
+):
+    projects_root = tmp_path / "projects"
+    projects_root.mkdir()
+    index = ProjectIndex(projects_root)
+    index.upsert_project(_manifest())
+    initial = _job_summary()
+    newest = _job_summary(
+        status="completed",
+        revision=2,
+        updated_at=NOW + timedelta(minutes=2),
+    )
+    delayed_older = _job_summary(
+        status="queued",
+        revision=1,
+        updated_at=NOW + timedelta(minutes=1),
+    )
+    conflicting_equal = _job_summary(
+        status="failed",
+        revision=2,
+        updated_at=NOW + timedelta(minutes=3),
+    )
+
+    index.upsert_job(initial)
+    index.upsert_job(newest)
+    index.upsert_job(delayed_older)
+    index.upsert_job(conflicting_equal)
+
+    assert index.list_jobs(PROJECT_ID) == (newest,)
+
+
 @pytest.mark.parametrize(
     "column",
     (

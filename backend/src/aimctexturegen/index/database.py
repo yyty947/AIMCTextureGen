@@ -125,6 +125,7 @@ ON CONFLICT(job_id) DO UPDATE SET
     candidate_status_3 = excluded.candidate_status_3,
     created_at = excluded.created_at,
     updated_at = excluded.updated_at
+WHERE excluded.revision > jobs.revision
 """
 _PROJECT_SELECT = """
 SELECT project_id, project_name, edition, java_pack_format, catalog_id,
