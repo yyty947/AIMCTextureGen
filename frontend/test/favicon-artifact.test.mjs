@@ -8,6 +8,8 @@ import { spawnSync } from "node:child_process";
 
 import { afterAll, beforeAll, expect, it } from "vitest";
 
+import { cleanupFaviconArtifact } from "./favicon-artifact-support.mjs";
+
 const frontendRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const buildDirectory = join(frontendRoot, "dist-favicon-artifact-test");
 const viteCli = join(frontendRoot, "node_modules", "vite", "bin", "vite.js");
@@ -39,8 +41,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await new Promise((resolveClosed) => server.close(resolveClosed));
-  rmSync(buildDirectory, { force: true, recursive: true });
+  await cleanupFaviconArtifact({ buildDirectory, server });
 });
 
 it("serves the favicon declared by the built application", async () => {
