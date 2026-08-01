@@ -3,6 +3,11 @@
 Run these PowerShell blocks from the repository root. They are the current
 Phase 3 closure commands and were executed on 2026-08-01.
 
+Latest final-review result: 614 backend tests passed at 89% coverage
+(3,483 statements, 392 missing), 6 frontend files / 113 tests passed, the
+19-module production build passed, and the separate restart and generator
+audits each passed.
+
 ## Full automated gate
 
 ```powershell
@@ -32,10 +37,36 @@ The audit uses a real temporary imported project. It deletes the SQLite index,
 migrates a schema-1 manifest, recovers an interrupted job, and asserts complete
 path-to-SHA-256 map equality for `source/` and `pack/` before and after restart.
 
+## Tracked synthetic-pack fixture
+
+Generate the project-owned fixture from any clean checkout:
+
+```powershell
+powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\tools\Generate-SyntheticPack.ps1
+```
+
+The default output is the ignored
+`.generated\phase-3-synthetic-pack.zip`. The generator prints its resolved
+path, SHA-256 and expected classification. The deterministic current SHA-256 is
+`8ec378c876fe12b17e784c2d03ee59e7ea8a6c1601d7bf00e0a36980e2d24478`;
+the expected catalog result is `pack_format=34;covered=1;missing=1;unknown=0`.
+It contains only a generated `pack.mcmeta` and a project-owned uniform 2×2 RGB
+PNG at `assets/minecraft/textures/block/stone.png`; it contains no game asset.
+
+Verify the generator independently:
+
+```powershell
+.\.venv\Scripts\python -W error -m pytest backend\tests\tools\test_synthetic_pack_generator.py -vv
+```
+
+The test runs the PowerShell generator twice at paths containing spaces,
+compares the ZIP bytes, checks the reported digest/classification, and validates
+member order, fixed timestamps, metadata and synthetic pixels.
+
 ## Manual desktop recovery check
 
 Use three PowerShell windows from the repository root. Start FastAPI in the
-first window:
+first window. Generate the fixture above before importing it.
 
 ```powershell
 .\.venv\Scripts\python -m uvicorn aimctexturegen.main:app --app-dir backend\src --host 127.0.0.1 --port 8000
@@ -48,8 +79,8 @@ Push-Location frontend
 ..\runtime\node-v24.18.0-win-x64\npm.cmd run dev -- --host 127.0.0.1 --port 5173
 ```
 
-In the browser, import the ignored synthetic pack at
-`.superpowers\sdd\2026-07-27-phase-3-durable-jobs-and-recovery\task-10-synthetic-pack.zip`
+In the browser, import the generated synthetic pack at
+`.generated\phase-3-synthetic-pack.zip`
 exactly once under a unique name, then use that same name below. It provides
 the covered style reference `assets/minecraft/textures/block/stone.png` and
 the missing eligible target `minecraft:deepslate`.

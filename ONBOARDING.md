@@ -11,6 +11,9 @@
 - Task 4：`a0dbb50`、`c19a756`、`f3ab034`；Task 5：`cbf6649`、`57073ff`、`2be0c80`；Task 6：`6ec87d7`、`2b15e21`。
 - Task 7：`85cbf75`、`8a0d903`；Task 8：`ac89bd0`、`9508b41`；Task 9：`9c16126`、`441cec3`、`051a032`、`21b050c`、`5244dad`。
 - Task 10 的 UI/浏览器修复：`9f71adacdfb2d55c8381d80fab7366b102fb87dd`；重启审计加固：`6fb7beb22e1e6518310066d88517042486d51d89`。
+- 最终评审修复波：`75b6806`、`00bb904`、`ad03538`、`f6d2f0e`、
+  `a11302f`、`e02d229`、`d587cae`、`0f41b03`、`678fb3a`、
+  `2358f61`、`efb719f`、`14496b1`。
 
 项目目录中的 schema-2 `project.json` 和任务 JSON 是权威数据；schema-1
 项目会只原子替换 `project.json`，保留 `source/` 与 `pack/`。任务在创建时
@@ -20,11 +23,20 @@
 `pack/` 的 SHA-256 映射，二者均不得改变。运行中外部手工/强制改写项目文件仍按
 [`ADR-0001`](docs/adr/0001-running-project-mutation-boundary.md) 不受支持。
 
-## 已验证的 Task 10 门禁
+最终评审修复波进一步保证：索引扫描—发布与增量写入按项目根目录串行化，任务
+revision 只能前进；坏任务 sibling 不再隐藏有效历史；活动任务恢复写失败会阻断
+启动；SQLite 语义坏值只触发一次集中重建；前端项目列表与恢复报告只接受最新重试
+结果。Windows `COM¹`—`COM³`/`LPT¹`—`LPT³` 别名、原子临时文件清理、
+严格公历时间戳与 favicon ARIA 引用也已有回归覆盖。ADR-0001 的边界没有扩大，
+没有引入 TxF 或敌对外部 rename 防御。
+
+## 已验证的最终 Phase 3 门禁
 
 在本 worktree 于 2026-08-01 实际运行：
 
 ```powershell
+powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\tools\Generate-SyntheticPack.ps1
+.\.venv\Scripts\python -W error -m pytest backend\tests\tools\test_synthetic_pack_generator.py -vv
 .\.venv\Scripts\python -W error -m pytest backend\tests --cov=aimctexturegen --cov-report=term-missing
 Push-Location frontend
 try {
@@ -41,12 +53,23 @@ git diff --check
 git status --short
 ```
 
-- 后端：Python 3.12.10、pytest 9.1.1，589/589 通过（10.19 s），3434 语句、393 未覆盖、总覆盖率 89%。
-- 前端：Vitest 4.1.10，6 个测试文件、100/100 通过（7.20 s）；TypeScript 与 Vite 8.1.5 生产构建通过（19 个模块）。
-- 独立重启审计：1/1 通过（0.55 s）；它在真实临时导入项目中删除 `index.sqlite3`、写入严格 schema-1 清单并启动第二个 repository/store/index/recovery 服务图，确认迁移回 schema 2、queued/active/completed 任务可见、active 变为 `JOB_INTERRUPTED`，以及 `source/`/`pack/` 的完整路径—SHA-256 映射完全相等。
-- `git diff --check` 通过；验证后的 tracked 工作树仅包含本交接文档收口变更。
+- 合成包生成器：独立测试 1/1 通过；默认生成
+  `.generated\phase-3-synthetic-pack.zip`，SHA-256 为
+  `8ec378c876fe12b17e784c2d03ee59e7ea8a6c1601d7bf00e0a36980e2d24478`，
+  分类为资源格式 34、1 covered、1 missing、0 unknown。ZIP 只含仓库自有的
+  `pack.mcmeta` 与纯合成 2×2 RGB PNG，不含 Mojang/Microsoft 资产。
+- 后端：Python 3.12.10、pytest 9.1.1，614/614 通过，3483 语句、392 未覆盖、总覆盖率 89%。
+- 前端：Vitest 4.1.10，6 个测试文件、113/113 通过；TypeScript 与
+  Vite 8.1.5 生产构建通过（19 个模块）。
+- 独立重启审计：1/1 通过；它在真实临时导入项目中删除 `index.sqlite3`、写入严格 schema-1 清单并启动第二个 repository/store/index/recovery 服务图，确认迁移回 schema 2、queued/active/completed 任务可见、active 变为 `JOB_INTERRUPTED`，以及 `source/`/`pack/` 的完整路径—SHA-256 映射完全相等。
+- `git diff --check` 通过，最终 tracked 工作树干净；`.generated/`、
+  `.superpowers/`、覆盖率与构建缓存保持忽略且未提交。
 
 用户于 2026-08-01 确认：合成 Java 资源包导入、FastAPI 创建 queued Deepslate 任务、FastAPI/Vite 重启后的“已有项目”恢复均成功；格式 34、1 个 covered、1 个 missing、queued 行和 4 个 pending 候选仍可见。正常桌面及 400、600、900 px 窗口均无横向溢出或控件裁切；最终复验也确认桌面标题不再孤字换行、应用声明的 favicon 不再产生应用来源的 404。此前名为 `1` 的项目是早期失败命令留下的独立有效项目，不是成功流程造成的重复导入。Phase 3 验收范围内未发现未解决缺陷；移动端、真实 GPU/模型/ComfyUI、生产目录、候选采用与导出均未验证也未实现。
+
+最终评审新增的重试顺序、错误恢复、路径别名、时间戳与 SVG 语义均由确定性
+自动化覆盖，不需要重复 UI 密集型人工测试。今后从干净 checkout 复现人工恢复
+门禁时，先运行受跟踪的合成包生成器，不再依赖 `.superpowers/` 中的本地工件。
 
 ## 下一入口
 

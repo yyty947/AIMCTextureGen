@@ -1150,6 +1150,69 @@ after explicit user authorization.
 
 ---
 
+### Task 11: Final Review Fix Wave
+
+**Files:**
+- Modify: `backend/src/aimctexturegen/index/`,
+  `backend/src/aimctexturegen/jobs/`, `backend/src/aimctexturegen/core/`,
+  `backend/src/aimctexturegen/projects/service.py` and focused backend tests.
+- Modify: `frontend/src/App.tsx`, `frontend/src/api.ts`,
+  `frontend/public/favicon.svg` and focused frontend/artifact tests.
+- Create: `tools/Generate-SyntheticPack.ps1`.
+- Create: `backend/tests/tools/test_synthetic_pack_generator.py`.
+- Modify: `.gitignore`, `ONBOARDING.md`, `docs/TESTING.md`, this plan and the
+  roadmap.
+
+**Interfaces:**
+- Preserve JSON as canonical truth and SQLite as a disposable index.
+- Keep ADR-0001 Option A unchanged: application-owned writers are coordinated;
+  hostile external mutation in the final Windows rename interval is unsupported.
+- Add no GPU, CUDA, ComfyUI, model, production-catalog, adoption, export,
+  mobile or Java/Bedrock conversion behavior.
+
+- [x] **Step 1: Fix all nine Important findings with RED → GREEN evidence**
+
+Commits `75b6806` through `678fb3a` serialize rebuild/upsert, make indexed job
+revisions monotonic, isolate malformed job siblings, fail closed on an
+unrecoverable active job, reject Windows superscript device aliases, preserve
+the primary atomic-write error, centralize one-shot semantic-index repair,
+order project/recovery UI retries, and add the deterministic synthetic fixture
+generator. Commit `14496b1` aligns the API failure fixture with the centralized
+index error contract discovered by the full backend gate.
+
+- [x] **Step 2: Fix both Minor findings with RED → GREEN evidence**
+
+Commit `2358f61` validates Gregorian date/time/offset components before
+accepting RFC3339 timestamps. Commit `efb719f` resolves the favicon
+`aria-labelledby` IDREF and verifies every built SVG IDREF through JSDOM.
+
+- [x] **Step 3: Make the manual fixture reproducible from a clean checkout**
+
+`tools\Generate-SyntheticPack.ps1` writes the ignored
+`.generated\phase-3-synthetic-pack.zip` from project-owned bytes only. Its
+deterministic SHA-256 is
+`8ec378c876fe12b17e784c2d03ee59e7ea8a6c1601d7bf00e0a36980e2d24478`;
+classification is format 34, one covered, one missing and zero unknown paths.
+The tracked Python test runs the PowerShell generator twice and validates the
+complete archive contract. No Mojang/Microsoft asset is committed.
+
+- [x] **Step 4: Rerun and record the complete final gate**
+
+Fresh 2026-08-01 evidence: backend `-W error` coverage gate 614/614 at 89%
+(3,483 statements, 392 missing); frontend 6 files / 113 tests; Vite production
+build 19 modules; restart audit 1/1; generator audit 1/1; `git diff --check`
+and the final tracked worktree check pass. The prior user-confirmed
+normal/400/600/900 px manual result remains valid. All new visible retry and
+artifact semantics are covered deterministically, so no second UI-dense manual
+run is required.
+
+- [x] **Step 5: Preserve the review worktree for handoff**
+
+Do not push or merge. Keep ignored SDD evidence, `.generated/`, coverage and
+build caches out of commits.
+
+---
+
 ## Plan Self-Review
 
 - Phase 2 deferred cleanup is Task 1 and lands before any GenerationService can
@@ -1160,6 +1223,8 @@ after explicit user authorization.
 - SQLite query/index rebuild is Task 6.
 - restart recovery and pack immutability are Task 7 plus Task 10's audit.
 - project restoration and job history APIs/UI are Tasks 8–9.
+- the final review concurrency, corruption, retry-order, Windows-path,
+  reproducible-fixture and artifact-contract regressions are Task 11.
 - No task installs models, runs ComfyUI, touches CUDA, builds a production
   catalog, adopts a candidate into `pack/`, or exports a ZIP.
 - Every code task has a focused RED/GREEN command and an independently
