@@ -154,11 +154,45 @@ describe("strict project and durable-job API parsing", () => {
       { ...projectSummary, java_pack_format: Number.MAX_SAFE_INTEGER + 1 },
     ],
     ["naive timestamp", { ...projectSummary, updated_at: "2026-07-29T11:00:00" }],
+    [
+      "nonexistent Gregorian date",
+      { ...projectSummary, updated_at: "2026-02-30T11:00:00Z" },
+    ],
+    [
+      "24-hour rollover",
+      { ...projectSummary, updated_at: "2026-07-29T24:00:00Z" },
+    ],
+    [
+      "invalid numeric offset hour",
+      { ...projectSummary, updated_at: "2026-07-29T11:00:00+24:00" },
+    ],
+    [
+      "invalid numeric offset minute",
+      { ...projectSummary, updated_at: "2026-07-29T11:00:00+08:60" },
+    ],
     ["empty project name", { ...projectSummary, project_name: "" }],
     ["overlong project name", { ...projectSummary, project_name: "x".repeat(129) }],
   ])("rejects a project summary with %s", async (_label, invalidSummary) => {
     respondWith([invalidSummary]);
     await expectInvalidResponse(() => listProjects());
+  });
+
+  it("accepts a real Gregorian leap day", async () => {
+    const leapDay = "2024-02-29T23:59:59.123456+08:00";
+    respondWith([
+      {
+        ...projectSummary,
+        created_at: leapDay,
+        updated_at: leapDay,
+      },
+    ]);
+
+    await expect(listProjects()).resolves.toMatchObject([
+      {
+        createdAt: leapDay,
+        updatedAt: leapDay,
+      },
+    ]);
   });
 
   it.each([
