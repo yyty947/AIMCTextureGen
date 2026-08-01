@@ -41,6 +41,7 @@ export default function App() {
   const [projectsLoading, setProjectsLoading] = useState(true);
   const [projectsError, setProjectsError] = useState<ApiError | null>(null);
   const [recovery, setRecovery] = useState<RecoveryReport | null>(null);
+  const [recoveryLoading, setRecoveryLoading] = useState(true);
   const [recoveryError, setRecoveryError] = useState<ApiError | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [dashboardLoading, setDashboardLoading] = useState(false);
@@ -56,48 +57,15 @@ export default function App() {
   const coverageRequest = useRef(0);
   const operationGeneration = useRef(0);
   const projectsEpoch = useRef(0);
+  const projectsRequestGeneration = useRef(0);
+  const recoveryRequestGeneration = useRef(0);
   const selectedProject = useRef<string | null>(null);
 
   useEffect(() => {
     const generation = componentGeneration.current + 1;
     componentGeneration.current = generation;
-    const requestEpoch = projectsEpoch.current;
-    void listProjects()
-      .then((loadedProjects) => {
-        if (isCurrentComponentGeneration(generation)) {
-          setProjects((current) =>
-            projectsEpoch.current === requestEpoch
-              ? loadedProjects
-              : mergeProjectLists(current, loadedProjects),
-          );
-          setProjectsError(null);
-        }
-      })
-      .catch((cause: unknown) => {
-        if (
-          isCurrentComponentGeneration(generation) &&
-          projectsEpoch.current === requestEpoch
-        ) {
-          setProjectsError(toApiError(cause));
-        }
-      })
-      .finally(() => {
-        if (isCurrentComponentGeneration(generation)) {
-          setProjectsLoading(false);
-        }
-      });
-    void getRecoveryReport()
-      .then((report) => {
-        if (isCurrentComponentGeneration(generation)) {
-          setRecovery(report);
-          setRecoveryError(null);
-        }
-      })
-      .catch((cause: unknown) => {
-        if (isCurrentComponentGeneration(generation)) {
-          setRecoveryError(toApiError(cause));
-        }
-      });
+    void refreshProjects();
+    void refreshRecovery();
     return () => {
       if (componentGeneration.current === generation) {
         componentGeneration.current = generation + 1;
@@ -106,6 +74,8 @@ export default function App() {
       coverageRequest.current += 1;
       operationGeneration.current += 1;
       projectsEpoch.current += 1;
+      projectsRequestGeneration.current += 1;
+      recoveryRequestGeneration.current += 1;
       selectedProject.current = null;
     };
   }, []);
@@ -258,28 +228,37 @@ export default function App() {
 
   async function refreshProjects() {
     const componentRequestGeneration = componentGeneration.current;
+    const requestGeneration = projectsRequestGeneration.current + 1;
+    projectsRequestGeneration.current = requestGeneration;
     const requestEpoch = projectsEpoch.current;
     setProjectsLoading(true);
     try {
       const loadedProjects = await listProjects();
-      if (!isCurrentComponentGeneration(componentRequestGeneration)) {
+      if (
+        !isCurrentComponentGeneration(componentRequestGeneration) ||
+        projectsRequestGeneration.current !== requestGeneration
+      ) {
         return;
       }
       if (projectsEpoch.current === requestEpoch) {
         setProjects(loadedProjects);
-        setProjectsError(null);
       } else {
         setProjects((current) => mergeProjectLists(current, loadedProjects));
       }
+      setProjectsError(null);
     } catch (cause) {
       if (
         isCurrentComponentGeneration(componentRequestGeneration) &&
+        projectsRequestGeneration.current === requestGeneration &&
         projectsEpoch.current === requestEpoch
       ) {
         setProjectsError(toApiError(cause));
       }
     } finally {
-      if (isCurrentComponentGeneration(componentRequestGeneration)) {
+      if (
+        isCurrentComponentGeneration(componentRequestGeneration) &&
+        projectsRequestGeneration.current === requestGeneration
+      ) {
         setProjectsLoading(false);
       }
     }
@@ -287,16 +266,32 @@ export default function App() {
 
   async function refreshRecovery() {
     const componentRequestGeneration = componentGeneration.current;
+    const requestGeneration = recoveryRequestGeneration.current + 1;
+    recoveryRequestGeneration.current = requestGeneration;
+    setRecoveryLoading(true);
     try {
       const report = await getRecoveryReport();
-      if (!isCurrentComponentGeneration(componentRequestGeneration)) {
+      if (
+        !isCurrentComponentGeneration(componentRequestGeneration) ||
+        recoveryRequestGeneration.current !== requestGeneration
+      ) {
         return;
       }
       setRecovery(report);
       setRecoveryError(null);
     } catch (cause) {
-      if (isCurrentComponentGeneration(componentRequestGeneration)) {
+      if (
+        isCurrentComponentGeneration(componentRequestGeneration) &&
+        recoveryRequestGeneration.current === requestGeneration
+      ) {
         setRecoveryError(toApiError(cause));
+      }
+    } finally {
+      if (
+        isCurrentComponentGeneration(componentRequestGeneration) &&
+        recoveryRequestGeneration.current === requestGeneration
+      ) {
+        setRecoveryLoading(false);
       }
     }
   }
@@ -462,6 +457,7 @@ export default function App() {
           title="恢复报告读取失败"
           error={recoveryError}
           retryLabel="重试恢复报告"
+          isRetrying={recoveryLoading}
           onRetry={() => void refreshRecovery()}
         />
       )}
@@ -479,6 +475,7 @@ export default function App() {
               title="项目列表读取失败"
               error={projectsError}
               retryLabel="重试项目列表"
+              isRetrying={projectsLoading}
               onRetry={() => void refreshProjects()}
             />
           )}
@@ -537,19 +534,27 @@ function InlineRequestError({
   title,
   error,
   retryLabel,
+  isRetrying = false,
   onRetry,
 }: {
   readonly title: string;
   readonly error: ApiError;
   readonly retryLabel: string;
+  readonly isRetrying?: boolean;
   readonly onRetry: () => void;
 }) {
   return (
     <div className="inline-error" role="alert">
       <h3>{title}</h3>
       <p>{error.userMessage}</p>
-      <button className="retry-button" type="button" onClick={onRetry}>
-        {retryLabel}
+      <button
+        aria-busy={isRetrying}
+        className="retry-button"
+        disabled={isRetrying}
+        type="button"
+        onClick={onRetry}
+      >
+        {isRetrying ? `正在${retryLabel}…` : retryLabel}
       </button>
     </div>
   );

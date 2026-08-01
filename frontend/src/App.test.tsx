@@ -7,6 +7,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { StrictMode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App";
@@ -624,6 +625,178 @@ describe("项目恢复与只读任务历史", () => {
 
     expect(await screen.findByRole("button", { name: /恢复项目/ })).toBeVisible();
     expect(screen.getByRole("status")).toHaveTextContent("一个任务记录损坏，已隔离");
+  });
+
+  it("项目列表只接受最新重试且旧请求不能提前结束 loading", async () => {
+    const olderRetry = deferred<Response>();
+    const newerRetry = deferred<Response>();
+    let projectAttempts = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === "/api/projects") {
+          projectAttempts += 1;
+          if (projectAttempts === 1) {
+            return Promise.resolve(
+              jsonResponse(
+                {
+                  code: "INDEX_UNAVAILABLE",
+                  stage: "index",
+                  user_message: "初始项目列表失败",
+                  recommended_actions: ["重试"],
+                  technical_details: null,
+                },
+                503,
+              ),
+            );
+          }
+          return projectAttempts === 2
+            ? olderRetry.promise
+            : newerRetry.promise;
+        }
+        if (url === "/api/system/recovery") {
+          return Promise.resolve(jsonResponse(recoveryReport));
+        }
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+    render(<App />);
+    const retry = await screen.findByRole("button", {
+      name: "重试项目列表",
+    });
+
+    act(() => {
+      retry.click();
+      retry.click();
+    });
+    await waitFor(() => expect(projectAttempts).toBe(3));
+
+    await act(async () => {
+      olderRetry.resolve(
+        jsonResponse(
+          {
+            code: "INDEX_UNAVAILABLE",
+            stage: "index",
+            user_message: "迟到的旧项目列表错误",
+            recommended_actions: ["重试"],
+            technical_details: null,
+          },
+          503,
+        ),
+      );
+      await olderRetry.promise;
+    });
+
+    expect(screen.queryByText("迟到的旧项目列表错误")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "正在重试项目列表…" }),
+    ).toBeDisabled();
+
+    await act(async () => {
+      newerRetry.resolve(jsonResponse([projectSummary]));
+      await newerRetry.promise;
+    });
+
+    expect(
+      await screen.findByRole("button", { name: /恢复项目/ }),
+    ).toBeVisible();
+    expect(screen.queryByText("项目列表读取失败")).not.toBeInTheDocument();
+  });
+
+  it("StrictMode 下恢复报告只接受最新重试结果", async () => {
+    const olderRetry = deferred<Response>();
+    const newerRetry = deferred<Response>();
+    let recoveryAttempts = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === "/api/projects") {
+          return Promise.resolve(jsonResponse([projectSummary]));
+        }
+        if (url === "/api/system/recovery") {
+          recoveryAttempts += 1;
+          if (recoveryAttempts <= 2) {
+            return Promise.resolve(
+              jsonResponse(
+                {
+                  code: "INDEX_UNAVAILABLE",
+                  stage: "recovery",
+                  user_message: "初始恢复报告失败",
+                  recommended_actions: ["重试"],
+                  technical_details: null,
+                },
+                503,
+              ),
+            );
+          }
+          return recoveryAttempts === 3
+            ? olderRetry.promise
+            : newerRetry.promise;
+        }
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+    render(
+      <StrictMode>
+        <App />
+      </StrictMode>,
+    );
+    const retry = await screen.findByRole("button", {
+      name: "重试恢复报告",
+    });
+
+    act(() => {
+      retry.click();
+      retry.click();
+    });
+    await waitFor(() => expect(recoveryAttempts).toBe(4));
+    expect(
+      screen.getByRole("button", { name: "正在重试恢复报告…" }),
+    ).toBeDisabled();
+
+    await act(async () => {
+      newerRetry.resolve(
+        jsonResponse({
+          ...recoveryReport,
+          issues: [
+            {
+              project_id: projectId,
+              job_id: null,
+              code: "CORRUPT_PROJECT_MANIFEST",
+              user_message: "最新恢复报告中的隔离记录",
+            },
+          ],
+        }),
+      );
+      await newerRetry.promise;
+    });
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "最新恢复报告中的隔离记录",
+    );
+    expect(screen.queryByText("恢复报告读取失败")).not.toBeInTheDocument();
+
+    await act(async () => {
+      olderRetry.resolve(
+        jsonResponse(
+          {
+            code: "INDEX_UNAVAILABLE",
+            stage: "recovery",
+            user_message: "迟到的旧恢复报告错误",
+            recommended_actions: ["重试"],
+            technical_details: null,
+          },
+          503,
+        ),
+      );
+      await olderRetry.promise;
+    });
+
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "最新恢复报告中的隔离记录",
+    );
+    expect(screen.queryByText("迟到的旧恢复报告错误")).not.toBeInTheDocument();
   });
 
   it("项目请求失败时保留选择并提供只重试当前项目的操作", async () => {
