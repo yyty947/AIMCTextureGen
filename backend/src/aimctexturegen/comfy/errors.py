@@ -77,3 +77,11 @@ class RuntimeInstallValidationError(RuntimeInstallError):
 
 class RuntimePublicationError(RuntimeInstallError):
     """The verified runtime tree could not be published atomically."""
+
+
+class ProfileInstallError(Exception):
+    """Base error for model-profile installation."""
+
+
+class ProfileUnsafeArtifactError(ProfileInstallError):
+    """A downloaded model or custom-node artifact is unsafe or invalid."""

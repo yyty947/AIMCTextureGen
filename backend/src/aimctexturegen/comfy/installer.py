@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import shutil
+import zipfile
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -23,11 +24,14 @@ from aimctexturegen.comfy.archives import (
     remove_staging,
 )
 from aimctexturegen.comfy.environment import EnvironmentInspector, EnvironmentReport
+from aimctexturegen.comfy.downloads import ArtifactDownloader, DownloadPolicy
 from aimctexturegen.comfy.errors import (
     ArchiveError,
     InstallBlockedError,
     InstallError,
     InstallValidationError,
+    ProfileInstallError,
+    ProfileUnsafeArtifactError,
     RuntimeInstallError,
     RuntimeInstallValidationError,
     RuntimePublicationError,
@@ -44,6 +48,11 @@ from aimctexturegen.comfy.manifests import (
 )
 from aimctexturegen.comfy.registry import ManifestRegistry
 from aimctexturegen.core.atomic_files import atomic_replace_bytes
+from aimctexturegen.core.relative_paths import validate_project_relative_path
+from aimctexturegen.model_profiles.models import (
+    ComponentStatus,
+    ProfileStatus,
+)
 
 
 class _StrictModel(BaseModel):
@@ -512,3 +521,277 @@ def _sha256_file(path: Path) -> str:
 
 def _file_size(path: Path) -> int:
     return path.stat().st_size
+
+
+class ProfileInstaller:
+    """Install hash-addressed profile artifacts into a managed runtime."""
+
+    def __init__(
+        self,
+        *,
+        downloader: ArtifactDownloader | None = None,
+        policy: DownloadPolicy | None = None,
+    ) -> None:
+        self._downloader = downloader or ArtifactDownloader()
+        self._policy = policy or DownloadPolicy()
+
+    def status(
+        self,
+        profile: ModelProfileManifest,
+        root: Path,
+    ) -> ProfileStatus:
+        root = Path(root)
+        records = _read_installed_records(root)
+        components = tuple(
+            ComponentStatus(
+                artifact_id=artifact.artifact_id,
+                state=self._artifact_state(artifact, root, records),
+                installed_bytes=self._installed_bytes(artifact, root),
+            )
+            for artifact in profile.artifacts
+        )
+        return ProfileStatus(
+            profile_id=profile.profile_id,
+            profile_version=profile.profile_version,
+            support_state=profile.support_state,
+            components=components,
+            ready=all(
+                component.state == "ready" for component in components
+            ),
+        )
+
+    def install(
+        self,
+        profile: ModelProfileManifest,
+        root: Path,
+        *,
+        cancel: Callable[[], bool] | None = None,
+        progress: Callable[[object], None] | None = None,
+    ) -> ProfileStatus:
+        root = Path(root)
+        records = _read_installed_records(root)
+        for artifact in profile.artifacts:
+            if self._artifact_state(artifact, root, records) == "ready":
+                continue
+            target = root / artifact.destination
+            if (
+                target.exists()
+                and hashlib.sha256(target.read_bytes()).hexdigest()
+                != artifact.sha256
+            ):
+                raise ProfileInstallError(
+                    f"destination {artifact.destination!r} already holds "
+                    "different bytes"
+                )
+            if not self._reuse_by_hash(artifact, root, records):
+                self._downloader.download(
+                    artifact,
+                    target,
+                    policy=self._policy,
+                    cancel=cancel,
+                    progress=progress,
+                )
+            if artifact.destination.startswith("custom_nodes/"):
+                self._install_custom_node(artifact, target, root)
+            records = _record_artifact(records, artifact, target, root)
+        return self.status(profile, root)
+
+    def write_extra_model_paths(
+        self,
+        profile: ModelProfileManifest,
+        root: Path,
+    ) -> Path:
+        root = Path(root)
+        models_root = root / "models"
+        categories = {
+            "checkpoints": models_root / "checkpoints",
+            "loras": models_root / "loras",
+            "ipadapter": models_root / "ipadapter",
+            "clip_vision": models_root / "clip_vision",
+        }
+        for directory in (models_root, *categories.values()):
+            directory.mkdir(parents=True, exist_ok=True)
+        import yaml
+
+        payload = yaml.safe_dump(
+            {
+                "models": {
+                    "base_path": str(models_root),
+                    **{
+                        key: str(path)
+                        for key, path in sorted(categories.items())
+                    },
+                }
+            },
+            sort_keys=True,
+            default_flow_style=False,
+            allow_unicode=False,
+        ).encode("utf-8")
+        path = root / "state" / "extra_model_paths.yaml"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_replace_bytes(
+            path,
+            payload,
+            validator=lambda readback: readback.decode("utf-8"),
+        )
+        return path
+
+    def _artifact_state(
+        self,
+        artifact: ArtifactManifest,
+        root: Path,
+        records: dict,
+    ) -> str:
+        target = root / artifact.destination
+        if not target.is_file():
+            return "missing"
+        try:
+            size = target.stat().st_size
+        except OSError:
+            return "corrupt"
+        if size < artifact.byte_size:
+            return "partial"
+        if size != artifact.byte_size:
+            return "corrupt"
+        record = records.get(artifact.artifact_id)
+        if record is None or record.get("sha256") != artifact.sha256:
+            return "corrupt"
+        if hashlib.sha256(target.read_bytes()).hexdigest() != artifact.sha256:
+            return "corrupt"
+        if artifact.destination.startswith("custom_nodes/"):
+            expected_root = _custom_node_root_name(artifact)
+            marker = root / "custom_nodes" / expected_root / "__init__.py"
+            if not marker.is_file():
+                return "corrupt"
+        return "ready"
+
+    def _installed_bytes(
+        self,
+        artifact: ArtifactManifest,
+        root: Path,
+    ) -> int | None:
+        target = root / artifact.destination
+        if not target.is_file():
+            return None
+        return target.stat().st_size
+
+    def _reuse_by_hash(
+        self,
+        artifact: ArtifactManifest,
+        root: Path,
+        records: dict,
+    ) -> bool:
+        target = root / artifact.destination
+        for record in records.values():
+            if record.get("sha256") != artifact.sha256:
+                continue
+            source = root / str(record.get("destination", ""))
+            if source.is_file() and source != target:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(source, target)
+                return True
+        return False
+
+    def _install_custom_node(
+        self,
+        artifact: ArtifactManifest,
+        zip_path: Path,
+        root: Path,
+    ) -> None:
+        expected_root = _custom_node_root_name(artifact)
+        target_dir = root / "custom_nodes" / expected_root
+        if (target_dir / "__init__.py").is_file():
+            return
+        staging = root / "custom_nodes" / f".staging-{uuid4()}"
+        staging.mkdir(parents=True)
+        try:
+            with zipfile.ZipFile(zip_path) as archive:
+                names = archive.namelist()
+                _validate_custom_node_names(names, expected_root)
+                for name in names:
+                    if name.endswith("/"):
+                        continue
+                    destination = staging / name
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    destination.write_bytes(archive.read(name))
+            marker = staging / expected_root / "__init__.py"
+            if not marker.is_file():
+                raise ProfileUnsafeArtifactError(
+                    "custom-node archive is missing __init__.py"
+                )
+            if target_dir.exists():
+                raise ProfileUnsafeArtifactError(
+                    "custom-node target directory already exists"
+                )
+            os.replace(staging / expected_root, target_dir)
+            shutil.rmtree(staging, ignore_errors=True)
+        except ProfileUnsafeArtifactError:
+            shutil.rmtree(staging, ignore_errors=True)
+            raise
+        except Exception as exc:
+            shutil.rmtree(staging, ignore_errors=True)
+            raise ProfileUnsafeArtifactError(
+                "custom-node extraction failed"
+            ) from exc
+
+
+def _custom_node_root_name(artifact: ArtifactManifest) -> str:
+    if artifact.file_name.endswith(".zip"):
+        return artifact.file_name[: -len(".zip")]
+    return artifact.file_name
+
+
+def _validate_custom_node_names(names: list[str], expected_root: str) -> None:
+    roots: set[str] = set()
+    seen: set[str] = set()
+    for raw_name in names:
+        name = raw_name.replace("\\", "/").rstrip("/")
+        if not name or not name.startswith(f"{expected_root}/"):
+            raise ProfileUnsafeArtifactError(
+                f"custom-node member {raw_name!r} escapes the expected root"
+            )
+        try:
+            validate_project_relative_path(name)
+        except ValueError as exc:
+            raise ProfileUnsafeArtifactError(
+                f"unsafe custom-node member {raw_name!r}"
+            ) from exc
+        key = name.casefold()
+        if key in seen:
+            raise ProfileUnsafeArtifactError(
+                f"case-colliding custom-node member {raw_name!r}"
+            )
+        seen.add(key)
+        roots.add(name.split("/", maxsplit=1)[0])
+    if roots != {expected_root}:
+        raise ProfileUnsafeArtifactError(
+            "custom-node archive must have a single expected root"
+        )
+
+
+def _read_installed_records(root: Path) -> dict:
+    path = root / "state" / "installed-artifacts.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    artifacts = data.get("artifacts") if isinstance(data, dict) else None
+    return artifacts if isinstance(artifacts, dict) else {}
+
+
+def _record_artifact(
+    records: dict,
+    artifact: ArtifactManifest,
+    target: Path,
+    root: Path,
+) -> dict:
+    records = dict(records)
+    records[artifact.artifact_id] = {
+        "sha256": artifact.sha256,
+        "byte_size": artifact.byte_size,
+        "destination": artifact.destination,
+        "installed_at": datetime.now(UTC).isoformat(),
+    }
+    path = root / "state" / "installed-artifacts.json"
+    _atomic_json(path, {"artifacts": records})
+    return records
