@@ -258,6 +258,402 @@ export async function getRecoveryReport(): Promise<RecoveryReport> {
   return parseSuccessfulResponse(payload, parseRecoveryReport);
 }
 
+export type InferenceProcessState =
+  | "stopped"
+  | "starting"
+  | "ready"
+  | "unhealthy";
+
+export type InferenceRuntimeState =
+  | "missing"
+  | "partial"
+  | "ready"
+  | "corrupt";
+
+export type InstallationState =
+  | "planned"
+  | "downloading"
+  | "extracting"
+  | "installing"
+  | "completed"
+  | "failed"
+  | "canceled";
+
+export interface EnvironmentReport {
+  supported: boolean;
+  platform: string;
+  architecture: string;
+  gpuVendor: string | null;
+  gpuName: string | null;
+  driverVersion: string | null;
+  vramBytes: number | null;
+  diskFreeBytes: number | null;
+  blockingIssues: readonly string[];
+}
+
+export interface InstallComponent {
+  artifactId: string;
+  sourceUrl: string;
+  revision: string;
+  byteSize: number;
+  sha256: string;
+  destination: string;
+  licenseName: string;
+  licenseSourceUrl: string;
+  state: InferenceRuntimeState;
+}
+
+export interface InstallPlan {
+  runtimeId: string;
+  runtimeVersion: string;
+  profileId: string;
+  profileVersion: string;
+  planDigest: string;
+  components: readonly InstallComponent[];
+  totalDownloadBytes: number;
+  temporaryHeadroomBytes: number;
+  requiredFreeBytes: number;
+  diskFreeBytes: number | null;
+  canInstall: boolean;
+  blockers: readonly string[];
+}
+
+export interface InstallationErrorRecord {
+  code: string;
+  message: string;
+}
+
+export interface InstallationOperation {
+  operationId: string;
+  runtimeId: string;
+  profileId: string;
+  planDigest: string;
+  acceptedComponentIds: readonly string[];
+  state: InstallationState;
+  revision: number;
+  createdAt: string;
+  updatedAt: string;
+  error: InstallationErrorRecord | null;
+}
+
+export interface ComfyProcessStatus {
+  state: InferenceProcessState;
+  pid: number | null;
+  version: string | null;
+  errors: readonly string[];
+}
+
+export interface InferenceStatus {
+  environment: EnvironmentReport;
+  runtime: {
+    state: InferenceRuntimeState;
+    selectedVersion: string | null;
+    error: string | null;
+  };
+  profile: {
+    profileId: string;
+    profileVersion: string;
+    supportState: "candidate_unverified" | "verified";
+    components: readonly {
+      artifactId: string;
+      state: InferenceRuntimeState;
+      installedBytes: number | null;
+    }[];
+    ready: boolean;
+  };
+  process: ComfyProcessStatus;
+}
+
+export async function getInferenceStatus(): Promise<InferenceStatus> {
+  const payload = await requestJson("/api/system/inference");
+  return parseSuccessfulResponse(payload, parseInferenceStatus);
+}
+
+export async function getInstallPlan(): Promise<InstallPlan> {
+  const payload = await requestJson("/api/system/inference/install-plan");
+  return parseSuccessfulResponse(payload, parseInstallPlan);
+}
+
+export async function beginInstallation(
+  acceptedComponentIds: readonly string[],
+): Promise<InstallationOperation> {
+  const payload = await requestJson("/api/system/inference/installations", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ accepted_component_ids: acceptedComponentIds }),
+  });
+  return parseSuccessfulResponse(payload, parseInstallationOperation);
+}
+
+export async function getInstallation(
+  operationId: string,
+): Promise<InstallationOperation> {
+  const payload = await requestJson(
+    `/api/system/inference/installations/${encodeURIComponent(operationId)}`,
+  );
+  return parseSuccessfulResponse(payload, parseInstallationOperation);
+}
+
+export async function cancelInstallation(
+  operationId: string,
+): Promise<InstallationOperation> {
+  const payload = await requestJson(
+    `/api/system/inference/installations/${encodeURIComponent(operationId)}/cancel`,
+    { method: "POST" },
+  );
+  return parseSuccessfulResponse(payload, parseInstallationOperation);
+}
+
+export async function startComfyUI(): Promise<ComfyProcessStatus> {
+  const payload = await requestJson("/api/system/inference/comfyui/start", {
+    method: "POST",
+  });
+  return parseSuccessfulResponse(payload, parseComfyProcessStatus);
+}
+
+export async function stopComfyUI(): Promise<ComfyProcessStatus> {
+  const payload = await requestJson("/api/system/inference/comfyui/stop", {
+    method: "POST",
+  });
+  return parseSuccessfulResponse(payload, parseComfyProcessStatus);
+}
+
+export async function getComfyUILog(
+  maxBytes = 4096,
+): Promise<string> {
+  const payload = await requestJson(
+    `/api/system/inference/comfyui/log?max_bytes=${maxBytes}`,
+  );
+  return parseSuccessfulResponse(payload, (data) =>
+    requireString(data.content),
+  );
+}
+
+export function formatDecimalGb(bytes: number): string {
+  return (bytes / 1_000_000_000).toFixed(2);
+}
+
+export function formatDecimalGib(bytes: number): string {
+  return (bytes / 1_073_741_824).toFixed(2);
+}
+
+function parseInferenceStatus(data: Record<string, unknown>): InferenceStatus {
+  const environment = requireRecord(data.environment);
+  const runtime = requireRecord(data.runtime);
+  const profile = requireRecord(data.profile);
+  const process = requireRecord(data.process);
+  const profileComponents = requireArray(profile.components).map(
+    (value): InferenceStatus["profile"]["components"][number] => {
+      const item = requireRecord(value);
+      return {
+        artifactId: requireNonemptyString(item.artifact_id),
+        state: requireInferenceRuntimeState(item.state),
+        installedBytes: requireNullableSafeByteSize(item.installed_bytes),
+      };
+    },
+  );
+  return {
+    environment: {
+      supported: requireBoolean(environment.supported),
+      platform: requireNonemptyString(environment.platform),
+      architecture: requireNonemptyString(environment.architecture),
+      gpuVendor: requireNullableString(environment.gpu_vendor),
+      gpuName: requireNullableString(environment.gpu_name),
+      driverVersion: requireNullableString(environment.driver_version),
+      vramBytes: requireNullableSafeByteSize(environment.vram_bytes),
+      diskFreeBytes: requireNullableSafeByteSize(environment.disk_free_bytes),
+      blockingIssues: requireArray(environment.blocking_issues).map(
+        requireNonemptyString,
+      ),
+    },
+    runtime: {
+      state: requireInferenceRuntimeState(runtime.state),
+      selectedVersion: requireNullableString(runtime.selected_version),
+      error: requireNullableString(runtime.error),
+    },
+    profile: {
+      profileId: requireNonemptyString(profile.profile_id),
+      profileVersion: requireNonemptyString(profile.profile_version),
+      supportState: requireStringLiteral(
+        profile.support_state,
+        "candidate_unverified",
+        "verified",
+      ),
+      components: profileComponents,
+      ready: requireBoolean(profile.ready),
+    },
+    process: parseComfyProcessStatus(process),
+  };
+}
+
+function parseComfyProcessStatus(
+  data: Record<string, unknown>,
+): ComfyProcessStatus {
+  return {
+    state: requireInferenceProcessState(data.state),
+    pid: requireNullableSafeInteger(data.pid),
+    version: requireNullableString(data.version),
+    errors: requireArray(data.errors).map(requireNonemptyString),
+  };
+}
+
+function parseInstallPlan(data: Record<string, unknown>): InstallPlan {
+  const components = requireArray(data.components).map(parseInstallComponent);
+  const licenses = components.map(
+    (component) => `${component.licenseName}:${component.licenseSourceUrl}`,
+  );
+  if (new Set(licenses).size !== licenses.length) {
+    throw new TypeError("Install plan contains duplicate licenses");
+  }
+  return {
+    runtimeId: requireNonemptyString(data.runtime_id),
+    runtimeVersion: requireNonemptyString(data.runtime_version),
+    profileId: requireNonemptyString(data.profile_id),
+    profileVersion: requireNonemptyString(data.profile_version),
+    planDigest: requireSha256(data.plan_digest),
+    components,
+    totalDownloadBytes: requireSafeByteSize(data.total_download_bytes),
+    temporaryHeadroomBytes: requireSafeByteSize(
+      data.temporary_headroom_bytes,
+    ),
+    requiredFreeBytes: requireSafeByteSize(data.required_free_bytes),
+    diskFreeBytes: requireNullableSafeByteSize(data.disk_free_bytes),
+    canInstall: requireBoolean(data.can_install),
+    blockers: requireArray(data.blockers).map(requireNonemptyString),
+  };
+}
+
+function parseInstallComponent(value: unknown): InstallComponent {
+  const data = requireRecord(value);
+  return {
+    artifactId: requireNonemptyString(data.artifact_id),
+    sourceUrl: requireHttpUrl(data.source_url),
+    revision: requireNonemptyString(data.revision),
+    byteSize: requireSafeByteSize(data.byte_size),
+    sha256: requireSha256(data.sha256),
+    destination: requireProjectRelativePath(data.destination),
+    licenseName: requireNonemptyString(data.license_name),
+    licenseSourceUrl: requireHttpUrl(data.license_source_url),
+    state: requireInferenceRuntimeState(data.state),
+  };
+}
+
+function parseInstallationOperation(
+  data: Record<string, unknown>,
+): InstallationOperation {
+  return {
+    operationId: requireCanonicalUuid(data.operation_id),
+    runtimeId: requireNonemptyString(data.runtime_id),
+    profileId: requireNonemptyString(data.profile_id),
+    planDigest: requireSha256(data.plan_digest),
+    acceptedComponentIds: requireArray(data.accepted_component_ids).map(
+      requireNonemptyString,
+    ),
+    state: requireInstallationState(data.state),
+    revision: requireNonnegativeInteger(data.revision),
+    createdAt: requireTimestamp(data.created_at),
+    updatedAt: requireTimestamp(data.updated_at),
+    error:
+      data.error === null
+        ? null
+        : parseInstallationError(requireRecord(data.error)),
+  };
+}
+
+function parseInstallationError(
+  data: Record<string, unknown>,
+): InstallationErrorRecord {
+  return {
+    code: requireNonemptyString(data.code),
+    message: requireNonemptyString(data.message),
+  };
+}
+
+function requireInferenceRuntimeState(value: unknown): InferenceRuntimeState {
+  return requireStringLiteral(
+    value,
+    "missing",
+    "partial",
+    "ready",
+    "corrupt",
+  );
+}
+
+function requireInferenceProcessState(
+  value: unknown,
+): InferenceProcessState {
+  return requireStringLiteral(
+    value,
+    "stopped",
+    "starting",
+    "ready",
+    "unhealthy",
+  );
+}
+
+function requireInstallationState(value: unknown): InstallationState {
+  return requireStringLiteral(
+    value,
+    "planned",
+    "downloading",
+    "extracting",
+    "installing",
+    "completed",
+    "failed",
+    "canceled",
+  );
+}
+
+function requireSafeByteSize(value: unknown): number {
+  const parsed = requireNonnegativeInteger(value);
+  if (parsed > Number.MAX_SAFE_INTEGER) {
+    throw new TypeError("Byte size exceeds the safe integer range");
+  }
+  return parsed;
+}
+
+function requireNullableSafeByteSize(value: unknown): number | null {
+  if (value === null) {
+    return null;
+  }
+  return requireSafeByteSize(value);
+}
+
+function requireNullableSafeInteger(value: unknown): number | null {
+  if (value === null) {
+    return null;
+  }
+  const parsed = requireNonnegativeInteger(value);
+  if (parsed > Number.MAX_SAFE_INTEGER) {
+    throw new TypeError("Integer exceeds the safe range");
+  }
+  return parsed;
+}
+
+function requireHttpUrl(value: unknown): string {
+  const url = requireNonemptyString(value);
+  if (
+    !url.startsWith("http://") &&
+    !url.startsWith("https://")
+  ) {
+    throw new TypeError("Expected an http(s) URL");
+  }
+  if (/\s/.test(url)) {
+    throw new TypeError("URL must not contain whitespace");
+  }
+  return url;
+}
+
+function requireStringLiteral<T extends string>(
+  value: unknown,
+  ...allowed: readonly T[]
+): T {
+  if (typeof value !== "string" || !allowed.includes(value as T)) {
+    throw new TypeError("Unsupported literal response field");
+  }
+  return value as T;
+}
+
 async function requestJson(url: string, init?: RequestInit): Promise<unknown> {
   let response: Response;
   try {

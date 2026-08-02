@@ -2,6 +2,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   ApiRequestError,
+  getInferenceStatus,
+  getInstallPlan,
+  getInstallation,
   getJob,
   getProject,
   getRecoveryReport,
@@ -626,5 +629,169 @@ describe("strict project and durable-job API parsing", () => {
   ])("rejects a recovery report with %s", async (_label, invalidReport) => {
     respondWith(invalidReport);
     await expectInvalidResponse(() => getRecoveryReport());
+  });
+});
+
+describe("strict inference setup API parsing", () => {
+  const timestamp = "2026-08-02T00:00:00Z";
+  const digest = "a".repeat(64);
+  const sha = "b".repeat(64);
+  const inferenceStatus = {
+    environment: {
+      supported: true,
+      platform: "windows",
+      architecture: "x86_64",
+      gpu_vendor: "nvidia",
+      gpu_name: "RTX 4060",
+      driver_version: "552.44",
+      vram_bytes: 8589934592,
+      disk_free_bytes: 1000000000000,
+      blocking_issues: [],
+    },
+    runtime: { state: "missing", selected_version: null, error: null },
+    profile: {
+      profile_id: "sdxl-mapchip-ipadapter",
+      profile_version: "1",
+      support_state: "candidate_unverified",
+      components: [
+        { artifact_id: "checkpoint", state: "missing", installed_bytes: null },
+      ],
+      ready: false,
+    },
+    process: { state: "stopped", pid: null, version: null, errors: [] },
+  };
+  const plan = {
+    runtime_id: "comfyui-windows-nvidia",
+    runtime_version: "0.29.2",
+    profile_id: "sdxl-mapchip-ipadapter",
+    profile_version: "1",
+    plan_digest: digest,
+    components: [
+      {
+        artifact_id: "checkpoint",
+        source_url: "https://example.com/source",
+        revision: "r1",
+        byte_size: 1500000000,
+        sha256: sha,
+        destination: "models/checkpoints/x.safetensors",
+        license_name: "Apache-2.0",
+        license_source_url: "https://example.com/license",
+        state: "missing",
+      },
+    ],
+    total_download_bytes: 1500000000,
+    temporary_headroom_bytes: 8000000000,
+    required_free_bytes: 9500000000,
+    disk_free_bytes: 1000000000000,
+    can_install: true,
+    blockers: [],
+  };
+  const operation = {
+    operation_id: projectId,
+    runtime_id: "comfyui-windows-nvidia",
+    profile_id: "sdxl-mapchip-ipadapter",
+    plan_digest: digest,
+    accepted_component_ids: ["checkpoint"],
+    state: "completed",
+    revision: 2,
+    created_at: timestamp,
+    updated_at: timestamp,
+    error: null,
+  };
+
+  it("parses a valid inference status and install plan", async () => {
+    respondWith(inferenceStatus);
+    await expect(getInferenceStatus()).resolves.toMatchObject({
+      environment: { gpuName: "RTX 4060" },
+      process: { state: "stopped" },
+    });
+    respondWith(plan);
+    const parsedPlan = await getInstallPlan();
+    expect(parsedPlan.totalDownloadBytes).toBe(1500000000);
+    expect(parsedPlan.components[0].licenseName).toBe("Apache-2.0");
+  });
+
+  it.each([
+    ["unknown process state", { ...inferenceStatus, process: { ...inferenceStatus.process, state: "paused" } }],
+    ["unknown runtime state", { ...inferenceStatus, runtime: { state: "unknown" } }],
+    [
+      "unsafe byte size",
+      {
+        ...inferenceStatus,
+        environment: {
+          ...inferenceStatus.environment,
+          vram_bytes: Number.MAX_SAFE_INTEGER + 1,
+        },
+      },
+    ],
+  ])("rejects inference status with %s", async (_label, invalidStatus) => {
+    respondWith(invalidStatus);
+    await expectInvalidResponse(() => getInferenceStatus());
+  });
+
+  it.each([
+    [
+      "malformed sha256",
+      {
+        ...plan,
+        components: [{ ...plan.components[0], sha256: "xyz" }],
+      },
+    ],
+    [
+      "non-http source URL",
+      {
+        ...plan,
+        components: [{ ...plan.components[0], source_url: "file:///x" }],
+      },
+    ],
+    [
+      "absolute destination",
+      {
+        ...plan,
+        components: [
+          { ...plan.components[0], destination: "C:\\models\\x.safetensors" },
+        ],
+      },
+    ],
+    [
+      "duplicate licenses",
+      {
+        ...plan,
+        components: [
+          plan.components[0],
+          {
+            ...plan.components[0],
+            artifact_id: "second",
+            byte_size: 1,
+            destination: "models/loras/y.safetensors",
+          },
+        ],
+      },
+    ],
+    [
+      "unsafe total size",
+      { ...plan, total_download_bytes: Number.MAX_SAFE_INTEGER + 1 },
+    ],
+  ])("rejects install plan with %s", async (_label, invalidPlan) => {
+    respondWith(invalidPlan);
+    await expectInvalidResponse(() => getInstallPlan());
+  });
+
+  it("parses a terminal installation operation", async () => {
+    respondWith(operation);
+    const parsed = await getInstallation(projectId);
+    expect(parsed.state).toBe("completed");
+    expect(parsed.revision).toBe(2);
+  });
+
+  it.each([
+    ["unknown installation state", { ...operation, state: "paused" }],
+    [
+      "malformed operation id",
+      { ...operation, operation_id: "not-a-uuid" },
+    ],
+  ])("rejects installation operation with %s", async (_label, invalidOperation) => {
+    respondWith(invalidOperation);
+    await expectInvalidResponse(() => getInstallation(projectId));
   });
 });

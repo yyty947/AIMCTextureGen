@@ -31,6 +31,10 @@ class InstallStateError(InstallError):
     """An install operation record is in an invalid state."""
 
 
+class InstallNotFoundError(InstallError):
+    """An install operation does not exist."""
+
+
 class DownloadError(Exception):
     """Base error for managed artifact downloads."""
 

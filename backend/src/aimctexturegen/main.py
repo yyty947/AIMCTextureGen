@@ -11,6 +11,7 @@ from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from aimctexturegen.api import jobs as jobs_api
+from aimctexturegen.api import inference as inference_api
 from aimctexturegen.api import projects as projects_api
 from aimctexturegen.api import system as system_api
 from aimctexturegen.catalog.models import CatalogProfile
@@ -20,6 +21,7 @@ from aimctexturegen.core.errors import ApiProblem, problem_response
 from aimctexturegen.core.request_limits import ImportBodyLimitMiddleware
 from aimctexturegen.index.database import ProjectIndex
 from aimctexturegen.index.service import IndexService
+from aimctexturegen.inference.service import ManagedInferenceService
 from aimctexturegen.jobs.models import CreateJobCommand
 from aimctexturegen.jobs.recovery import RecoveryReport, RecoveryService
 from aimctexturegen.jobs.service import JobService
@@ -73,6 +75,7 @@ class AppServices:
     index_service: IndexService | None = None
     recovery_service: RecoveryService | RecoveryRunner | None = None
     manifest_registry: ManifestRegistry | None = None
+    inference: object | None = None
     _project_service_injected: bool = field(
         init=False,
         repr=False,
@@ -135,6 +138,14 @@ class AppServices:
             if self.manifest_registry is None
             else self.manifest_registry
         )
+        inference = (
+            ManagedInferenceService(
+                registry=manifest_registry,
+                runtime_root=_REPOSITORY_ROOT / "runtime",
+            )
+            if self.inference is None
+            else self.inference
+        )
         object.__setattr__(self, "repository", repository)
         object.__setattr__(self, "project_service", project_service)
         object.__setattr__(self, "job_store", store)
@@ -143,6 +154,7 @@ class AppServices:
         object.__setattr__(self, "index_service", index_service)
         object.__setattr__(self, "recovery_service", recovery_service)
         object.__setattr__(self, "manifest_registry", manifest_registry)
+        object.__setattr__(self, "inference", inference)
         object.__setattr__(
             self,
             "_project_service_injected",
@@ -296,6 +308,7 @@ def create_app(
     app.include_router(projects_api.router)
     app.include_router(jobs_api.router)
     app.include_router(system_api.router)
+    app.include_router(inference_api.router)
 
     return app
 
