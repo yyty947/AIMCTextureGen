@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import subprocess
 from pathlib import Path
 
 from aimctexturegen.comfy.manifests import (
@@ -59,6 +60,15 @@ def test_registering_a_second_profile_needs_no_installer_changes(
 
 
 def test_catalog_import_does_not_import_profile_specific_compilers() -> None:
-    import aimctexturegen.model_profiles.registry  # noqa: F401
-
-    assert "aimctexturegen.model_profiles.sdxl" not in sys.modules
+    probe = (
+        "import sys; "
+        "import aimctexturegen.model_profiles.registry; "
+        "assert 'aimctexturegen.model_profiles.sdxl' not in sys.modules"
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", probe],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr

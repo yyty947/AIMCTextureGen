@@ -66,6 +66,7 @@ def _request(app, method: str, path: str, **kwargs) -> httpx.Response:
 
 def _create_payload() -> dict[str, object]:
     return {
+        "profile_id": "sdxl-mapchip-ipadapter",
         "target_semantic_id": "minecraft:deepslate",
         "prompt": "cold blue-gray stone",
         "resolution": 16,
@@ -128,12 +129,69 @@ def test_create_job_maps_json_arrays_to_strict_domain_tuples(
     assert body["request"]["project_id"] == str(PROJECT_ID)
     assert body["request"]["target_semantic_id"] == "minecraft:deepslate"
     assert body["request"]["style_references"] == [STYLE_REFERENCE]
+    assert body["request"]["schema_version"] == 2
+    assert body["request"]["model_profile"]["profile_id"] == (
+        "sdxl-mapchip-ipadapter"
+    )
+    assert body["request"]["model_profile"]["workflow_kind"] == "text2img"
+    assert body["request"]["execution_eligibility"] == "bound"
     assert len(body["request"]["seeds"]) == 4
     assert len(set(body["request"]["seeds"])) == 4
     assert body["state"]["status"] == "queued"
     assert body["state"]["revision"] == 0
     assert [candidate["seed"] for candidate in body["state"]["candidates"]] == (
         body["request"]["seeds"]
+    )
+
+
+def test_create_job_derives_img2img_kind_from_structure_reference(
+    tmp_path: Path,
+) -> None:
+    projects_root = tmp_path / "projects"
+    _write_project(projects_root)
+    structure = (
+        projects_root
+        / str(PROJECT_ID)
+        / "uploads"
+        / "structure-references"
+        / "layout.png"
+    )
+    structure.parent.mkdir(parents=True)
+    payload = io.BytesIO()
+    Image.new("RGB", (1, 1), (8, 8, 8)).save(payload, format="PNG")
+    structure.write_bytes(payload.getvalue())
+    app = create_app(project_root=projects_root, catalog_root=CATALOG_ROOT)
+
+    response = _create_job(
+        app,
+        {
+            **_create_payload(),
+            "structure_reference": "uploads/structure-references/layout.png",
+        },
+    )
+
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["request"]["model_profile"]["workflow_kind"] == "img2img"
+
+
+def test_create_job_rejects_unknown_profile_before_persistence(
+    tmp_path: Path,
+) -> None:
+    projects_root = tmp_path / "projects"
+    _write_project(projects_root)
+    app = create_app(project_root=projects_root, catalog_root=CATALOG_ROOT)
+
+    response = _create_job(
+        app,
+        {**_create_payload(), "profile_id": "missing-profile"},
+    )
+
+    _assert_error(
+        response,
+        status_code=422,
+        code="UNKNOWN_PROFILE",
+        stage="creating_job",
     )
 
 
@@ -476,7 +534,13 @@ def test_index_failure_after_job_commit_uses_stable_recovery_guidance(
     tmp_path: Path,
 ) -> None:
     class IndexFailingJobService:
-        def create_job(self, _project_id, _command):
+        def create_job(
+            self,
+            _project_id,
+            _command,
+            *,
+            model_profile=None,
+        ):
             raise JobError(
                 "INDEX_UNAVAILABLE",
                 "任务已保存，但任务索引暂时不可用",

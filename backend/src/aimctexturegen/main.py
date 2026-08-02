@@ -15,6 +15,7 @@ from aimctexturegen.api import projects as projects_api
 from aimctexturegen.api import system as system_api
 from aimctexturegen.catalog.models import CatalogProfile
 from aimctexturegen.catalog.registry import CatalogRegistry
+from aimctexturegen.comfy.registry import ManifestRegistry
 from aimctexturegen.core.errors import ApiProblem, problem_response
 from aimctexturegen.core.request_limits import ImportBodyLimitMiddleware
 from aimctexturegen.index.database import ProjectIndex
@@ -50,6 +51,8 @@ class JobApplicationService(Protocol):
         self,
         project_id,
         command: CreateJobCommand,
+        *,
+        model_profile=None,
     ) -> LoadedJob: ...
 
 
@@ -69,6 +72,7 @@ class AppServices:
     project_index: ProjectIndex | None = None
     index_service: IndexService | None = None
     recovery_service: RecoveryService | RecoveryRunner | None = None
+    manifest_registry: ManifestRegistry | None = None
     _project_service_injected: bool = field(
         init=False,
         repr=False,
@@ -126,6 +130,11 @@ class AppServices:
             if self.recovery_service is None
             else self.recovery_service
         )
+        manifest_registry = (
+            ManifestRegistry.load(_REPOSITORY_ROOT)
+            if self.manifest_registry is None
+            else self.manifest_registry
+        )
         object.__setattr__(self, "repository", repository)
         object.__setattr__(self, "project_service", project_service)
         object.__setattr__(self, "job_store", store)
@@ -133,6 +142,7 @@ class AppServices:
         object.__setattr__(self, "project_index", project_index)
         object.__setattr__(self, "index_service", index_service)
         object.__setattr__(self, "recovery_service", recovery_service)
+        object.__setattr__(self, "manifest_registry", manifest_registry)
         object.__setattr__(
             self,
             "_project_service_injected",

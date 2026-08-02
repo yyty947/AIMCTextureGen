@@ -9,6 +9,7 @@ from fastapi import APIRouter, Request, status
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from aimctexturegen.core.errors import ApiProblem
+from aimctexturegen.comfy.errors import ProfileBindingError
 from aimctexturegen.jobs.errors import JobError
 from aimctexturegen.jobs.models import (
     CreateJobCommand,
@@ -21,6 +22,9 @@ from aimctexturegen.jobs.store import JobStore, LoadedJob
 from aimctexturegen.projects.repository import (
     ProjectRepository,
     ProjectRepositoryError,
+)
+from aimctexturegen.model_profiles.workflows import (
+    build_model_profile_binding,
 )
 
 
@@ -35,6 +39,7 @@ class _TransportModel(BaseModel):
 class CreateJobRequest(_TransportModel):
     """JSON-friendly request whose arrays are mapped to domain tuples."""
 
+    profile_id: str = Field(min_length=1)
     target_semantic_id: str
     prompt: str
     resolution: int
@@ -81,12 +86,21 @@ def create_job(
         loaded = _job_service(request.app.state.services).create_job(
             parsed_project_id,
             payload.to_command(),
+            model_profile=_resolve_profile_binding(
+                request.app.state.services,
+                payload.profile_id,
+                structure_reference_present=(
+                    payload.structure_reference is not None
+                ),
+            ),
         )
         return _detail(loaded)
     except ApiProblem:
         raise
     except ValidationError as error:
         raise _invalid_request_problem() from error
+    except ProfileBindingError as error:
+        raise _profile_binding_problem(error) from error
     except (JobError, ProjectRepositoryError) as error:
         raise _job_domain_problem(error, "creating_job") from error
     except Exception as error:
@@ -189,6 +203,26 @@ def _job_service(services) -> JobService:
         repository=repository,
         catalogs=services.catalogs,
         store=JobStore(repository),
+    )
+
+
+def _resolve_profile_binding(
+    services,
+    profile_id: str,
+    *,
+    structure_reference_present: bool,
+):
+    from aimctexturegen.comfy.registry import ManifestRegistry
+
+    registry = getattr(services, "manifest_registry", None)
+    if registry is None:
+        from aimctexturegen.main import _REPOSITORY_ROOT
+
+        registry = ManifestRegistry(_REPOSITORY_ROOT)
+    return build_model_profile_binding(
+        registry,
+        profile_id,
+        structure_reference_present=structure_reference_present,
     )
 
 
@@ -316,5 +350,16 @@ def _internal_problem(stage: str) -> ApiProblem:
         stage=stage,
         user_message="处理任务请求时发生内部错误",
         recommended_actions=("重试操作；若问题持续，请查看应用日志",),
+        technical_details=None,
+    )
+
+
+def _profile_binding_problem(error: ProfileBindingError) -> ApiProblem:
+    return ApiProblem(
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        code=error.code,
+        stage="creating_job",
+        user_message="模型配置不可用",
+        recommended_actions=("检查模型配置后重试",),
         technical_details=None,
     )

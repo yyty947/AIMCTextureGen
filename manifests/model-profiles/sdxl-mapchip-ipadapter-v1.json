@@ -104,12 +104,12 @@
     {
       "kind": "text2img",
       "relative_path": "sdxl-mapchip-ipadapter-v1/text2img.api.json",
-      "sha256": null
+      "sha256": "ca5b61fe09731c640bd57678af594e18efce15ee554291aaea46160c002e739f"
     },
     {
       "kind": "img2img",
       "relative_path": "sdxl-mapchip-ipadapter-v1/img2img.api.json",
-      "sha256": null
+      "sha256": "44c389793a5dc70f75b51f859a12ab99d7997973142489f14e8828c9e91713aa"
     }
   ],
   "required_node_classes": [

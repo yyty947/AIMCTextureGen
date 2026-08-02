@@ -149,3 +149,19 @@ class ComfyUnsafeInputError(ComfyError):
 
 class ComfyUnsafeOutputError(ComfyError):
     """An output name was not declared by the prompt history."""
+
+
+class WorkflowError(Exception):
+    """Base error for fixed workflow templates and bindings."""
+
+
+class WorkflowBindingError(WorkflowError):
+    """A workflow template or semantic binding violated its contract."""
+
+
+class ProfileBindingError(Exception):
+    """A durable job profile binding could not be constructed."""
+
+    def __init__(self, code: str, message: str) -> None:
+        self.code = code
+        super().__init__(message)

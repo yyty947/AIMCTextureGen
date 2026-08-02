@@ -20,6 +20,7 @@ from aimctexturegen.jobs.models import (
     JobRequest,
     JobSummary,
     MAX_SAFE_SEED,
+    ModelProfileBinding,
 )
 from aimctexturegen.jobs.store import JobStore, LoadedJob
 from aimctexturegen.packs.coverage import (
@@ -80,6 +81,8 @@ class JobService:
         self,
         project_id: UUID,
         command: CreateJobCommand,
+        *,
+        model_profile: ModelProfileBinding | None = None,
     ) -> LoadedJob:
         """Validate a missing catalog target and persist exactly four seeds."""
 
@@ -87,6 +90,21 @@ class JobService:
             raise TypeError("project_id must be a UUID")
         if not isinstance(command, CreateJobCommand):
             raise TypeError("command must be a CreateJobCommand")
+        if model_profile is not None and not isinstance(
+            model_profile,
+            ModelProfileBinding,
+        ):
+            raise TypeError("model_profile must be a ModelProfileBinding")
+        expected_kind = (
+            "img2img"
+            if command.structure_reference is not None
+            else "text2img"
+        )
+        if (
+            model_profile is not None
+            and model_profile.workflow_kind != expected_kind
+        ):
+            raise _service_error("PROFILE_WORKFLOW_MISMATCH")
 
         with self._repository.open(project_id) as opened:
             try:
@@ -162,7 +180,7 @@ class JobService:
             job_id = self._job_id_source()
             created_at = self._clock()
             request = JobRequest(
-                schema_version=1,
+                schema_version=2 if model_profile is not None else 1,
                 job_id=job_id,
                 project_id=opened.manifest.project_id,
                 retry_of_job_id=None,
@@ -177,6 +195,10 @@ class JobService:
                 structure_reference=command.structure_reference,
                 seeds=seeds,
                 created_at=created_at,
+                model_profile=model_profile,
+                execution_eligibility=(
+                    "bound" if model_profile is not None else "legacy_unbound"
+                ),
             )
 
         loaded = self._store.create(request)
@@ -324,5 +346,6 @@ def _service_error(code: str) -> JobError:
         ),
         "INVALID_SEED_SOURCE": "无法生成四个唯一且安全的 seed",
         "INDEX_UNAVAILABLE": "任务已保存，但任务索引暂时不可用",
+        "PROFILE_WORKFLOW_MISMATCH": "模型配置与生成方式不匹配",
     }
     return JobError(code, messages[code])

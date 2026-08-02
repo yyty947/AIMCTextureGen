@@ -13,6 +13,7 @@ from aimctexturegen.jobs.models import (
     JobRequest,
     JobStateRecord,
     JobSummary,
+    ModelProfileBinding,
     dump_job_request,
     dump_job_state,
     validate_job_pair,
@@ -635,6 +636,76 @@ def test_job_dumps_are_sorted_compact_utf8_and_round_trip_strictly() -> None:
     )
     assert JobRequest.model_validate_json(request_payload, strict=True) == request
     assert JobStateRecord.model_validate_json(state_payload, strict=True) == state
+
+
+def _binding(**updates: object) -> ModelProfileBinding:
+    values = {
+        "profile_id": "sdxl-mapchip-ipadapter",
+        "profile_version": "1",
+        "profile_manifest_sha256": "a" * 64,
+        "runtime_id": "comfyui-windows-nvidia",
+        "runtime_version": "0.29.2",
+        "runtime_manifest_sha256": "b" * 64,
+        "workflow_kind": "text2img",
+        "workflow_sha256": "c" * 64,
+        **updates,
+    }
+    return ModelProfileBinding.model_validate(values)
+
+
+def test_schema1_request_stays_legacy_unbound_without_byte_migration() -> None:
+    request = _request()
+    assert request.schema_version == 1
+    assert request.model_profile is None
+    assert request.execution_eligibility == "legacy_unbound"
+    payload = dump_job_request(request)
+    assert JobRequest.model_validate_json(payload, strict=True) == request
+    assert b"C:" not in payload
+
+
+def test_schema2_request_freezes_the_model_profile_binding() -> None:
+    binding = _binding()
+    request = _request(
+        schema_version=2,
+        model_profile=binding,
+        execution_eligibility="bound",
+    )
+    assert request.model_profile == binding
+    payload = dump_job_request(request)
+    assert b'"schema_version":2' in payload
+    assert b"sdxl-mapchip-ipadapter" in payload
+    assert JobRequest.model_validate_json(payload, strict=True) == request
+
+
+def test_binding_eligibility_mismatches_are_rejected() -> None:
+    with pytest.raises(ValidationError):
+        _request(
+            schema_version=2,
+            model_profile=_binding(),
+            execution_eligibility="legacy_unbound",
+        )
+    with pytest.raises(ValidationError):
+        _request(
+            model_profile=_binding(),
+            execution_eligibility="bound",
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("profile_manifest_sha256", "xyz"),
+        ("workflow_sha256", "XYZ"),
+        ("workflow_kind", "upscale"),
+        ("runtime_id", ""),
+    ],
+)
+def test_model_profile_binding_rejects_malformed_identity(
+    field: str,
+    value: object,
+) -> None:
+    with pytest.raises(ValidationError):
+        _binding(**{field: value})
 
 
 def test_job_summary_excludes_prompt_paths_seeds_and_failure_details() -> None:
