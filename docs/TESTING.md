@@ -232,9 +232,11 @@ Window 3 is reserved for the optional occupied-port check below. Open
 2. Click **启动受管 ComfyUI**. Expect a readable `PORT_IN_USE` error that says
    port 8188 is occupied and recommends closing the other application/ComfyUI;
    it must explicitly say the app will not terminate the external process.
-   The listener in Window 3 must remain running.
-3. Stop the listener with `Ctrl+C`, then start and stop the managed runtime
-   normally to prove recovery.
+   A red error panel and HTTP `409 Conflict` in the FastAPI log are expected
+   outcomes for this deliberate test. The listener in Window 3 must remain
+   running.
+3. Stop the listener with `Ctrl+C` in Window 3. After the prompt returns,
+   start and stop the managed runtime normally to prove recovery.
 
 ### Layout, console and existing data
 
