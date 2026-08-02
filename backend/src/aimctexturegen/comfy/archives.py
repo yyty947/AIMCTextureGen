@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 import stat
+import subprocess
 from pathlib import Path
 from typing import Protocol
 
@@ -90,6 +91,63 @@ class Py7zReader:
                 seven_zip.extractall(target)
         except OSError as exc:
             raise ArchiveExtractError("cannot extract 7z archive") from exc
+
+
+class BsdtarReader:
+    """Windows bsdtar-backed extractor for BCJ2 archives py7zr cannot read.
+
+    Inventory still uses the pinned py7zr reader; extraction shells to the
+    OS-bundled ``tar.exe`` (libarchive) with fixed, shell-free arguments
+    after the full safe member preflight has passed.
+    """
+
+    def __init__(self, tar_executable: str | None = None) -> None:
+        self._tar_executable = tar_executable or _find_bsdtar()
+
+    def members(self, archive: Path) -> list[ArchiveMember]:
+        return Py7zReader().members(archive)
+
+    def extract(self, archive: Path, target: Path) -> None:
+        if self._tar_executable is None:
+            raise ArchiveExtractError(
+                "bsdtar (tar.exe) is unavailable; cannot extract a BCJ2 7z"
+            )
+        creation_flags = 0
+        if os.name == "nt":
+            creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        try:
+            completed = subprocess.run(
+                [
+                    self._tar_executable,
+                    "-xf",
+                    str(Path(archive).resolve()),
+                    "-C",
+                    str(Path(target).resolve()),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=1800,
+                check=False,
+                shell=False,
+                creationflags=creation_flags,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise ArchiveExtractError("bsdtar extraction failed") from exc
+        if completed.returncode != 0:
+            raise ArchiveExtractError(
+                f"bsdtar extraction failed: {completed.stderr[-400:]}"
+            )
+
+
+def _find_bsdtar() -> str | None:
+    candidates = [
+        r"C:\Windows\System32\tar.exe",
+        r"C:\Windows\Sysnative\tar.exe",
+    ]
+    for candidate in candidates:
+        if Path(candidate).is_file():
+            return candidate
+    return shutil.which("tar")
 
 
 def inspect_7z(

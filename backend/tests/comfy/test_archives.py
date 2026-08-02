@@ -199,6 +199,26 @@ def test_extract_and_audit_publishes_exact_tree(tmp_path: Path) -> None:
     assert (staging / tree.root / "ComfyUI" / "main.py").is_file()
 
 
+def test_bsdtar_reader_extracts_py7zr_archives_when_tar_is_available(
+    tmp_path: Path,
+) -> None:
+    from aimctexturegen.comfy.archives import BsdtarReader
+
+    archive = make_seven_zip(tmp_path)
+    reader = BsdtarReader()
+    if reader._tar_executable is None:
+        pytest.skip("bsdtar is unavailable on this host")
+    staging = tmp_path / "bsdtar-out"
+    staging.mkdir()
+    reader.extract(archive, staging)
+    assert (
+        staging
+        / "ComfyUI_windows_portable_nvidia"
+        / "python_embeded"
+        / "python.exe"
+    ).is_file()
+
+
 def test_audit_rejects_extra_files_and_removes_only_staging(
     tmp_path: Path,
 ) -> None:

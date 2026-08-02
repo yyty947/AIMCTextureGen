@@ -31,7 +31,7 @@
       "source_url": "https://github.com/Comfy-Org/ComfyUI/blob/v0.29.2/LICENSE"
     }
   },
-  "expected_archive_root": "ComfyUI_windows_portable_nvidia",
+  "expected_archive_root": "ComfyUI_windows_portable",
   "required_paths": [
     "python_embeded/python.exe",
     "ComfyUI/main.py"
@@ -53,5 +53,5 @@
   "expected_runtime_identity": "0.29.2",
   "extraction_headroom_bytes": 8000000000,
   "headroom_is_estimate": true,
-  "revision_notes": "Candidate lock only; exact extracted size and CLI behavior are measured during Task 10 before this runtime becomes supported."
+  "revision_notes": "Candidate lock; expected_archive_root corrected to the measured archive root 'ComfyUI_windows_portable' during Task 10 verification."
 }

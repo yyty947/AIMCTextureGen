@@ -140,7 +140,7 @@ class ComfyUIManager:
                     "model profile is not fully installed"
                 )
             extra_model_paths = self._ensure_extra_model_paths()
-            executable = self._resolved_executable()
+            executable, runtime_cwd = self._resolved_executable()
             arguments = [
                 str(argument)
                 .replace("<port>", str(self._port))
@@ -148,13 +148,13 @@ class ComfyUIManager:
                     "<extra-model-paths-config>",
                     str(extra_model_paths),
                 )
-                for argument in self._runtime.startup_argument_template
+                for argument in self._runtime.startup_argument_template[1:]
             ]
             try:
                 child = self._launcher.start(
                     executable=executable,
                     arguments=arguments,
-                    cwd=self._root,
+                    cwd=runtime_cwd,
                     env=_bounded_environment(),
                     log_path=self._root / "logs" / "comfyui.log",
                     port=self._port,
@@ -216,7 +216,9 @@ class ComfyUIManager:
                 stats = self._probe.system_stats()
                 object_info = self._probe.object_info()
             except Exception as exc:
-                raise ReadinessError("readiness probe failed") from exc
+                stable_since = None
+                time.sleep(0.05)
+                continue
             version = (
                 stats.get("system", {}).get("comfyui_version")
                 if isinstance(stats.get("system"), dict)
@@ -237,20 +239,20 @@ class ComfyUIManager:
             time.sleep(0.05)
         raise ReadinessError("managed child did not become ready in time")
 
-    def _resolved_executable(self) -> str:
+    def _resolved_executable(self) -> tuple[str, Path]:
         selection = self._read_json(
             self._root / "state" / "selected-runtime.json"
         )
         if selection is None or not selection.get("directory"):
             raise ManagerStartError("runtime is not installed")
         template_root = self._runtime.startup_argument_template[0]
-        return str(
+        runtime_cwd = (
             self._root
             / "comfyui"
             / str(selection["directory"])
             / self._runtime.expected_archive_root
-            / template_root
         )
+        return str(runtime_cwd / template_root), runtime_cwd
 
     def _ensure_extra_model_paths(self) -> Path:
         path = self._root / "state" / "extra_model_paths.yaml"

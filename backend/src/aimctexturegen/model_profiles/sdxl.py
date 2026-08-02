@@ -81,14 +81,32 @@ class SDXLBinding(WorkflowBinding):
     ) -> None:
         for name in inputs.style_reference_names:
             _validate_upload_name(name)
-        style_refs = [
-            [name, "", "output"] for name in inputs.style_reference_names
-        ]
         working["3"]["inputs"]["text"] = inputs.prompt
         working["17"]["inputs"]["text"] = inputs.negative_prompt
         working["12"]["inputs"]["seed"] = inputs.seed
-        working["8"]["inputs"]["image"] = style_refs[0]
-        working["11"]["inputs"]["image"] = style_refs
+        working["8"]["inputs"]["image"] = inputs.style_reference_names[0]
+        style_node_ids = ["8"]
+        for index, reference in enumerate(
+            inputs.style_reference_names[1:],
+            start=101,
+        ):
+            working[str(index)] = {
+                "class_type": "LoadImage",
+                "inputs": {"image": reference},
+            }
+            style_node_ids.append(str(index))
+        image_ref: list = [style_node_ids[0], 0]
+        for index, other in enumerate(style_node_ids[1:], start=201):
+            batch_id = str(index)
+            working[batch_id] = {
+                "class_type": "ImageBatch",
+                "inputs": {
+                    "image1": image_ref,
+                    "image2": [other, 0],
+                },
+            }
+            image_ref = [batch_id, 0]
+        working["11"]["inputs"]["image"] = image_ref
 
         advanced = _validate_advanced(inputs.advanced)
         if "denoise" in advanced:
@@ -114,11 +132,7 @@ class SDXLBinding(WorkflowBinding):
                 "img2img requires exactly one structure reference"
             )
         _validate_upload_name(inputs.structure_reference_name)
-        working["14"]["inputs"]["image"] = [
-            inputs.structure_reference_name,
-            "",
-            "output",
-        ]
+        working["14"]["inputs"]["image"] = inputs.structure_reference_name
 
 
 def _validate_upload_name(name: str) -> None:

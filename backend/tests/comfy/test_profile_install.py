@@ -64,6 +64,25 @@ def _root(tmp_path: Path) -> Path:
     return tmp_path / "runtime"
 
 
+def _install_managed_runtime_tree(root: Path) -> None:
+    import json
+
+    (root / "state").mkdir(parents=True)
+    (root / "state" / "selected-runtime.json").write_text(
+        json.dumps({"directory": "0.29.2-abc12345"}),
+        encoding="utf-8",
+    )
+    managed = (
+        root
+        / "comfyui"
+        / "0.29.2-abc12345"
+        / "ComfyUI_windows_portable"
+        / "ComfyUI"
+        / "custom_nodes"
+    )
+    managed.mkdir(parents=True)
+
+
 def test_install_downloads_each_artifact_once_into_allowlisted_categories(
     tmp_path: Path,
 ) -> None:
@@ -194,10 +213,20 @@ def test_custom_node_zip_is_verified_and_extracted_into_managed_runtime(
         profile = _profile_with_artifacts([artifact])
         installer = _installer()
         root = _root(tmp_path)
+        _install_managed_runtime_tree(root)
         status = installer.install(profile, root)
         assert status.ready is True
     assert (root / "custom_nodes" / "ComfyUI_IPAdapter_plus.zip").is_file()
-    assert (root / "custom_nodes" / root_name / "__init__.py").is_file()
+    assert (
+        root
+        / "comfyui"
+        / "0.29.2-abc12345"
+        / "ComfyUI_windows_portable"
+        / "ComfyUI"
+        / "custom_nodes"
+        / root_name
+        / "__init__.py"
+    ).is_file()
 
 
 def test_custom_node_zip_with_wrong_root_is_rejected(tmp_path: Path) -> None:
@@ -214,10 +243,12 @@ def test_custom_node_zip_with_wrong_root_is_rejected(tmp_path: Path) -> None:
             allowed_hosts=("127.0.0.1",),
             license_name="GPL-3.0",
         )
+        root = _root(tmp_path)
+        _install_managed_runtime_tree(root)
         with pytest.raises(ProfileUnsafeArtifactError):
             _installer().install(
                 _profile_with_artifacts([artifact]),
-                _root(tmp_path),
+                root,
             )
 
 
@@ -238,10 +269,12 @@ def test_custom_node_zip_with_traversal_member_is_rejected(tmp_path: Path) -> No
             allowed_hosts=("127.0.0.1",),
             license_name="GPL-3.0",
         )
+        root = _root(tmp_path)
+        _install_managed_runtime_tree(root)
         with pytest.raises(ProfileUnsafeArtifactError):
             _installer().install(
                 _profile_with_artifacts([artifact]),
-                _root(tmp_path),
+                root,
             )
 
 

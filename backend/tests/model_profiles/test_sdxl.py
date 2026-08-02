@@ -42,10 +42,8 @@ def test_text2img_compile_sets_only_semantic_slots() -> None:
     assert compiled["3"]["inputs"]["text"] == "stone texture"
     assert compiled["17"]["inputs"]["text"] == "blurry"
     assert compiled["12"]["inputs"]["seed"] == 12345
-    assert compiled["8"]["inputs"]["image"] == ["style.png", "", "output"]
-    assert compiled["11"]["inputs"]["image"] == [
-        ["style.png", "", "output"]
-    ]
+    assert compiled["8"]["inputs"]["image"] == "style.png"
+    assert compiled["11"]["inputs"]["image"] == ["8", 0]
     assert compiled["13"]["inputs"]["width"] == 1024
     assert template["3"]["inputs"]["text"] == "<positive_prompt>"
     assert template["12"]["inputs"]["seed"] == 0
@@ -64,7 +62,7 @@ def test_img2img_requires_one_structure_reference() -> None:
     compiled = _binding("img2img").compile(
         _inputs(structure_reference_name="layout.png")
     )
-    assert compiled["14"]["inputs"]["image"] == ["layout.png", "", "output"]
+    assert compiled["14"]["inputs"]["image"] == "layout.png"
     assert compiled["15"]["class_type"] == "VAEEncode"
     assert compiled["12"]["inputs"]["latent_image"] == ["15", 0]
     assert compiled["12"]["inputs"]["denoise"] == 0.6
@@ -76,11 +74,18 @@ def test_multiple_style_references_use_the_average_combination_contract() -> Non
             style_reference_names=("a.png", "b.png", "c.png"),
         )
     )
-    assert compiled["11"]["inputs"]["image"] == [
-        ["a.png", "", "output"],
-        ["b.png", "", "output"],
-        ["c.png", "", "output"],
-    ]
+    assert compiled["11"]["inputs"]["image"] == ["202", 0]
+    assert compiled["101"]["class_type"] == "LoadImage"
+    assert compiled["102"]["inputs"]["image"] == "c.png"
+    assert compiled["201"]["class_type"] == "ImageBatch"
+    assert compiled["201"]["inputs"] == {
+        "image1": ["8", 0],
+        "image2": ["101", 0],
+    }
+    assert compiled["202"]["inputs"] == {
+        "image1": ["201", 0],
+        "image2": ["102", 0],
+    }
     assert compiled["11"]["inputs"]["combine_embeds"] == "average"
 
 

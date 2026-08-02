@@ -5,7 +5,7 @@
       "text": "<positive_prompt>",
       "clip": [
         "5",
-        0
+        1
       ]
     }
   },
@@ -47,17 +47,14 @@
       "image": [
         "8",
         0
-      ]
+      ],
+      "crop": "center"
     }
   },
   "8": {
     "class_type": "LoadImage",
     "inputs": {
-      "image": [
-        "<style_reference_1>",
-        "",
-        "output"
-      ]
+      "image": "<style_reference_1>"
     }
   },
   "10": {
@@ -67,12 +64,7 @@
         "5",
         0
       ],
-      "clip": [
-        "5",
-        1
-      ],
-      "preset": "SDXL STYLE TRANSFER",
-      "lora_strength": 1.0
+      "preset": "STANDARD (medium strength)"
     }
   },
   "11": {
@@ -82,6 +74,10 @@
         "10",
         0
       ],
+      "ipadapter": [
+        "10",
+        1
+      ],
       "image": [
         [
           "<style_reference_1>",
@@ -90,7 +86,7 @@
         ]
       ],
       "weight": 0.8,
-      "weight_type": "linear",
+      "weight_type": "style transfer",
       "combine_embeds": "average",
       "start_at": 0.0,
       "end_at": 1.0,
@@ -127,18 +123,14 @@
   "14": {
     "class_type": "LoadImage",
     "inputs": {
-      "image": [
-        "<structure_reference>",
-        "",
-        "output"
-      ]
+      "image": "<structure_reference>"
     }
   },
   "15": {
     "class_type": "VAEEncode",
     "inputs": {
       "pixels": [
-        "14",
+        "20",
         0
       ],
       "vae": [
@@ -147,13 +139,26 @@
       ]
     }
   },
+  "20": {
+    "class_type": "ImageScale",
+    "inputs": {
+      "image": [
+        "14",
+        0
+      ],
+      "upscale_method": "lanczos",
+      "width": 1024,
+      "height": 1024,
+      "crop": "disabled"
+    }
+  },
   "17": {
     "class_type": "CLIPTextEncode",
     "inputs": {
       "text": "<negative_prompt>",
       "clip": [
         "5",
-        0
+        1
       ]
     }
   },

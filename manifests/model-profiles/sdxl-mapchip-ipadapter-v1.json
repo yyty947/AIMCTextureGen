@@ -2,7 +2,7 @@
   "schema_version": 1,
   "profile_id": "sdxl-mapchip-ipadapter",
   "profile_version": "1",
-  "support_state": "candidate_unverified",
+  "support_state": "verified",
   "compatible_runtime_ids": [
     "comfyui-windows-nvidia"
   ],
@@ -104,18 +104,20 @@
     {
       "kind": "text2img",
       "relative_path": "sdxl-mapchip-ipadapter-v1/text2img.api.json",
-      "sha256": "ca5b61fe09731c640bd57678af594e18efce15ee554291aaea46160c002e739f"
+      "sha256": "80362974e036874262d166389c4099bfc0b85efb1aa6c9f98e58dce6ba8cad27"
     },
     {
       "kind": "img2img",
       "relative_path": "sdxl-mapchip-ipadapter-v1/img2img.api.json",
-      "sha256": "44c389793a5dc70f75b51f859a12ab99d7997973142489f14e8828c9e91713aa"
+      "sha256": "ad53c2bc8545b626c56d66de2d4cf481a510939619569faaf1158630d928792e"
     }
   ],
   "required_node_classes": [
     "CheckpointLoaderSimple",
     "LoraLoader",
     "CLIPVisionLoader",
+    "ImageBatch",
+    "ImageScale",
     "IPAdapterUnifiedLoader",
     "IPAdapterAdvanced",
     "KSampler",
@@ -130,5 +132,5 @@
   },
   "profile_defaults": {},
   "user_limitations": "Candidate profile. Workflow digests and calibrated defaults are locked during Task 8 and the real GPU smoke must pass before this profile is called supported.",
-  "revision_notes": "All artifact sizes and hashes were independently verified on 2026-08-01/02; workflow files and their SHA-256 values are added by Task 8."
+  "revision_notes": "Verified on 2026-08-02: portable ComfyUI v0.29.2 with STANDARD (medium strength) IPAdapter preset; text2img and img2img real smoke both completed at 1024x1024 (see docs/evidence/phase-4 and docs/MODEL_PROFILES.md)."
 }

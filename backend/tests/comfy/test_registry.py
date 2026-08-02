@@ -153,7 +153,7 @@ def test_real_repo_manifests_are_locked_to_the_candidate_pins() -> None:
 
     profile = registry.profile("sdxl-mapchip-ipadapter")
     assert profile.profile_version == "1"
-    assert profile.support_state == "candidate_unverified"
+    assert profile.support_state == "verified"
     assert profile.compatible_runtime_ids == ("comfyui-windows-nvidia",)
     assert {workflow.kind for workflow in profile.workflows} == {
         "text2img",

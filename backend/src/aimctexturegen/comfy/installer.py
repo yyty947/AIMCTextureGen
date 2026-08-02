@@ -17,6 +17,7 @@ from pydantic import ConfigDict, Field
 from pydantic import BaseModel
 
 from aimctexturegen.comfy.archives import (
+    BsdtarReader,
     ExtractionPolicy,
     SevenZipReader,
     extract_and_audit_7z,
@@ -328,7 +329,7 @@ class RuntimeInstaller:
         policy_factory: Callable[[RuntimeManifest], ExtractionPolicy]
         | None = None,
     ) -> None:
-        self._reader = reader
+        self._reader = reader if reader is not None else BsdtarReader()
         self._policy_factory = policy_factory or _default_extraction_policy
 
     def status(self, runtime: RuntimeManifest, root: Path) -> RuntimeStatus:
@@ -660,7 +661,13 @@ class ProfileInstaller:
             return "corrupt"
         if artifact.destination.startswith("custom_nodes/"):
             expected_root = _custom_node_root_name(artifact)
-            marker = root / "custom_nodes" / expected_root / "__init__.py"
+            marker = (
+                _managed_runtime_root(root)
+                / "ComfyUI"
+                / "custom_nodes"
+                / expected_root
+                / "__init__.py"
+            )
             if not marker.is_file():
                 return "corrupt"
         return "ready"
@@ -699,10 +706,18 @@ class ProfileInstaller:
         root: Path,
     ) -> None:
         expected_root = _custom_node_root_name(artifact)
-        target_dir = root / "custom_nodes" / expected_root
+        managed_root = _managed_runtime_root(root)
+        target_dir = (
+            managed_root / "ComfyUI" / "custom_nodes" / expected_root
+        )
         if (target_dir / "__init__.py").is_file():
             return
-        staging = root / "custom_nodes" / f".staging-{uuid4()}"
+        staging = (
+            managed_root
+            / "ComfyUI"
+            / "custom_nodes"
+            / f".staging-{uuid4()}"
+        )
         staging.mkdir(parents=True)
         try:
             with zipfile.ZipFile(zip_path) as archive:
@@ -741,12 +756,27 @@ def _custom_node_root_name(artifact: ArtifactManifest) -> str:
     return artifact.file_name
 
 
+def _managed_runtime_root(root: Path) -> Path:
+    selection = _read_json(root / "state" / "selected-runtime.json")
+    if selection is None or not selection.get("directory"):
+        raise ProfileInstallError("managed runtime is not installed")
+    base = root / "comfyui" / str(selection["directory"])
+    if not base.is_dir():
+        raise ProfileInstallError("managed runtime directory is missing")
+    for child in sorted(base.iterdir()):
+        if (child / "ComfyUI").is_dir():
+            return child
+    raise ProfileInstallError("managed runtime layout is invalid")
+
+
 def _validate_custom_node_names(names: list[str], expected_root: str) -> None:
     roots: set[str] = set()
     seen: set[str] = set()
     for raw_name in names:
         name = raw_name.replace("\\", "/").rstrip("/")
-        if not name or not name.startswith(f"{expected_root}/"):
+        if not name or not (
+            name == expected_root or name.startswith(f"{expected_root}/")
+        ):
             raise ProfileUnsafeArtifactError(
                 f"custom-node member {raw_name!r} escapes the expected root"
             )
