@@ -1039,10 +1039,12 @@ Run the install/archive/process/transport suites separately with `-W error
 hash maps. Prove the default test suite performs no real network download and
 does not launch the real ComfyUI.
 
-- [ ] **Step 3: Give the user the manual Windows procedure**
+- [x] **Step 3: Give the user the manual Windows procedure**
 
-The procedure is recorded in `docs/TESTING.md`; keep this step unchecked until
-the user reports the browser/process/layout results from that procedure.
+The procedure is recorded in `docs/TESTING.md`. The user reported successful
+Windows desktop verification: ready installed state, start/health/stop/restart,
+occupied-port protection and recovery, representative 400/600/900 px layouts,
+no application-origin console errors, and unchanged Phase 3 project/job data.
 
 Ask the user to verify through the WebUI:
 
@@ -1091,7 +1093,8 @@ git commit -m "docs: record Phase 4 managed inference gate"
 `b9180eb`（身份记录失败时清理未登记子进程）、`d69d363`（有界内存的
 profile 完整性校验）以及文档提交 `4fd8ab8`、`920e44a`；对应回归测试均
 已重跑。冷启动窗口与对应提示修正提交为 `a19ea87`；
-手动 WebUI 验收仍按 Step 3 保持未勾选。
+用户已完成并通过 Step 3 的手动 WebUI 验收；截图中的 ready/stopped 状态与
+已安装配置均符合预期。
 
 - [ ] **Step 6: Prepare, but do not merge or push without authorization**
 

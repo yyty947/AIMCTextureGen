@@ -102,7 +102,8 @@ driver 610.88), both 1024×1024, with restart audit and redacted evidence in
 marked `verified`; measured corrections (archive root, bsdtar BCJ2
 extraction, IPAdapter preset/links, ImageScale upscale) are recorded in the
 phase plan, ADR-0002 and `docs/MODEL_PROFILES.md`. Manual WebUI acceptance
-and merge/push authorization remain for Task 11.
+passed on 2026-08-02, and the user authorized the remaining merge/push step
+for Task 11; integration is recorded at handoff.
 
 ## Phase 5: Four-Candidate Generation Flow
 
