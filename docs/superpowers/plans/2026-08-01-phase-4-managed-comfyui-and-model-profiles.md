@@ -699,7 +699,7 @@ git commit -m "feat: add tested ComfyUI protocol transport"
 - Produces schema-2 `JobRequest` with frozen `ModelProfileBinding`.
 - Reads schema-1 job requests unchanged as legacy unbound jobs.
 
-- [ ] **Step 1: Derive API workflows from the pinned real node contracts**
+- [x] **Step 1: Derive API workflows from the pinned real node contracts**
 
 Use the selected ComfyUI and IP-Adapter commit's actual `/object_info` or
 reviewed example workflows. Remove UI-only metadata and save API-format JSON.
@@ -710,7 +710,7 @@ Never paste an unreviewed Internet workflow. Record every node class and
 semantic input slot in the profile manifest, then update the workflow SHA-256
 values.
 
-- [ ] **Step 2: Write workflow RED tests**
+- [x] **Step 2: Write workflow RED tests**
 
 Cover:
 
@@ -728,14 +728,14 @@ Cover:
 - fake second profile uses the same protocol with different nodes;
 - a missing required server node fails before submission.
 
-- [ ] **Step 3: Implement generic binding and SDXL adapter**
+- [x] **Step 3: Implement generic binding and SDXL adapter**
 
 Numeric ComfyUI node IDs live only in `sdxl.py`/the profile workflow record.
 The generic transport and callers use semantic slots. Keep prompt/default
 calibration profile-scoped; changing an inference-affecting value requires a
 profile version bump after smoke.
 
-- [ ] **Step 4: Write job schema compatibility RED tests**
+- [x] **Step 4: Write job schema compatibility RED tests**
 
 Prove:
 
@@ -748,7 +748,7 @@ Prove:
 - retry/cancel/history behavior for schema 1 remains unchanged;
 - no installed-state or local absolute path enters immutable `request.json`.
 
-- [ ] **Step 5: Implement schema 2 creation without rewriting schema 1**
+- [x] **Step 5: Implement schema 2 creation without rewriting schema 1**
 
 Update the create API contract to require an explicit profile ID for new
 generation jobs. Registry resolution constructs the frozen binding. Keep a
@@ -756,13 +756,13 @@ focused test helper for creating legacy schema-1 jobs.
 
 Do not make Phase 4 execute either schema.
 
-- [ ] **Step 6: Run focused and regression tests**
+- [x] **Step 6: Run focused and regression tests**
 
 ```powershell
 .\.venv\Scripts\python -W error -m pytest backend\tests\model_profiles backend\tests\jobs backend\tests\api\test_jobs.py -v
 ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```powershell
 git add workflows backend\src\aimctexturegen\model_profiles backend\src\aimctexturegen\jobs backend\src\aimctexturegen\api\jobs.py backend\tests\model_profiles backend\tests\jobs backend\tests\api\test_jobs.py manifests
@@ -790,7 +790,7 @@ git commit -m "feat: bind fixed model profiles to durable jobs"
   and bounded log-summary APIs.
 - Adds setup/status UI only; no generation button.
 
-- [ ] **Step 1: Write API RED tests**
+- [x] **Step 1: Write API RED tests**
 
 Cover strict response parsing and stable error envelopes for:
 
@@ -807,19 +807,19 @@ Cover strict response parsing and stable error envelopes for:
 Ensure app startup with default services performs no download, extraction or
 ComfyUI launch.
 
-- [ ] **Step 2: Implement thin inference routes and service graph**
+- [x] **Step 2: Implement thin inference routes and service graph**
 
 Add services to `AppServices` with dependency injection. Long downloads run
 off the event loop and expose persisted progress. Coordinate shutdown so no
 new mutation starts while the app is closing.
 
-- [ ] **Step 3: Add strict frontend API models and RED tests**
+- [x] **Step 3: Add strict frontend API models and RED tests**
 
 Reject unknown status values, unsafe sizes, malformed hashes/URLs, duplicate
 licenses, nonmonotonic progress and absolute technical paths. Use
 `AbortController` for polling cleanup.
 
-- [ ] **Step 4: Write component RED tests**
+- [x] **Step 4: Write component RED tests**
 
 Cover:
 
@@ -834,13 +834,13 @@ Cover:
 - existing project import/history remains usable when inference status fails;
 - keyboard/accessibility labels and no duplicate polling after unmount.
 
-- [ ] **Step 5: Implement the setup panel**
+- [x] **Step 5: Implement the setup panel**
 
 Keep network orchestration in `App` or a focused hook and presentation in
 `InferenceSetup`. Preserve the established visual language and Windows desktop
 400–900 px behavior. Do not add mobile-specific navigation.
 
-- [ ] **Step 6: Run backend/frontend gates**
+- [x] **Step 6: Run backend/frontend gates**
 
 ```powershell
 .\.venv\Scripts\python -W error -m pytest backend\tests\api\test_inference.py -v
@@ -856,7 +856,7 @@ finally {
 }
 ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```powershell
 git add backend\src\aimctexturegen\api backend\src\aimctexturegen\main.py backend\tests\api frontend\src

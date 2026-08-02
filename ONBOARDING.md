@@ -55,6 +55,35 @@ Phase 4 Task 2–7 已于 2026-08-02 完成（提交 `dcf6bb5`、`b54444a`、
 - 各任务聚焦门禁 23/19/26/12/16/18 全部通过；全量后端回归
   **812/812 通过（`-W error` 零警告）**；`git diff --check` 通过。
 
+Phase 4 Task 8–9 已于 2026-08-02 完成（提交 `946221a`、`277f476`）：
+
+- Task 8：两个固定 API workflow 已落盘
+  （`workflows/sdxl-mapchip-ipadapter-v1/text2img.api.json` 与
+  `img2img.api.json`）并写入 manifest SHA-256（text2img
+  `ca5b61fe…`、img2img `44c38979…`）；`model_profiles/workflows.py`
+  提供 `GenericWorkflowInputs`、`WorkflowBinding`（深拷贝、模板校验、
+  服务器必需节点校验、tracked digest 校验）与
+  `build_model_profile_binding`；`sdxl.py` 只含 SDXL 数值节点 ID 与
+  语义槽编译（text2img 拒绝结构参考、img2img 必须一张结构参考、
+  style refs 走 average 组合、advanced 白名单 denoise/style_weight/
+  lora_weight）。任务模型新增 schema-2 `ModelProfileBinding`：
+  schema-1 请求保持字节不变并暴露 `model_profile=None`、
+  `execution_eligibility=legacy_unbound`；新任务 API 必须携带
+  `profile_id`，按结构参考是否存在解析 text2img/img2img 绑定，
+  未知 profile/能力不匹配/digest 未锁定在创建任务目录前失败。
+- Task 9：新增 `/api/system/inference/*` 设置面（状态、安装计划、
+  安装操作 202/详情/取消、受管进程启停、有界日志 tail），默认服务
+  `inference/service.py` 只读检查 + consent 创建操作 + 启动时把中断
+  操作标记为 `INSTALL_INTERRUPTED`；前端新增 `InferenceSetup` 面板
+  （默认折叠、展开才轮询，AbortController 清理，逐组件许可确认、
+  GB/GiB 精确总量、启停/取消/日志控件，无生成按钮），App 集成后
+  项目导入/历史流程不受影响。
+- 门禁：Task 8 聚焦 147/147，Task 9 后端 10/10、前端 132/132（7 个
+  测试文件）与 Vite 20 模块生产构建通过；全量后端回归
+  **859/859 通过（`-W error` 零警告）**；`git diff --check` 通过。
+- manifest 规范摘要已更新：runtime `89f05bd7…70ee86`（不变），
+  profile `4c50a99e…01a381`（workflow digest 锁定后变化）。
+
 本地忽略的 `runtime/` 中已存在与候选锁完全一致的 7z 与四个模型文件
 （大小与 SHA-256 已独立复算匹配），但它们未经过应用安装流程、无安装记录、
 无 GPU 冒烟，仍不算受支持配置；Task 10 必须通过实现后的安装界面再次确认并
@@ -127,10 +156,11 @@ git status --short
 
 ## 下一入口
 
-从 Phase 4 计划 Task 8 开始，按测试先行逐任务执行。Task 8 编写固定
-text2img/img2img workflow JSON、语义绑定与 schema-2 任务 profile 绑定；
-仍不得触发真实下载、不得启动真实 ComfyUI、不得跳 GPU 冒烟。固定 Node
-运行时 `runtime/node-v24.18.0-win-x64` 仍缺失，前端门禁暂用全局
+从 Phase 4 计划 Task 10 开始：真实便携安装与 GPU 冒烟。本机 `runtime/`
+已存在且哈希验证一致的 7z 与四个模型文件，仍须通过实现后的安装界面
+再次确认，并完成 text2img/img2img 双冒烟与重启完整性审计后才能把
+profile 标记为 verified；不得在没有真实 GPU 证据时宣称支持。固定
+Node 运行时 `runtime/node-v24.18.0-win-x64` 仍缺失，前端门禁暂用全局
 Node v24.13.0 复现，正式恢复固定运行时后再更新 `docs/TESTING.md`。
 
 当前工作树预计只有本轮文档变更和用户已有的未跟踪 `temp/`；`temp/` 不属于
