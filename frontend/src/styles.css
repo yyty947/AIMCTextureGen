@@ -591,3 +591,71 @@ details code {
     animation-iteration-count: 1 !important;
   }
 }
+
+.inference-panel {
+  margin-bottom: 1rem;
+}
+
+.inference-body {
+  margin-top: 1rem;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.environment-summary p {
+  margin: 0.25rem 0;
+}
+
+.license-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.license-list li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+}
+
+.license-list label {
+  display: inline-flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.license-list a {
+  color: #7dd3fc;
+}
+
+.download-totals,
+.progress-note {
+  font-size: 0.9rem;
+}
+
+.blocker-list {
+  color: #fca5a5;
+  padding-left: 1.25rem;
+}
+
+.comfy-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.managed-log {
+  max-height: 12rem;
+  overflow: auto;
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  background: rgba(2, 6, 23, 0.6);
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+}

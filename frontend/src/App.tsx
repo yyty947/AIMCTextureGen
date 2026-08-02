@@ -6,6 +6,8 @@ import {
   type FormEvent,
 } from "react";
 
+import InferenceSetup from "./InferenceSetup";
+
 import {
   ApiRequestError,
   MAX_PROJECT_NAME_LENGTH,
@@ -375,6 +377,8 @@ export default function App() {
           导入新资源包或恢复已有项目，查看覆盖情况与持久化任务历史。
         </p>
       </header>
+
+      <InferenceSetup />
 
       <section className="panel import-panel" aria-labelledby="import-title">
         <div className="section-heading">

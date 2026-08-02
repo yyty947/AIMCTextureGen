@@ -53,6 +53,19 @@ class _StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
 
+class ModelProfileBinding(_StrictModel):
+    """Frozen inference identity captured when a schema-2 job is created."""
+
+    profile_id: str = Field(min_length=1)
+    profile_version: str = Field(min_length=1)
+    profile_manifest_sha256: str = Field(min_length=64, max_length=64)
+    runtime_id: str = Field(min_length=1)
+    runtime_version: str = Field(min_length=1)
+    runtime_manifest_sha256: str = Field(min_length=64, max_length=64)
+    workflow_kind: Literal["text2img", "img2img"]
+    workflow_sha256: str = Field(min_length=64, max_length=64)
+
+
 class _GenerationInputs(_StrictModel):
     target_semantic_id: str = Field(min_length=1)
     prompt: str = Field(min_length=1, max_length=MAX_PROMPT_CODE_POINTS)
@@ -90,9 +103,13 @@ class CreateJobCommand(_GenerationInputs):
 
 
 class JobRequest(_GenerationInputs):
-    """Immutable schema-1 request persisted for one four-candidate job."""
+    """Immutable request persisted for one four-candidate job.
 
-    schema_version: Literal[1]
+    Schema 1 is the legacy unbound request; schema 2 additionally freezes
+    the model profile identity. Schema-1 bytes are never migrated.
+    """
+
+    schema_version: Literal[1, 2]
     job_id: UUID
     project_id: UUID
     retry_of_job_id: UUID | None
@@ -101,6 +118,10 @@ class JobRequest(_GenerationInputs):
     target_relative_path: str
     seeds: FourSeeds
     created_at: AwareDatetime
+    model_profile: ModelProfileBinding | None = None
+    execution_eligibility: Literal["legacy_unbound", "bound"] = (
+        "legacy_unbound"
+    )
 
     @field_validator("target_relative_path")
     @classmethod
@@ -113,6 +134,24 @@ class JobRequest(_GenerationInputs):
             raise ValueError("a job cannot retry itself")
         if len(set(self.seeds)) != 4:
             raise ValueError("job seeds must be unique")
+        if (
+            self.model_profile is None
+            and (
+                self.execution_eligibility != "legacy_unbound"
+                or self.schema_version != 1
+            )
+        ):
+            raise ValueError(
+                "unbound requests must use legacy_unbound eligibility"
+            )
+        if (
+            self.model_profile is not None
+            and (
+                self.execution_eligibility != "bound"
+                or self.schema_version != 2
+            )
+        ):
+            raise ValueError("bound requests must use bound eligibility")
         return self
 
 

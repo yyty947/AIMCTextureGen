@@ -1,0 +1,136 @@
+{
+  "schema_version": 1,
+  "profile_id": "sdxl-mapchip-ipadapter",
+  "profile_version": "1",
+  "support_state": "verified",
+  "compatible_runtime_ids": [
+    "comfyui-windows-nvidia"
+  ],
+  "compatible_runtime_versions": [
+    "0.29.2"
+  ],
+  "capabilities": {
+    "text_to_image": true,
+    "structure_reference": true,
+    "style_reference_min": 1,
+    "style_reference_max": 8,
+    "native_multi_reference": false,
+    "requires_custom_nodes": true
+  },
+  "artifacts": [
+    {
+      "artifact_id": "sdxl-base-1.0",
+      "file_name": "sd_xl_base_1.0.safetensors",
+      "source_url": "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/462165984030d82259a11f4367a4eed129e94a7b/sd_xl_base_1.0.safetensors",
+      "revision": "462165984030d82259a11f4367a4eed129e94a7b",
+      "byte_size": 6938078334,
+      "sha256": "31e35c80fc4829d14f90153f4c74cd59c90b779f6afe05a74cd6120b893f7e5b",
+      "destination": "models/checkpoints/sd_xl_base_1.0.safetensors",
+      "allowed_hosts": [
+        "huggingface.co"
+      ],
+      "license": {
+        "name": "CreativeML Open RAIL++-M",
+        "source_url": "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0"
+      }
+    },
+    {
+      "artifact_id": "mapchip-lora",
+      "file_name": "mapchipLora.safetensors",
+      "source_url": "https://huggingface.co/kokuren/mapchipLora/resolve/7ff7d9e43c9c364eb25ca283851565b7c5778dbf/mapchipLora.safetensors",
+      "revision": "7ff7d9e43c9c364eb25ca283851565b7c5778dbf",
+      "byte_size": 912555676,
+      "sha256": "9a047fce0fd45e60aaee6bcf6ec465ba34397366b10a34bfb2175f5e129ac1ae",
+      "destination": "models/loras/mapchipLora.safetensors",
+      "allowed_hosts": [
+        "huggingface.co"
+      ],
+      "license": {
+        "name": "Apache-2.0",
+        "source_url": "https://huggingface.co/kokuren/mapchipLora"
+      }
+    },
+    {
+      "artifact_id": "ip-adapter-sdxl-vit-h",
+      "file_name": "ip-adapter_sdxl_vit-h.safetensors",
+      "source_url": "https://huggingface.co/h94/IP-Adapter/resolve/018e402774aeeddd60609b4ecdb7e298259dc729/sdxl_models/ip-adapter_sdxl_vit-h.safetensors",
+      "revision": "018e402774aeeddd60609b4ecdb7e298259dc729",
+      "byte_size": 698391064,
+      "sha256": "ebf05d918348aec7abb02a5e9ecef77e0aaea6914a5c4ea13f50d45eb1681831",
+      "destination": "models/ipadapter/ip-adapter_sdxl_vit-h.safetensors",
+      "allowed_hosts": [
+        "huggingface.co"
+      ],
+      "license": {
+        "name": "Apache-2.0",
+        "source_url": "https://huggingface.co/h94/IP-Adapter"
+      }
+    },
+    {
+      "artifact_id": "clip-vit-h-image-encoder",
+      "file_name": "CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors",
+      "source_url": "https://huggingface.co/h94/IP-Adapter/resolve/018e402774aeeddd60609b4ecdb7e298259dc729/models/image_encoder/model.safetensors",
+      "revision": "018e402774aeeddd60609b4ecdb7e298259dc729",
+      "byte_size": 2528373448,
+      "sha256": "6ca9667da1ca9e0b0f75e46bb030f7e011f44f86cbfb8d5a36590fcd7507b030",
+      "destination": "models/clip_vision/CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors",
+      "allowed_hosts": [
+        "huggingface.co"
+      ],
+      "license": {
+        "name": "Apache-2.0",
+        "source_url": "https://huggingface.co/h94/IP-Adapter"
+      }
+    },
+    {
+      "artifact_id": "comfyui-ipadapter-plus",
+      "file_name": "ComfyUI_IPAdapter_plus-a0f451a5113cf9becb0847b92884cb10cbdec0ef.zip",
+      "source_url": "https://codeload.github.com/cubiq/ComfyUI_IPAdapter_plus/zip/a0f451a5113cf9becb0847b92884cb10cbdec0ef",
+      "revision": "a0f451a5113cf9becb0847b92884cb10cbdec0ef",
+      "byte_size": 306422,
+      "sha256": "c6c49c82aa65cb96b93bdf9f9b547f9c95310a2668a7a9aaa0285cccf4590347",
+      "destination": "custom_nodes/ComfyUI_IPAdapter_plus.zip",
+      "allowed_hosts": [
+        "codeload.github.com",
+        "github.com"
+      ],
+      "license": {
+        "name": "GPL-3.0",
+        "source_url": "https://github.com/cubiq/ComfyUI_IPAdapter_plus/commit/a0f451a5113cf9becb0847b92884cb10cbdec0ef"
+      }
+    }
+  ],
+  "workflows": [
+    {
+      "kind": "text2img",
+      "relative_path": "sdxl-mapchip-ipadapter-v1/text2img.api.json",
+      "sha256": "80362974e036874262d166389c4099bfc0b85efb1aa6c9f98e58dce6ba8cad27"
+    },
+    {
+      "kind": "img2img",
+      "relative_path": "sdxl-mapchip-ipadapter-v1/img2img.api.json",
+      "sha256": "ad53c2bc8545b626c56d66de2d4cf481a510939619569faaf1158630d928792e"
+    }
+  ],
+  "required_node_classes": [
+    "CheckpointLoaderSimple",
+    "LoraLoader",
+    "CLIPVisionLoader",
+    "ImageBatch",
+    "ImageScale",
+    "IPAdapterUnifiedLoader",
+    "IPAdapterAdvanced",
+    "KSampler",
+    "EmptyLatentImage",
+    "VAEDecode",
+    "SaveImage"
+  ],
+  "output_contract": {
+    "format": "png",
+    "color_mode": "rgb",
+    "canvas_size": 1024
+  },
+  "profile_defaults": {},
+  "user_limitations": "Verified on the recorded Windows/NVIDIA smoke machine. Results are specific to this pinned runtime, model files, custom node and workflow; changing any of them requires a new smoke verification.",
+  "revision_notes": "Verified on 2026-08-02: portable ComfyUI v0.29.2 with STANDARD (medium strength) IPAdapter preset; text2img and img2img real smoke both completed at 1024x1024 (see docs/evidence/phase-4 and docs/MODEL_PROFILES.md)."
+}

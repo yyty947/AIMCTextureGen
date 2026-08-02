@@ -73,6 +73,11 @@ MVP 不实现：
 
 项目不修改全局 Python、Miniconda 或用户既有 ComfyUI。所有运行时依赖保存在项目管理的独立目录中。
 
+Phase 4 已确定使用经过版本和 SHA-256 校验的官方 Windows NVIDIA
+portable 包。其内置 Python/PyTorch 与后端 `.venv` 完全分离；应用不扫描或复用
+用户已有 ComfyUI。运行时安装方式、候选锁定值和版本化模型配置边界见
+[`ADR-0002`](../../adr/0002-managed-comfyui-runtime-and-versioned-model-profiles.md)。
+
 ## 4. 总体架构
 
 核心采用独立 WebUI、Python 服务和托管 ComfyUI 的三层结构：
@@ -237,9 +242,9 @@ projects/<project-id>/
 - SDXL Base 1.0，CreativeML Open RAIL++-M；Base 独立使用，不安装 Refiner：<https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0>
 - `kokuren/mapchipLora`，Apache-2.0：<https://huggingface.co/kokuren/mapchipLora>
 - IP-Adapter SDXL ViT-H 权重，Apache-2.0：<https://huggingface.co/h94/IP-Adapter>
-- ComfyUI IP-Adapter 节点以固定版本作为独立托管组件：<https://github.com/comfyorg/comfyui-ipadapter>
+- ComfyUI IP-Adapter 节点以固定版本作为独立托管组件：<https://github.com/cubiq/ComfyUI_IPAdapter_plus>
 
-默认模型只是第一个 `ModelProfile`，不是写死在业务逻辑中的唯一实现。16、32 和 64 的 LoRA 触发方式及权重必须通过固定评测集校准；不得假设 mapchip 的 48×48 训练触发词天然等于 64×64 输出。
+默认模型只是第一个 `ModelProfile`，不是写死在业务逻辑中的唯一实现。运行时清单与模型配置清单相互独立；模型专属节点 ID、参数和 workflow 映射只能存在于对应配置的绑定层。新任务必须持久化配置 ID、版本、清单摘要及 workflow 摘要，旧任务不能被静默解释为新默认配置。未来 FLUX.2 Klein 4B 等实现通过新增配置接入，而不是原地替换 SDXL 配置。16、32 和 64 的 LoRA 触发方式及权重必须通过固定评测集校准；不得假设 mapchip 的 48×48 训练触发词天然等于 64×64 输出。
 
 `pixel-art-xl` 不作为自动下载依赖。用户可在高级模型设置中添加自己合法取得的本地权重，项目只保存路径和哈希。原因是 Hugging Face 的 CreativeML OpenRAIL-M 标注与公开讨论中提到的其他平台限制不一致：<https://huggingface.co/nerijs/pixel-art-xl>、<https://huggingface.co/nerijs/pixel-art-xl/discussions/7>。
 

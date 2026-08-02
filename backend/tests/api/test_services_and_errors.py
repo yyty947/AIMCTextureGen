@@ -41,7 +41,13 @@ class FailingJobService:
         self._technical_details = technical_details
         self._expose_technical_details = expose_technical_details
 
-    def create_job(self, _project_id, _command):
+    def create_job(
+        self,
+        _project_id,
+        _command,
+        *,
+        model_profile=None,
+    ):
         raise JobError(
             "INDEX_UNAVAILABLE",
             "任务已保存，但任务索引暂时不可用",
@@ -314,8 +320,9 @@ def test_job_domain_details_require_explicit_safe_marker(
             app,
             "POST",
             "/api/projects/abcdefab-cdef-4abc-8def-abcdefabcdef/jobs",
-            json={
-                "target_semantic_id": "minecraft:deepslate",
+                json={
+                    "profile_id": "sdxl-mapchip-ipadapter",
+                    "target_semantic_id": "minecraft:deepslate",
                 "prompt": "cold blue-gray stone",
                 "resolution": 16,
                 "parallelism": 1,

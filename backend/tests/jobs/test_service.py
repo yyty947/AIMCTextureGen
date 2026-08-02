@@ -17,6 +17,7 @@ from aimctexturegen.jobs.models import (
     CreateJobCommand,
     JobSummary,
     MAX_SAFE_SEED,
+    ModelProfileBinding,
 )
 from aimctexturegen.jobs.service import JobService
 from aimctexturegen.jobs.store import JobStore
@@ -445,6 +446,95 @@ def test_public_job_listing_keeps_valid_jobs_visible_beside_malformed_sibling(
     scan = store.scan(PROJECT_ID)
     assert tuple(issue.job_id for issue in scan.issues) == (RETRY_ID,)
     assert (malformed.root / "state.json").read_bytes() == malformed_state
+
+
+def _binding(kind: str = "text2img") -> ModelProfileBinding:
+    return ModelProfileBinding(
+        profile_id="sdxl-mapchip-ipadapter",
+        profile_version="1",
+        profile_manifest_sha256="a" * 64,
+        runtime_id="comfyui-windows-nvidia",
+        runtime_version="0.29.2",
+        runtime_manifest_sha256="b" * 64,
+        workflow_kind=kind,
+        workflow_sha256="c" * 64,
+    )
+
+
+def test_create_with_binding_persists_schema2_frozen_request(
+    tmp_path: Path,
+) -> None:
+    projects_root = tmp_path / "projects"
+    _write_project(projects_root)
+    service, store, _seeds, _ids, _index = _service(projects_root)
+
+    loaded = service.create_job(
+        PROJECT_ID,
+        _command(),
+        model_profile=_binding("text2img"),
+    )
+
+    assert loaded.request.schema_version == 2
+    assert loaded.request.model_profile == _binding("text2img")
+    assert loaded.request.execution_eligibility == "bound"
+    raw = (loaded.root / "request.json").read_bytes()
+    assert b'"schema_version":2' in raw
+    assert b"sdxl-mapchip-ipadapter" in raw
+    assert b"C:" not in raw
+    assert store.load(PROJECT_ID, JOB_ID) == loaded
+
+
+def test_create_without_binding_stays_schema1_legacy_unbound(
+    tmp_path: Path,
+) -> None:
+    projects_root = tmp_path / "projects"
+    _write_project(projects_root)
+    service, _store, _seeds, _ids, _index = _service(projects_root)
+
+    loaded = service.create_job(PROJECT_ID, _command())
+
+    assert loaded.request.schema_version == 1
+    assert loaded.request.model_profile is None
+    assert loaded.request.execution_eligibility == "legacy_unbound"
+
+
+def test_create_rejects_workflow_kind_mismatch_before_persistence(
+    tmp_path: Path,
+) -> None:
+    projects_root = tmp_path / "projects"
+    _write_project(projects_root)
+    service, store, seeds, ids, index = _service(projects_root)
+
+    with pytest.raises(JobError) as captured:
+        service.create_job(
+            PROJECT_ID,
+            _command(),
+            model_profile=_binding("img2img"),
+        )
+
+    assert captured.value.code == "PROFILE_WORKFLOW_MISMATCH"
+    assert store.list(PROJECT_ID) == ()
+    assert seeds.calls == 0
+    assert ids.calls == 0
+    assert index.upserts == []
+
+
+def test_retry_preserves_the_frozen_binding(tmp_path: Path) -> None:
+    projects_root = tmp_path / "projects"
+    _write_project(projects_root)
+    service, _store, _seeds, _ids, _index = _service(projects_root)
+    created = service.create_job(
+        PROJECT_ID,
+        _command(),
+        model_profile=_binding("text2img"),
+    )
+    service.cancel_job(PROJECT_ID, JOB_ID, expected_revision=0)
+
+    retried = service.retry_job(PROJECT_ID, JOB_ID)
+
+    assert retried.request.schema_version == 2
+    assert retried.request.model_profile == created.request.model_profile
+    assert retried.request.execution_eligibility == "bound"
 
 
 def _summary(loaded) -> JobSummary:
