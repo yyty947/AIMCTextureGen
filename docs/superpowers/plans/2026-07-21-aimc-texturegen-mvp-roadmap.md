@@ -115,7 +115,7 @@ for Task 11; Phase 4 is now merged into and pushed from `master`.
 
 ## Phase 6: Adoption, Export, Launcher, and MVP Acceptance
 
-**Planned ownership:** atomic adoption service, export validator, final wizard step, PowerShell launcher, end-to-end tests, `docs/TESTING.md`, licensing notices, and user-facing setup documentation.
+**Planned ownership:** atomic adoption service, export validator, final wizard step, PowerShell launcher, end-to-end tests, `docs/TESTING.md`, licensing notices, user-facing setup documentation, and a final UI polish pass (form-control sizing/alignment, spacing, disabled/loading states, and visual hierarchy).
 
 **Deliverable:** Explicit candidate adoption to the standard target path, refreshed coverage, validated temporary ZIP export, browser directory import, project restoration, startup environment checks, browser launch, model download consent, readable recovery guidance, and recorded 8 GB sequential validation.
 

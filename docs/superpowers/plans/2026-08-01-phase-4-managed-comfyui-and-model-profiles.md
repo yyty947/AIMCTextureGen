@@ -1096,6 +1096,9 @@ profile 完整性校验）以及文档提交 `4fd8ab8`、`920e44a`；对应回�
 用户已完成并通过 Step 3 的手动 WebUI 验收；截图中的 ready/stopped 状态与
 已安装配置均符合预期。
 
+非阻塞已知限制：本阶段不做最终视觉 polish；推理环境面板的许可 checkbox
+仍继承通用 `input` 尺寸规则，尺寸与对齐将在 Phase 6 MVP 验收前统一修正。
+
 - [x] **Step 6: Complete the Phase 4 handoff**
 
 Use `superpowers:finishing-a-development-branch`. The user authorized the
