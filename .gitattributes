@@ -1,0 +1,4 @@
+# Digest-bound manifests and ComfyUI workflows must remain byte-stable on Windows.
+/manifests/model-profiles/*.json text eol=lf
+/manifests/runtimes/*.json text eol=lf
+/workflows/**/*.json text eol=lf
