@@ -187,7 +187,21 @@ class ProcessLauncher:
                 raise ProcessStartError(
                     f"cannot start child process: {exc}"
                 ) from exc
-        identity = self._identity_provider(process.pid)
+        try:
+            identity = self._identity_provider(process.pid)
+        except Exception as exc:
+            try:
+                process.terminate()
+                process.wait(timeout=2.0)
+            except Exception:
+                try:
+                    process.kill()
+                    process.wait(timeout=5.0)
+                except Exception:
+                    pass
+            raise ProcessStartError(
+                "cannot record managed child process identity"
+            ) from exc
         return OwnedProcess(
             process,
             identity,

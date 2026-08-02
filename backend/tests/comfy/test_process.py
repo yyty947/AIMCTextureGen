@@ -16,6 +16,7 @@ import aimctexturegen.comfy.process as process_module
 from aimctexturegen.comfy.errors import (
     PortInUseError,
     ProcessIdentityError,
+    ProcessStartError,
 )
 from aimctexturegen.comfy.process import (
     ProcessIdentity,
@@ -97,6 +98,36 @@ def test_start_rejects_an_occupied_loopback_port(tmp_path: Path) -> None:
                 log_path=tmp_path / "child.log",
                 port=port,
             )
+
+
+def test_start_cleans_up_when_identity_cannot_be_recorded(
+    tmp_path: Path,
+) -> None:
+    children: list[subprocess.Popen] = []
+
+    def spawner(args: list[str], **kwargs: Any) -> subprocess.Popen:
+        child = subprocess.Popen(args, **kwargs)
+        children.append(child)
+        return child
+
+    def missing_identity(pid: int) -> ProcessIdentity:
+        raise ProcessIdentityError("identity unavailable")
+
+    launcher = ProcessLauncher(
+        spawner=spawner,
+        identity_provider=missing_identity,
+    )
+    with pytest.raises(ProcessStartError):
+        launcher.start(
+            executable=sys.executable,
+            arguments=[str(FAKE_CHILD), "--sleep", "30"],
+            cwd=tmp_path,
+            env={},
+            log_path=tmp_path / "child.log",
+            port=18194,
+        )
+
+    assert children and children[0].poll() is not None
 
 
 def test_early_exit_is_observable(tmp_path: Path) -> None:
