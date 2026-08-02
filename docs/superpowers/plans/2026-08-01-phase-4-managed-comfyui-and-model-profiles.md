@@ -271,7 +271,7 @@ git commit -m "feat: lock ComfyUI runtime and SDXL profile manifests"
 - Produces `InstallConsent` bound to `plan_digest` and exact component IDs.
 - Creates no directories during inspection.
 
-- [ ] **Step 1: Write host-inspection RED tests**
+- [x] **Step 1: Write host-inspection RED tests**
 
 Inject command/filesystem probes rather than calling the real machine. Cover:
 
@@ -282,7 +282,7 @@ Inject command/filesystem probes rather than calling the real machine. Cover:
 - no directory, subprocess mutation or network call during inspection;
 - no absolute path in the API-safe report.
 
-- [ ] **Step 2: Write install-plan RED tests**
+- [x] **Step 2: Write install-plan RED tests**
 
 Cover exact byte totals, temporary headroom, unique license/component list and
 deterministic plan digest. Assert stale digest, missing acceptance, extra
@@ -292,7 +292,7 @@ creating `runtime/` or invoking a downloader.
 Use fake manifests whose artifacts are a few bytes. Do not load production
 model files.
 
-- [ ] **Step 3: Implement inspection and plan construction**
+- [x] **Step 3: Implement inspection and plan construction**
 
 Execute `nvidia-smi` with a finite timeout and no shell. Treat its output as
 untrusted bounded text. The environment result advises the user but never
@@ -302,7 +302,7 @@ Build the plan from canonical manifest digests and current installed-state
 classification. The digest covers runtime/profile IDs, versions, artifacts,
 sizes, hashes and licenses.
 
-- [ ] **Step 4: Add atomic install-operation records**
+- [x] **Step 4: Add atomic install-operation records**
 
 Below injected runtime-state roots, persist strict operation JSON with
 `planned`, `downloading`, `extracting`, `installing`, `completed`, `failed`
@@ -311,13 +311,13 @@ and `canceled` states plus monotonic revision and structured error.
 On startup, a nonterminal record from a prior process becomes
 `failed/INSTALL_INTERRUPTED`. It does not resume automatically.
 
-- [ ] **Step 5: Run tests**
+- [x] **Step 5: Run tests**
 
 ```powershell
 .\.venv\Scripts\python -W error -m pytest backend\tests\comfy\test_environment.py backend\tests\comfy\test_install_plan.py -v
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add backend\src\aimctexturegen\comfy backend\tests\comfy
@@ -338,7 +338,7 @@ git commit -m "feat: add read-only inference install planning"
   progress, cancel) -> DownloadResult`.
 - Final output is published only after exact size and SHA-256 validation.
 
-- [ ] **Step 1: Build a local controlled artifact server**
+- [x] **Step 1: Build a local controlled artifact server**
 
 The fake server must support:
 
@@ -353,7 +353,7 @@ The fake server must support:
 
 Bind only to a test loopback port and cleanly stop it in fixtures.
 
-- [ ] **Step 2: Write downloader RED tests**
+- [x] **Step 2: Write downloader RED tests**
 
 Cover:
 
@@ -372,7 +372,7 @@ Cover:
 - symlink/junction/reparse/unsafe partial or destination rejection;
 - memory remains bounded relative to chunk size.
 
-- [ ] **Step 3: Implement streaming and resume**
+- [x] **Step 3: Implement streaming and resume**
 
 Use an injected `httpx.Client`, finite timeouts and fixed chunks. Hash an
 existing safe partial before resuming. Never send credentials or arbitrary
@@ -382,13 +382,13 @@ the artifact's allowed host set.
 Write the resume sidecar atomically and validate it before use. Publish by
 same-directory `os.replace` only after length/hash checks.
 
-- [ ] **Step 4: Run focused tests**
+- [x] **Step 4: Run focused tests**
 
 ```powershell
 .\.venv\Scripts\python -W error -m pytest backend\tests\comfy\test_downloads.py -v
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add backend\src\aimctexturegen\comfy\downloads.py backend\tests\comfy\test_downloads.py backend\tests\fakes
@@ -410,7 +410,7 @@ git commit -m "feat: add verified resumable artifact downloads"
 - Produces `extract_and_audit_7z(archive, staging, policy) -> ExtractedTree`.
 - Produces idempotent runtime install/repair below an injected root.
 
-- [ ] **Step 1: Generate tiny synthetic 7z fixtures in tests**
+- [x] **Step 1: Generate tiny synthetic 7z fixtures in tests**
 
 Use `py7zr` to generate valid archives at test time. Add focused fake archive
 metadata/injected readers for entries that `py7zr` cannot safely construct,
@@ -419,7 +419,7 @@ symlink-like entries and declared expansion bombs.
 
 No binary production archive fixture is committed.
 
-- [ ] **Step 2: Write archive RED tests**
+- [x] **Step 2: Write archive RED tests**
 
 Require rejection before extraction for every unsafe member. Verify per-entry
 and total-size bounds, exact single root and required portable paths. After
@@ -429,14 +429,14 @@ executables and case collisions and require failure before publication.
 Assert failures remove only the exact staging directory created by the
 operation after resolving and checking it is below the injected test root.
 
-- [ ] **Step 3: Implement preflight, extraction and post-audit**
+- [x] **Step 3: Implement preflight, extraction and post-audit**
 
 Never call `extractall` until the complete inventory passes. Extract into a
 unique same-parent staging directory. Walk the full extracted tree without
 following links, inspect Windows file attributes and verify the expected
 portable layout.
 
-- [ ] **Step 4: Write runtime publication tests**
+- [x] **Step 4: Write runtime publication tests**
 
 Cover:
 
@@ -450,19 +450,19 @@ Cover:
 - verified archive cache cleanup after successful extraction;
 - interrupted operation recovery.
 
-- [ ] **Step 5: Implement runtime installation**
+- [x] **Step 5: Implement runtime installation**
 
 Use version-plus-manifest-digest directory names. Never overwrite a selected
 tree. Write and validate a strict installation receipt containing source
 identity and hashes, then atomically publish the selection record.
 
-- [ ] **Step 6: Run focused tests**
+- [x] **Step 6: Run focused tests**
 
 ```powershell
 .\.venv\Scripts\python -W error -m pytest backend\tests\comfy\test_archives.py backend\tests\comfy\test_runtime_install.py -v
 ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```powershell
 git add backend\src\aimctexturegen\comfy backend\tests\comfy
@@ -488,7 +488,7 @@ git commit -m "feat: safely publish managed ComfyUI runtimes"
 - Produces a managed `extra_model_paths.yaml`.
 - Produces profile status independent of process status.
 
-- [ ] **Step 1: Write profile-install RED tests**
+- [x] **Step 1: Write profile-install RED tests**
 
 Using tiny local artifacts, prove:
 
@@ -505,7 +505,7 @@ Using tiny local artifacts, prove:
 - partial failure leaves previously ready components and runtime selection
   intact, with no profile falsely marked ready.
 
-- [ ] **Step 2: Implement profile registry and capability checks**
+- [x] **Step 2: Implement profile registry and capability checks**
 
 The registry exposes generic capabilities and immutable default/profile
 metadata. It must not import `sdxl.py` merely to list profiles.
@@ -514,7 +514,7 @@ Add a second test-only fake profile with different capability flags and
 workflow node names. Registering it must not require edits to installer,
 runtime manager or transport code.
 
-- [ ] **Step 3: Implement model/custom-node install coordination**
+- [x] **Step 3: Implement model/custom-node install coordination**
 
 Use the Task 3 downloader for files and Task 4 archive path for custom-node
 source. A content-ready model is its expected ordinary file plus validated
@@ -525,13 +525,13 @@ Python dependencies, list and install only an explicit reviewed allowlist with
 the portable embedded Python; record them in the runtime receipt. Never invoke
 ComfyUI Manager.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 ```powershell
 .\.venv\Scripts\python -W error -m pytest backend\tests\comfy\test_profile_install.py backend\tests\model_profiles -v
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add backend\src\aimctexturegen\comfy backend\src\aimctexturegen\model_profiles backend\tests\comfy backend\tests\model_profiles
@@ -554,7 +554,7 @@ git commit -m "feat: install versioned model profiles"
 - Owns one loopback process identified by PID plus Windows creation identity.
 - Does not submit workflows.
 
-- [ ] **Step 1: Write process RED tests with a fake child**
+- [x] **Step 1: Write process RED tests with a fake child**
 
 Cover:
 
@@ -573,32 +573,32 @@ Cover:
 - application shutdown stops or cleanly records the owned child according to
   the chosen lifespan policy.
 
-- [ ] **Step 2: Implement Windows process identity**
+- [x] **Step 2: Implement Windows process identity**
 
 Use standard library plus focused `ctypes` wrappers for process creation time
 and executable identity. Keep the Windows code in a small internal adapter so
 tests inject a fake. Do not add broad process scanning or kill-by-name.
 
-- [ ] **Step 3: Write readiness RED tests**
+- [x] **Step 3: Write readiness RED tests**
 
 Inject a fake status client. Ready requires expected `/system_stats`, all
 profile-required `/object_info` node classes and an alive stable process.
 Cover wrong version, missing node, corrupt profile, disconnect and child exit
 during stabilization.
 
-- [ ] **Step 4: Implement manager orchestration**
+- [x] **Step 4: Implement manager orchestration**
 
 Validate runtime/profile integrity before launch. Generate the controlled
 model-path config and exact startup args. Persist a strict process record
 atomically and redact absolute paths from API-safe status.
 
-- [ ] **Step 5: Run tests**
+- [x] **Step 5: Run tests**
 
 ```powershell
 .\.venv\Scripts\python -W error -m pytest backend\tests\comfy\test_process.py backend\tests\comfy\test_manager.py -v
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add backend\src\aimctexturegen\comfy backend\tests\comfy backend\tests\fakes
@@ -622,7 +622,7 @@ git commit -m "feat: manage the owned ComfyUI child process"
   interrupt.
 - Does not import jobs, projects, processing or SDXL modules.
 
-- [ ] **Step 1: Implement a protocol-faithful fake service**
+- [x] **Step 1: Implement a protocol-faithful fake service**
 
 Support the exact subset of:
 
@@ -641,7 +641,7 @@ Allow tests to script queue rejection, malformed payload, progress, completion,
 execution error, disconnect, timeout, missing history, unsafe output name and
 partial outputs.
 
-- [ ] **Step 2: Write client RED tests**
+- [x] **Step 2: Write client RED tests**
 
 Cover:
 
@@ -657,19 +657,19 @@ Cover:
 - response body and log detail bounds;
 - client cleanup without leaked sockets/tasks.
 
-- [ ] **Step 3: Implement transport**
+- [x] **Step 3: Implement transport**
 
 Use HTTPX for HTTP and the pinned websockets client for WS. All operations have
 finite timeouts and cancellation. Translate failures to stable domain errors;
 do not retry a prompt submission whose acceptance is unknown.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 ```powershell
 .\.venv\Scripts\python -W error -m pytest backend\tests\comfy\test_client_http.py backend\tests\comfy\test_client_websocket.py backend\tests\comfy\test_client_errors.py -v
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add backend\src\aimctexturegen\comfy\client.py backend\tests\comfy backend\tests\fakes

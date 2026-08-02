@@ -26,6 +26,35 @@ Phase 3 已通过合并提交 `ae424b1` 进入 `master`/`origin/master`。当前
 - 聚焦门禁 82/82 通过；全量后端回归 698/698 通过（89% 覆盖率，
   `-W error` 零警告）；`git diff --check` 通过。
 
+Phase 4 Task 2–7 已于 2026-08-02 完成（提交 `dcf6bb5`、`b54444a`、
+`986abf0`、`698ee81`、`5104ac1`、`39ea930`）：
+
+- Task 2：只读环境检查（`environment.py`）、consent 绑定安装计划
+  （`installer.py`）与原子安装操作记录（`install_state.py`）；
+  检查与计划构建不创建任何目录，stale digest/缺失 acceptance/阻塞环境
+  在创建 `runtime/` 之前失败。
+- Task 3：有界流式下载器（`downloads.py`）支持 `.part`+sidecar 断点续传、
+  Range/忽略 Range、重定向限额与 allowed-host、大小/哈希发布前校验、
+  取消仅留有效 partial；配套本地假 artifact server。
+- Task 4：7z 成员预检（traversal/设备名/大小写冲突/符号链接/膨胀炸弹）与
+  提取后树审计（`archives.py`）；`RuntimeInstaller` 以版本+manifest 摘要
+  目录原子发布、receipt+selection 记录、损坏运行时显式重建、中断恢复
+  清理 staging。
+- Task 5：`ProfileInstaller` 按哈希安装模型与自定义节点（ZIP 根/成员安全
+  校验）、相同哈希跨 profile 复用不重复下载、`extra_model_paths.yaml`
+  确定性生成；`model_profiles/` 提供与 profile 实现无关的通用 registry，
+  第二 fake profile 无需改安装器。
+- Task 6：`process.py` 使用 Windows 进程创建时间+可执行路径身份、隐藏窗口、
+  端口占用预检、日志轮转、仅终止仍属自己的子进程；`manager.py` 做就绪
+  校验（`/system_stats` 版本 + `/object_info` 必需节点 + 稳定期）与
+  原子 process 记录、stale 恢复、单飞 start。
+- Task 7：`client.py` 通用 HTTP/WebSocket 传输（上传安全名/大小、深拷贝
+  提交、prompt 过滤的 WS 进度、history 一致性、仅取声明输出、interrupt），
+  不导入 jobs/projects/processing/sdxl；假 ComfyUI 服务覆盖队列拒绝、
+  执行错误、断线、超时与畸形响应。
+- 各任务聚焦门禁 23/19/26/12/16/18 全部通过；全量后端回归
+  **812/812 通过（`-W error` 零警告）**；`git diff --check` 通过。
+
 本地忽略的 `runtime/` 中已存在与候选锁完全一致的 7z 与四个模型文件
 （大小与 SHA-256 已独立复算匹配），但它们未经过应用安装流程、无安装记录、
 无 GPU 冒烟，仍不算受支持配置；Task 10 必须通过实现后的安装界面再次确认并
@@ -98,11 +127,11 @@ git status --short
 
 ## 下一入口
 
-从 Phase 4 计划 Task 2 开始，按测试先行逐任务执行。Task 2 实现只读主机检查
-与 consent 绑定的安装计划；不得触发真实下载、不得启动真实 ComfyUI、不得跳
-到真实 GPU 冒烟。固定 Node 运行时 `runtime/node-v24.18.0-win-x64` 仍缺失，
-前端门禁暂用全局 Node v24.13.0 复现，正式恢复固定运行时后再更新
-`docs/TESTING.md`。
+从 Phase 4 计划 Task 8 开始，按测试先行逐任务执行。Task 8 编写固定
+text2img/img2img workflow JSON、语义绑定与 schema-2 任务 profile 绑定；
+仍不得触发真实下载、不得启动真实 ComfyUI、不得跳 GPU 冒烟。固定 Node
+运行时 `runtime/node-v24.18.0-win-x64` 仍缺失，前端门禁暂用全局
+Node v24.13.0 复现，正式恢复固定运行时后再更新 `docs/TESTING.md`。
 
 当前工作树预计只有本轮文档变更和用户已有的未跟踪 `temp/`；`temp/` 不属于
 项目变更，必须保留。接手按 `AGENTS.md` 的必读顺序阅读，以当前代码和可重复
