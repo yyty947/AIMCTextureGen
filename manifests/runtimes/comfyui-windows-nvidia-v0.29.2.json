@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "runtime_id": "comfyui-windows-nvidia",
+  "runtime_version": "0.29.2",
+  "platform": "windows",
+  "architecture": "x86_64",
+  "gpu_vendor": "nvidia",
+  "host_requirements": "Windows x64 with an NVIDIA CUDA driver; official NVIDIA portable runtime only; the 8 GB VRAM sequential profile is a later measured claim.",
+  "release_url": "https://github.com/Comfy-Org/ComfyUI/releases/tag/v0.29.2",
+  "source_commit": "322122449c9d2ba8b8df1bb517364527dd0615f1",
+  "licenses": [
+    {
+      "name": "GPL-3.0",
+      "source_url": "https://github.com/Comfy-Org/ComfyUI/blob/v0.29.2/LICENSE"
+    }
+  ],
+  "archive": {
+    "artifact_id": "comfyui-windows-portable-nvidia-v0.29.2",
+    "file_name": "ComfyUI_windows_portable_nvidia.7z",
+    "source_url": "https://github.com/Comfy-Org/ComfyUI/releases/download/v0.29.2/ComfyUI_windows_portable_nvidia.7z",
+    "revision": "v0.29.2",
+    "byte_size": 2103175457,
+    "sha256": "e7a39a817002d85b4fb2d4f6bd176c10d104a0d04031f99b9d8b7b1fd920c6fc",
+    "destination": "downloads/ComfyUI_windows_portable_nvidia.7z",
+    "allowed_hosts": [
+      "github.com",
+      "objects.githubusercontent.com"
+    ],
+    "license": {
+      "name": "GPL-3.0",
+      "source_url": "https://github.com/Comfy-Org/ComfyUI/blob/v0.29.2/LICENSE"
+    }
+  },
+  "expected_archive_root": "ComfyUI_windows_portable_nvidia",
+  "required_paths": [
+    "python_embeded/python.exe",
+    "ComfyUI/main.py"
+  ],
+  "startup_argument_template": [
+    "python_embeded/python.exe",
+    "-s",
+    "ComfyUI/main.py",
+    "--windows-standalone-build",
+    "--listen",
+    "127.0.0.1",
+    "--port",
+    "<port>",
+    "--disable-auto-launch",
+    "--extra-model-paths-config",
+    "<extra-model-paths-config>"
+  ],
+  "health_endpoint": "/system_stats",
+  "expected_runtime_identity": "0.29.2",
+  "extraction_headroom_bytes": 8000000000,
+  "headroom_is_estimate": true,
+  "revision_notes": "Candidate lock only; exact extracted size and CLI behavior are measured during Task 10 before this runtime becomes supported."
+}

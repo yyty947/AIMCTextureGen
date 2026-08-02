@@ -182,14 +182,14 @@ not be merged into API routes or `GenerationService`.
   `manifest_sha256(model) -> str`.
 - Produces read-only `ManifestRegistry.load(root)`.
 
-- [ ] **Step 1: Pin the new Python dependencies**
+- [x] **Step 1: Pin the new Python dependencies**
 
 Move `httpx==0.28.1` into production dependencies and add
 `websockets==16.1.1` and `py7zr==1.1.3`. Keep the existing dev dependency
 list valid and regenerate the repository environment using its documented
 install command. Do not install anything with ComfyUI's Python yet.
 
-- [ ] **Step 2: Independently lock the custom-node archive**
+- [x] **Step 2: Independently lock the custom-node archive**
 
 Download the commit-specific codeload archive for
 `a0f451a5113cf9becb0847b92884cb10cbdec0ef` outside the repository, calculate
@@ -200,7 +200,7 @@ in the profile manifest. Preserve the upstream commit and GPL-3.0 source link.
 
 Do not use a mutable branch archive or infer integrity solely from the URL.
 
-- [ ] **Step 3: Write manifest RED tests**
+- [x] **Step 3: Write manifest RED tests**
 
 Cover:
 
@@ -223,7 +223,7 @@ Run:
 
 Expected: imports fail before implementation.
 
-- [ ] **Step 4: Implement strict models and registry**
+- [x] **Step 4: Implement strict models and registry**
 
 Use frozen Pydantic models with explicit `schema_version = 1`. Reuse the
 repository's strict relative-path rules but add manifest-specific Windows
@@ -232,7 +232,7 @@ deterministically ordered.
 
 Canonical bytes must not include local absolute paths or runtime status.
 
-- [ ] **Step 5: Write the two tracked manifests**
+- [x] **Step 5: Write the two tracked manifests**
 
 Encode every locked candidate from this plan, compatible runtime identity,
 capabilities and planned workflow records. Set support state to
@@ -240,14 +240,14 @@ capabilities and planned workflow records. Set support state to
 use a clearly named conservative installation headroom value and mark it as
 an estimate.
 
-- [ ] **Step 6: Run focused and full manifest gates**
+- [x] **Step 6: Run focused and full manifest gates**
 
 ```powershell
 .\.venv\Scripts\python -W error -m pytest backend\tests\comfy\test_manifests.py backend\tests\comfy\test_registry.py -v
 git diff --check
 ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```powershell
 git add backend\pyproject.toml backend\src\aimctexturegen\comfy backend\tests\comfy manifests

@@ -1,12 +1,35 @@
 # AIMCTextureGen 当前交接
 
-最后核对日期：2026-08-01
+最后核对日期：2026-08-02
 
 ## 当前状态
 
 Phase 3 已通过合并提交 `ae424b1` 进入 `master`/`origin/master`。当前 checkout
 位于新阶段分支 `codex/phase-4-managed-comfyui`。Phase 4 的设计和实施计划已
-落盘，但业务实现尚未开始，所有任务复选框都应保持未完成。
+落盘。Phase 4 Task 1 已于 2026-08-02 完成：
+
+- 后端依赖已锁定：`httpx==0.28.1` 转入生产依赖，新增 `websockets==16.1.1`
+  与 `py7zr==1.1.3`，仓库 `.venv` 已按文档命令重建并通过 `pip check`。
+- 自定义节点归档已在仓库外独立下载锁定：`ComfyUI_IPAdapter_plus`
+  commit `a0f451a5…dec0ef`，306,422 字节，SHA-256
+  `c6c49c82aa65cb96b93bdf9f9b547f9c95310a2668a7a9aaa0285cccf4590347`，
+  归档唯一根目录与 commit 一致。
+- 新增严格 manifest 契约：`comfy/manifests.py`（冻结 Pydantic 模型、
+  未知字段拒绝、SHA/路径/大小/可变版本校验、canonical 序列化）与
+  `comfy/registry.py`（只读、按文件名确定性排序、runtime/profile 兼容
+  校验、workflow 根目录逃逸拒绝）。
+- 两个 tracked manifest 已提交，状态均为 `candidate_unverified`：
+  `manifests/runtimes/comfyui-windows-nvidia-v0.29.2.json` 与
+  `manifests/model-profiles/sdxl-mapchip-ipadapter-v1.json`。
+  规范摘要：runtime `89f05bd7…70ee86`，profile `b4e10bd7…a40239`；
+  workflow 文件与其 SHA-256 由 Task 8 写入。
+- 聚焦门禁 82/82 通过；全量后端回归 698/698 通过（89% 覆盖率，
+  `-W error` 零警告）；`git diff --check` 通过。
+
+本地忽略的 `runtime/` 中已存在与候选锁完全一致的 7z 与四个模型文件
+（大小与 SHA-256 已独立复算匹配），但它们未经过应用安装流程、无安装记录、
+无 GPU 冒烟，仍不算受支持配置；Task 10 必须通过实现后的安装界面再次确认并
+完成 text2img/img2img 冒烟后才能提升状态。
 
 已确认的 Phase 4 决策：
 
@@ -75,9 +98,11 @@ git status --short
 
 ## 下一入口
 
-从 Phase 4 计划 Task 1 开始，按测试先行逐任务执行。Task 1 先实现严格 manifests
-并独立复核自定义节点 commit archive 已记录的大小/SHA-256；不得提前下载多 GB
-runtime/model，不得跳到真实 GPU 冒烟。
+从 Phase 4 计划 Task 2 开始，按测试先行逐任务执行。Task 2 实现只读主机检查
+与 consent 绑定的安装计划；不得触发真实下载、不得启动真实 ComfyUI、不得跳
+到真实 GPU 冒烟。固定 Node 运行时 `runtime/node-v24.18.0-win-x64` 仍缺失，
+前端门禁暂用全局 Node v24.13.0 复现，正式恢复固定运行时后再更新
+`docs/TESTING.md`。
 
 当前工作树预计只有本轮文档变更和用户已有的未跟踪 `temp/`；`temp/` 不属于
 项目变更，必须保留。接手按 `AGENTS.md` 的必读顺序阅读，以当前代码和可重复
