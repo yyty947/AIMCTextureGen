@@ -215,8 +215,8 @@ Window 3 is reserved for the optional occupied-port check below. Open
 ### Start, health, stop and restart
 
 1. Click **启动受管 ComfyUI**. Expect the process line to become `ready` and
-   the version to be `0.29.2`; the managed log button should return a bounded
-   text tail.
+   the version to be `0.29.2`. A cold start may take up to about 60 seconds;
+   the managed log button should return a bounded text tail after readiness.
 2. Click **停止受管 ComfyUI**. Expect `stopped`; the button states should
    update without an error.
 3. Repeat start and stop once. The second cycle should have the same result.

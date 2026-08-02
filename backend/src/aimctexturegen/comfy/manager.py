@@ -75,7 +75,7 @@ class ComfyUIManager:
         probe: ReadinessProbe,
         port: int = 8188,
         stabilization_seconds: float = 0.2,
-        readiness_timeout: float = 5.0,
+        readiness_timeout: float = 60.0,
         runtime_check: Callable[[], str] | None = None,
         profile_ready: Callable[[], bool] | None = None,
         alive_check: Callable[[int], bool] | None = None,

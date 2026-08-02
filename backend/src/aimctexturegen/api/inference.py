@@ -17,6 +17,7 @@ from aimctexturegen.comfy.errors import (
     InstallValidationError,
     ManagerError,
     ManagerPortInUseError,
+    ManagerStartError,
     ProcessError,
     ProcessIdentityError,
     ProcessStopError,
@@ -244,6 +245,15 @@ def _manager_problem(error: ManagerError | ProcessError, stage: str) -> ApiProbl
         actions = (
             "确认受管 ComfyUI 仍在运行后重试停止",
             "若问题持续，请保留进程记录并查看应用日志",
+        )
+    elif (
+        isinstance(error, ManagerStartError)
+        and "did not become ready in time" in str(error)
+    ):
+        code = "COMFYUI_NOT_READY"
+        actions = (
+            "等待受管 ComfyUI 完成冷启动（最多约 60 秒）后重试",
+            "若仍失败，请查看受管 ComfyUI 日志中的启动错误",
         )
     else:
         code = "COMFYUI_START_FAILED"

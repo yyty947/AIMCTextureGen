@@ -84,6 +84,7 @@ def _manager(
     runtime_check: Any = None,
     profile_ready: Any = None,
     alive_check: Any = None,
+    readiness_timeout: float = 2.0,
 ) -> tuple[ComfyUIManager, FakeLauncher]:
     runtime = RuntimeManifest.model_validate(make_runtime())
     profile = ModelProfileManifest.model_validate(make_profile())
@@ -104,7 +105,7 @@ def _manager(
         probe=probe or FakeProbe(),
         port=18193,
         stabilization_seconds=0.0,
-        readiness_timeout=2.0,
+        readiness_timeout=readiness_timeout,
         runtime_check=runtime_check or (lambda: "ready"),
         profile_ready=profile_ready or (lambda: True),
         alive_check=alive_check or (lambda pid: True),
@@ -126,6 +127,29 @@ def test_start_records_process_and_is_single_flight(tmp_path: Path) -> None:
     assert len(launcher.starts) == 1
     assert manager.status().state == "ready"
     assert (tmp_path / "runtime" / "state" / "process.json").is_file()
+
+
+def test_readiness_waits_through_a_cold_start_probe_delay(
+    tmp_path: Path,
+) -> None:
+    class DelayedProbe(FakeProbe):
+        def __init__(self) -> None:
+            super().__init__()
+            self.calls = 0
+
+        def system_stats(self) -> dict:
+            self.calls += 1
+            if self.calls < 3:
+                raise RuntimeError("ComfyUI is still starting")
+            return super().system_stats()
+
+    manager, _ = _manager(
+        tmp_path,
+        probe=DelayedProbe(),
+        readiness_timeout=0.5,
+    )
+
+    assert manager.start().state == "ready"
 
 
 def test_new_manager_instance_stops_persisted_owned_process(

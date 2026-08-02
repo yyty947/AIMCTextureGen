@@ -194,6 +194,22 @@ def test_comfyui_start_failures_are_stable_errors() -> None:
     assert any("不会终止" in action for action in response.json()["recommended_actions"])
 
 
+def test_comfyui_readiness_timeout_has_cold_start_guidance() -> None:
+    from aimctexturegen.comfy.errors import ManagerStartError
+
+    service = FakeInferenceService()
+    service.start_error = ManagerStartError(
+        "managed child did not become ready in time"
+    )
+    app = _app(service)
+
+    response = _request(app, "POST", "/api/system/inference/comfyui/start")
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "COMFYUI_NOT_READY"
+    assert any("冷启动" in action for action in response.json()["recommended_actions"])
+
+
 def test_log_tail_is_bounded_and_has_no_path_input() -> None:
     app = _app(FakeInferenceService())
     response = _request(
