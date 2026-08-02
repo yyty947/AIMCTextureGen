@@ -117,3 +117,35 @@ class ManagerStartError(ManagerError):
 
 class ReadinessError(ManagerError):
     """The managed runtime did not become ready."""
+
+
+class ComfyError(Exception):
+    """Base error for ComfyUI protocol transport."""
+
+
+class ComfyProtocolError(ComfyError):
+    """A response or WebSocket message violated the protocol contract."""
+
+
+class ComfyTimeoutError(ComfyError):
+    """An operation exceeded its finite deadline."""
+
+
+class ComfyQueueError(ComfyError):
+    """ComfyUI rejected the submitted prompt."""
+
+
+class ComfyExecutionError(ComfyError):
+    """ComfyUI reported an execution error for the prompt."""
+
+
+class ComfyDisconnectedError(ComfyError):
+    """The WebSocket or transport disconnected unexpectedly."""
+
+
+class ComfyUnsafeInputError(ComfyError):
+    """An upload or input violates the safe boundary."""
+
+
+class ComfyUnsafeOutputError(ComfyError):
+    """An output name was not declared by the prompt history."""
