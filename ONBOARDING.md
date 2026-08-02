@@ -108,7 +108,7 @@ GPU 双冒烟全部通过，profile 已提升为 `verified`。
 - 新摘要：runtime `5d5fe88a…4e10`；profile 摘要以 manifest canonical
   SHA-256 为准，并随本轮限制文字修订更新。
 - 门禁：Task 10 原始全量后端 865/865（`-W error` 零警告），前端 132/132 +
-  20 模块构建通过；本轮收尾后全量后端 **874/874**（86% 覆盖率）和前端
+  20 模块构建通过；本轮收尾后全量后端 **875/875**（86% 覆盖率）和前端
   **134/134** + 20 模块构建通过，`pip check`、`git diff --check` 通过。
 - 本轮重新执行受管已安装配置的真实 GPU 冒烟：text2img 11.8 秒、img2img
   5.9 秒，均 completed、1024×1024；profile 摘要为
