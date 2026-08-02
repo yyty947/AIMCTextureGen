@@ -1087,8 +1087,9 @@ git add ONBOARDING.md docs
 git commit -m "docs: record Phase 4 managed inference gate"
 ```
 
-本轮收尾提交为 `f9d803b`（`fix: close phase 4 managed inference gaps`），
-其中包含复核发现的安装状态、进程身份和生命周期并发修正及对应回归测试；
+本轮收尾提交为 `f9d803b`（安装状态、进程身份和生命周期并发修正）、
+`b9180eb`（身份记录失败时清理未登记子进程）以及文档提交 `4fd8ab8`、
+`920e44a`；对应回归测试均已重跑；
 手动 WebUI 验收仍按 Step 3 保持未勾选。
 
 - [ ] **Step 6: Prepare, but do not merge or push without authorization**
