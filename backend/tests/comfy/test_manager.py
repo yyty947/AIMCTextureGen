@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 
 from aimctexturegen.comfy.errors import (
+    ManagerPortInUseError,
     ManagerStartError,
     PortInUseError,
     ProcessIdentityError,
@@ -58,6 +59,7 @@ class FakeLauncher:
     def __init__(self, *, identity: ProcessIdentity | None = None) -> None:
         self.starts: list[dict[str, Any]] = []
         self.port_error: int | None = None
+        self.owned_stops: list[int] = []
         self.identity = identity or ProcessIdentity(pid=42, executable="fake.exe", creation_time_ns=7)
 
     def start(self, **kwargs: Any) -> FakeChild:
@@ -69,6 +71,9 @@ class FakeLauncher:
 
     def identity_for(self, pid: int) -> ProcessIdentity:
         return self.identity
+
+    def stop_owned(self, identity: ProcessIdentity, *, graceful_timeout: float) -> None:
+        self.owned_stops.append(identity.pid)
 
 
 def _manager(
@@ -123,6 +128,21 @@ def test_start_records_process_and_is_single_flight(tmp_path: Path) -> None:
     assert (tmp_path / "runtime" / "state" / "process.json").is_file()
 
 
+def test_new_manager_instance_stops_persisted_owned_process(
+    tmp_path: Path,
+) -> None:
+    launcher = FakeLauncher()
+    manager, _ = _manager(tmp_path, launcher=launcher)
+    manager.start()
+    restarted, _ = _manager(tmp_path, launcher=launcher)
+
+    stopped = restarted.stop()
+
+    assert stopped.state == "stopped"
+    assert launcher.owned_stops == [42]
+    assert not (tmp_path / "runtime" / "state" / "process.json").exists()
+
+
 def test_start_passes_resolved_executable_and_managed_args(
     tmp_path: Path,
 ) -> None:
@@ -139,7 +159,7 @@ def test_start_reports_port_in_use(tmp_path: Path) -> None:
     launcher = FakeLauncher()
     launcher.port_error = 18193
     manager, _ = _manager(tmp_path, launcher=launcher)
-    with pytest.raises(ManagerStartError):
+    with pytest.raises(ManagerPortInUseError, match="8188|18193"):
         manager.start()
     assert not (tmp_path / "runtime" / "state" / "process.json").exists()
 
@@ -212,6 +232,35 @@ def test_stop_only_stops_owned_identity(tmp_path: Path) -> None:
     )
     with pytest.raises(ProcessIdentityError):
         manager.stop()
+
+
+def test_status_fails_closed_on_persisted_pid_reuse(tmp_path: Path) -> None:
+    manager, launcher = _manager(tmp_path)
+    manager.start()
+    launcher.identity = ProcessIdentity(
+        pid=42,
+        executable="other.exe",
+        creation_time_ns=999,
+    )
+
+    status = manager.status()
+
+    assert status.state == "unhealthy"
+    assert status.errors == ("process_identity_mismatch",)
+
+
+def test_start_refuses_to_adopt_reused_persisted_pid(tmp_path: Path) -> None:
+    manager, launcher = _manager(tmp_path)
+    manager.start()
+    restarted, _ = _manager(tmp_path, launcher=launcher)
+    launcher.identity = ProcessIdentity(
+        pid=42,
+        executable="other.exe",
+        creation_time_ns=999,
+    )
+
+    with pytest.raises(ManagerStartError, match="identity"):
+        restarted.start()
 
 
 def test_stop_clears_record_and_child_is_stopped(tmp_path: Path) -> None:

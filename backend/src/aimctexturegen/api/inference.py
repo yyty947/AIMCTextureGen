@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Protocol
 from uuid import UUID
 
@@ -15,7 +16,10 @@ from aimctexturegen.comfy.errors import (
     InstallNotFoundError,
     InstallValidationError,
     ManagerError,
+    ManagerPortInUseError,
+    ProcessError,
     ProcessIdentityError,
+    ProcessStopError,
 )
 from aimctexturegen.core.errors import ApiProblem
 
@@ -127,7 +131,7 @@ def start_comfyui(request: Request) -> dict:
 def stop_comfyui(request: Request) -> dict:
     try:
         return _service(request).stop_comfyui()
-    except ManagerError as error:
+    except (ManagerError, ProcessError) as error:
         raise _manager_problem(error, "stopping_comfyui") from error
     except Exception as error:
         _LOGGER.exception("Unexpected ComfyUI stop failure")
@@ -223,10 +227,24 @@ def _install_problem(error: InstallError, stage: str) -> ApiProblem:
     )
 
 
-def _manager_problem(error: ManagerError, stage: str) -> ApiProblem:
-    if isinstance(error, ProcessIdentityError):
+def _manager_problem(error: ManagerError | ProcessError, stage: str) -> ApiProblem:
+    if isinstance(error, ManagerPortInUseError):
+        code = "PORT_IN_USE"
+        port_match = re.search(r"port\s+(\d+)", str(error), re.IGNORECASE)
+        port_label = port_match.group(1) if port_match else "受管端口"
+        actions = (
+            f"关闭占用 {port_label} 的应用或停止另一个 ComfyUI；应用不会终止外部进程",
+            f"确认端口 {port_label} 释放后重新启动受管 ComfyUI",
+        )
+    elif isinstance(error, ProcessIdentityError):
         code = "PROCESS_IDENTITY_MISMATCH"
         actions = ("停止并重新启动受管运行时",)
+    elif isinstance(error, ProcessStopError):
+        code = "PROCESS_STOP_FAILED"
+        actions = (
+            "确认受管 ComfyUI 仍在运行后重试停止",
+            "若问题持续，请保留进程记录并查看应用日志",
+        )
     else:
         code = "COMFYUI_START_FAILED"
         actions = ("检查端口与运行环境后重试",)

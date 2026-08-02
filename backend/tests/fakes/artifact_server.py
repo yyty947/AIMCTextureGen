@@ -145,7 +145,13 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/octet-stream")
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
-        self.wfile.write(payload)
+        try:
+            self.wfile.write(payload)
+        except OSError:
+            # A cancellation test may close the client before the fixture
+            # finishes writing; keep that expected disconnect out of pytest
+            # output.
+            pass
         self._close_after_body()
 
     def _close_after_body(self) -> None:

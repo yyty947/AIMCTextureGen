@@ -199,6 +199,10 @@ def create_app(
         try:
             yield
         finally:
+            inference = runtime_app.state.services.inference
+            shutdown = getattr(inference, "shutdown", None)
+            if callable(shutdown):
+                shutdown()
             runtime_app.state.startup_complete = False
 
     app = FastAPI(

@@ -119,6 +119,10 @@ class ManagerStartError(ManagerError):
     """The managed runtime could not be started or verified."""
 
 
+class ManagerPortInUseError(ManagerStartError):
+    """The configured managed ComfyUI port is already occupied."""
+
+
 class ReadinessError(ManagerError):
     """The managed runtime did not become ready."""
 

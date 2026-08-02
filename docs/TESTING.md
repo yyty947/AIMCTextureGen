@@ -1,14 +1,15 @@
 # AIMCTextureGen testing
 
-Run these PowerShell blocks from the repository root. They are the current
-Phase 3 closure commands and were executed on 2026-08-01.
+Run these PowerShell blocks from the repository root. Commands that require the
+ignored managed runtime or GPU are explicitly marked; ordinary CI must not
+download multi-GB artifacts or launch the real ComfyUI.
 
-Latest final-review result: 616 backend tests passed at 89% coverage
-(3,483 statements, 392 missing), 6 frontend files / 113 tests passed, the
-19-module production build passed, and the separate restart and generator
-audits each passed.
+The Phase 4 baseline was re-run on 2026-08-02 with Python 3.12.10 and global
+Node v24.13.0 (the documented portable Node v24.18.0 directory is not present
+in this checkout). The latest result is recorded in the handoff only after the
+commands below are run on the current checkout.
 
-## Full automated gate
+## Phase 3 regression gate
 
 ```powershell
 .\.venv\Scripts\python -W error -m pytest backend\tests --cov=aimctexturegen --cov-report=term-missing
@@ -17,9 +18,9 @@ audits each passed.
 ```powershell
 Push-Location frontend
 try {
-    ..\runtime\node-v24.18.0-win-x64\npm.cmd test
+    npm test
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-    ..\runtime\node-v24.18.0-win-x64\npm.cmd run build
+    npm run build
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 finally {
@@ -153,3 +154,79 @@ powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File 
 ```powershell
 .\.venv\Scripts\python -W error -m pytest backend\tests\model_profiles backend\tests\comfy -q
 ```
+
+## Phase 4 WebUI manual acceptance
+
+The following checks are intentionally manual because they exercise a real
+Windows browser, process lifecycle and layout. They do not require repeating
+the multi-GB download when `runtime/` already contains the verified profile.
+
+Open three PowerShell windows at the repository root.
+
+Window 1 — FastAPI:
+
+```powershell
+.\.venv\Scripts\python -m uvicorn aimctexturegen.main:app --app-dir backend\src --host 127.0.0.1 --port 8000
+```
+
+Window 2 — Vite (use the globally installed Node in this checkout):
+
+```powershell
+Push-Location frontend
+npm run dev -- --host 127.0.0.1 --port 5173
+```
+
+Window 3 is reserved for the optional occupied-port check below. Open
+`http://127.0.0.1:5173` in a Windows desktop browser.
+
+### Already-installed status and no-redownload check
+
+1. Expand **受管 ComfyUI 与模型配置**. Before and after a browser refresh,
+   expect **主机支持：是**, the NVIDIA GPU/driver, **运行时：ready** and
+   **profile components ready**. On the verified machine the plan shows all
+   components as `ready`, download total `0.00 GB (0.00 GiB)`, and the install
+   button is disabled; this is expected because the archive is deleted after
+   verified publication.
+2. In DevTools Network, refresh the panel once. Expect only `GET` requests for
+   status/install-plan (and polling while expanded), no `POST /installations`.
+   Do not click the install button in this already-ready state.
+
+### Start, health, stop and restart
+
+1. Click **启动受管 ComfyUI**. Expect the process line to become `ready` and
+   the version to be `0.29.2`; the managed log button should return a bounded
+   text tail.
+2. Click **停止受管 ComfyUI**. Expect `stopped`; the button states should
+   update without an error.
+3. Repeat start and stop once. The second cycle should have the same result.
+
+### Occupied-port safety check (optional but recommended)
+
+1. Ensure the managed process is stopped. In Window 3 run:
+
+   ```powershell
+   .\.venv\Scripts\python.exe -c "import http.server; http.server.ThreadingHTTPServer(('127.0.0.1',8188), http.server.SimpleHTTPRequestHandler).serve_forever()"
+   ```
+
+2. Click **启动受管 ComfyUI**. Expect a readable `PORT_IN_USE` error that says
+   port 8188 is occupied and recommends closing the other application/ComfyUI;
+   it must explicitly say the app will not terminate the external process.
+   The listener in Window 3 must remain running.
+3. Stop the listener with `Ctrl+C`, then start and stop the managed runtime
+   normally to prove recovery.
+
+### Layout, console and existing data
+
+1. Check the expanded panel at normal desktop width, then resize the browser
+   viewport to approximately 400 px, 600 px and 900 px wide. Expect no
+   horizontal scrollbar, clipped buttons, or inaccessible license/status text.
+2. In DevTools Console, treat only application-origin errors as failures.
+   Browser-extension messages such as `Extension context invalidated` and
+   MIME-type warnings from the development server are not application errors.
+3. Select an existing project and confirm its coverage summary and Phase 3
+   queued job/four pending candidates are unchanged. Do not import a duplicate
+   ZIP for this check.
+
+Record each result and any screenshot or console line in the task response.
+The Phase 4 branch remains open until these checks pass and the user explicitly
+authorizes merge/push.

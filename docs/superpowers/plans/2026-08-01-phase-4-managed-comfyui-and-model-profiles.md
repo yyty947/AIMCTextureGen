@@ -1029,6 +1029,9 @@ git status --short
 
 Record exact totals; do not copy Phase 3 counts.
 
+当前 checkout 未包含 portable Node `v24.18.0` 目录，因此前端门禁实际使用
+全局 Node `v24.13.0` 的 `npm` 命令；恢复 portable Node 后再切回固定路径。
+
 - [x] **Step 2: Run focused no-mutation and fake-service audits**
 
 Run the install/archive/process/transport suites separately with `-W error
@@ -1037,6 +1040,9 @@ hash maps. Prove the default test suite performs no real network download and
 does not launch the real ComfyUI.
 
 - [ ] **Step 3: Give the user the manual Windows procedure**
+
+The procedure is recorded in `docs/TESTING.md`; keep this step unchecked until
+the user reports the browser/process/layout results from that procedure.
 
 Ask the user to verify through the WebUI:
 
@@ -1072,7 +1078,9 @@ run. Update the roadmap Phase 4 exit gate only with demonstrated facts.
 - [x] **Step 5: Review and closure commit**
 
 Use `superpowers:requesting-code-review`, address findings and rerun relevant
-gates. Then:
+gates. The current review findings were addressed by revalidating profile
+artifact hashes/receipts, rechecking process identity before force termination
+and on manager restart, and serializing install lifecycle transitions. Then:
 
 ```powershell
 git add ONBOARDING.md docs

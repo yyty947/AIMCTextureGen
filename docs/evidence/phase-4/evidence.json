@@ -11,7 +11,7 @@
   "runtime_manifest_sha256": "5d5fe88aaadd6004f398b6118a5d9e8ce4a350f6e37438964a4ea6cc2c5e4e10",
   "profile_id": "sdxl-mapchip-ipadapter",
   "profile_version": "1",
-  "profile_manifest_sha256": "24ae5a74966e2b56123e07f184f70ecb2096e6b86553e8fc955cc3853d35add3",
+  "profile_manifest_sha256": "8835cdb7440bde655f1b05ec947a01512262ec7fe6d4f3fb93a1866ec6e58af3",
   "workflow_digests": {
     "text2img": "80362974e036874262d166389c4099bfc0b85efb1aa6c9f98e58dce6ba8cad27",
     "img2img": "ad53c2bc8545b626c56d66de2d4cf481a510939619569faaf1158630d928792e"
@@ -19,7 +19,7 @@
   "runtime_stats": {
     "os": "win32",
     "ram_total": "33784094720",
-    "ram_free": "23853924352",
+    "ram_free": "24412827648",
     "comfyui_version": "0.29.2",
     "required_frontend_version": "1.47.11",
     "installed_templates_version": "0.11.20",
@@ -29,26 +29,26 @@
     "embedded_python": "True",
     "deploy_environment": "local-portable"
   },
-  "started_at": "2026-08-02T12:27:00.286412Z",
-  "completed_at": "2026-08-02T12:27:56.684505Z",
+  "started_at": "2026-08-02T13:41:46.915081Z",
+  "completed_at": "2026-08-02T13:42:47.044674Z",
   "results": [
     {
       "kind": "text2img",
-      "prompt_id": "e4e75954-3ba4-4021-8a64-e5e76a98f78a",
+      "prompt_id": "a22cac45-ba25-410e-9d11-71a85fc02919",
       "seed": 1000,
       "output_sha256": "932f514926c50b40108f3032926e9507a886c13027a0f0a1dce8e3d36bee105f",
       "output_canvas": 1024,
-      "duration_seconds": 11.10899999999674,
+      "duration_seconds": 11.812000000005355,
       "status": "completed",
       "failure_message": null
     },
     {
       "kind": "img2img",
-      "prompt_id": "349d0ae2-716a-4155-9f64-dd46719262bc",
+      "prompt_id": "47be52da-120f-4786-b43c-bcfa35c73c1b",
       "seed": 1001,
       "output_sha256": "6ff93e6c5a487e17b4aa787a05e131f9f5a1e2bec55c627d8803f12c7cf1879d",
       "output_canvas": 1024,
-      "duration_seconds": 5.9539999999979045,
+      "duration_seconds": 5.921999999991385,
       "status": "completed",
       "failure_message": null
     }

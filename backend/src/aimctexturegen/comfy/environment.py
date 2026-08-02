@@ -112,7 +112,7 @@ class EnvironmentInspector:
         self._probe = probe if probe is not None else SystemEnvironmentProbe()
 
     def inspect(self, runtime_root: Path) -> EnvironmentReport:
-        os_name = self._probe.os_name()
+        os_name = _normalize_os_name(self._probe.os_name())
         machine = self._probe.machine()
         architecture = _normalize_architecture(machine)
         smi = self._probe.nvidia_smi()
@@ -145,4 +145,11 @@ def _normalize_architecture(machine: str) -> str:
     normalized = machine.strip().lower()
     if normalized in {"amd64", "x86_64", "x64"}:
         return "x86_64"
+    return normalized[:32] or "unknown"
+
+
+def _normalize_os_name(os_name: str) -> str:
+    normalized = os_name.strip().lower()
+    if normalized == "nt":
+        return "windows"
     return normalized[:32] or "unknown"

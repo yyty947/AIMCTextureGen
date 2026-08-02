@@ -131,6 +131,6 @@
     "canvas_size": 1024
   },
   "profile_defaults": {},
-  "user_limitations": "Candidate profile. Workflow digests and calibrated defaults are locked during Task 8 and the real GPU smoke must pass before this profile is called supported.",
+  "user_limitations": "Verified on the recorded Windows/NVIDIA smoke machine. Results are specific to this pinned runtime, model files, custom node and workflow; changing any of them requires a new smoke verification.",
   "revision_notes": "Verified on 2026-08-02: portable ComfyUI v0.29.2 with STANDARD (medium strength) IPAdapter preset; text2img and img2img real smoke both completed at 1024x1024 (see docs/evidence/phase-4 and docs/MODEL_PROFILES.md)."
 }

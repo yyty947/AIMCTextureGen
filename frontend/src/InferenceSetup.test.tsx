@@ -223,6 +223,44 @@ describe("InferenceSetup", () => {
     });
   });
 
+  it("shows actionable port guidance from a start error", async () => {
+    const fetchMock = vi.fn().mockImplementation(
+      async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === "/api/system/inference/comfyui/start") {
+          return new Response(
+            JSON.stringify({
+              code: "PORT_IN_USE",
+              stage: "starting_comfyui",
+              user_message: "loopback port 8188 is already occupied",
+              recommended_actions: [
+                "关闭占用 8188 的应用；应用不会终止外部进程",
+              ],
+              technical_details: null,
+            }),
+            { status: 409, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        const body = url.endsWith("/install-plan") ? planBody : statusBody;
+        return new Response(JSON.stringify(body), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<InferenceSetup />);
+    fireEvent.click(screen.getByRole("button", { name: "展开推理环境" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "启动受管 ComfyUI" }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/loopback port 8188/)).toBeTruthy();
+      expect(screen.getByText(/应用不会终止外部进程/)).toBeTruthy();
+    });
+  });
+
   it("offers no generation button", async () => {
     stubFetch({
       "/api/system/inference": statusBody,

@@ -22,6 +22,7 @@ from aimctexturegen.comfy.install_state import (
     InstallOperationStore,
 )
 from aimctexturegen.comfy.installer import InstallConsent, Installer
+from aimctexturegen.comfy.manifests import manifest_sha256
 from aimctexturegen.comfy.manifests import (
     ModelProfileManifest,
     RuntimeManifest,
@@ -95,6 +96,79 @@ def test_inspect_builds_plan_with_exact_component_totals(tmp_path: Path) -> None
         "checkpoint",
         "custom-node",
     }
+
+
+def test_ready_runtime_does_not_require_archive_redownload(tmp_path: Path) -> None:
+    registry = _registry(tmp_path)
+    runtime = registry.runtime("comfyui-windows-nvidia")
+    selected = tmp_path / "runtime" / "state" / "selected-runtime.json"
+    runtime_dir = (
+        tmp_path
+        / "runtime"
+        / "comfyui"
+        / "0.29.2-abc12345"
+        / runtime.expected_archive_root
+    )
+    for required in runtime.required_paths:
+        (runtime_dir / required).parent.mkdir(parents=True, exist_ok=True)
+        (runtime_dir / required).write_bytes(b"ready")
+    selected.parent.mkdir(parents=True, exist_ok=True)
+    selected.write_text(
+        __import__("json").dumps(
+            {
+                "directory": "0.29.2-abc12345",
+                "version": runtime.runtime_version,
+                "manifest_sha256": manifest_sha256(runtime),
+            }
+        ),
+        encoding="utf-8",
+    )
+    receipt = selected.parent / "installation-receipts" / (
+        f"{runtime.runtime_id}-{runtime.runtime_version}.json"
+    )
+    receipt.parent.mkdir(parents=True, exist_ok=True)
+    receipt.write_text("{}", encoding="utf-8")
+
+    plan = _installer(tmp_path).inspect(
+        runtime.runtime_id,
+        "sdxl-mapchip-ipadapter",
+        tmp_path / "runtime",
+    )
+    archive = next(
+        component
+        for component in plan.components
+        if component.artifact_id == "comfyui-portable"
+    )
+    assert archive.state == "ready"
+    assert plan.total_download_bytes == 1024 + 306_422
+    assert plan.temporary_headroom_bytes == 0
+    assert plan.required_free_bytes == plan.total_download_bytes
+
+
+def test_same_sized_profile_bytes_without_verified_receipt_are_corrupt(
+    tmp_path: Path,
+) -> None:
+    registry = _registry(tmp_path)
+    profile_artifact = registry.profile("sdxl-mapchip-ipadapter").artifacts[0]
+    target = tmp_path / "runtime" / profile_artifact.destination
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(b"x" * profile_artifact.byte_size)
+
+    plan = _installer(tmp_path).inspect(
+        "comfyui-windows-nvidia",
+        "sdxl-mapchip-ipadapter",
+        tmp_path / "runtime",
+    )
+
+    component = next(
+        item
+        for item in plan.components
+        if item.artifact_id == profile_artifact.artifact_id
+    )
+    assert component.state == "corrupt"
+    assert plan.total_download_bytes == (
+        2_103_175_457 + 1024 + 306_422
+    )
 
 
 def test_plan_digest_is_deterministic(tmp_path: Path) -> None:

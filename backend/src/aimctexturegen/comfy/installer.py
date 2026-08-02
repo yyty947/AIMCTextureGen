@@ -128,17 +128,36 @@ class Installer:
         environment = self._inspector.inspect(Path(runtime_root))
 
         artifacts = (runtime.archive, *profile.artifacts)
+        runtime_root = Path(runtime_root)
+        installed_records = _read_installed_records(runtime_root)
         components = tuple(
             _component_from_artifact(
                 artifact,
-                state=_classify_artifact(artifact, Path(runtime_root)),
+                state=(
+                    "ready"
+                    if artifact is runtime.archive
+                    and RuntimeInstaller().status(runtime, runtime_root).state
+                    == "ready"
+                    else _classify_profile_artifact(
+                        artifact,
+                        runtime_root,
+                        installed_records,
+                    )
+                ),
             )
             for artifact in artifacts
         )
-        total_download_bytes = sum(
-            component.byte_size for component in components
+        pending_components = tuple(
+            component for component in components if component.state != "ready"
         )
-        temporary_headroom_bytes = runtime.extraction_headroom_bytes
+        total_download_bytes = sum(
+            component.byte_size for component in pending_components
+        )
+        temporary_headroom_bytes = (
+            runtime.extraction_headroom_bytes
+            if components[0].state != "ready"
+            else 0
+        )
         required_free_bytes = (
             total_download_bytes + temporary_headroom_bytes
         )
@@ -196,7 +215,7 @@ class Installer:
             disk_free_bytes=environment.disk_free_bytes,
             environment=environment,
             blockers=tuple(blockers),
-            can_install=not blockers,
+            can_install=not blockers and bool(pending_components),
         )
 
     def consent(
@@ -213,6 +232,10 @@ class Installer:
         if plan.blockers:
             raise InstallBlockedError(
                 f"cannot consent to blocked plan: {', '.join(plan.blockers)}"
+            )
+        if not plan.can_install:
+            raise InstallBlockedError(
+                "all managed runtime and profile components are already ready"
             )
         return InstallConsent(
             plan_digest=plan.plan_digest,
@@ -293,6 +316,48 @@ def _classify_artifact(
     if 0 < size < artifact.byte_size:
         return "partial"
     return "corrupt"
+
+
+def _classify_profile_artifact(
+    artifact: ArtifactManifest,
+    root: Path,
+    records: dict,
+) -> str:
+    """Classify a profile artifact using its receipt and content hash.
+
+    A same-sized file is not sufficient evidence of installation.  The plan
+    must agree with ``ProfileInstaller.status`` so corrupt or unrecorded bytes
+    still count toward the download and disk budget.
+    """
+
+    target = Path(root) / artifact.destination
+    if not target.is_file():
+        return "missing"
+    try:
+        size = target.stat().st_size
+        if size < artifact.byte_size:
+            return "partial"
+        if size != artifact.byte_size:
+            return "corrupt"
+        record = records.get(artifact.artifact_id)
+        if record is None or record.get("sha256") != artifact.sha256:
+            return "corrupt"
+        if hashlib.sha256(target.read_bytes()).hexdigest() != artifact.sha256:
+            return "corrupt"
+        if artifact.destination.startswith("custom_nodes/"):
+            expected_root = _custom_node_root_name(artifact)
+            marker = (
+                _managed_runtime_root(root)
+                / "ComfyUI"
+                / "custom_nodes"
+                / expected_root
+                / "__init__.py"
+            )
+            if not marker.is_file():
+                return "corrupt"
+    except (OSError, ProfileInstallError):
+        return "corrupt"
+    return "ready"
 
 
 def plan_component_ids(plan: InstallPlan) -> tuple[str, ...]:
@@ -643,34 +708,7 @@ class ProfileInstaller:
         root: Path,
         records: dict,
     ) -> str:
-        target = root / artifact.destination
-        if not target.is_file():
-            return "missing"
-        try:
-            size = target.stat().st_size
-        except OSError:
-            return "corrupt"
-        if size < artifact.byte_size:
-            return "partial"
-        if size != artifact.byte_size:
-            return "corrupt"
-        record = records.get(artifact.artifact_id)
-        if record is None or record.get("sha256") != artifact.sha256:
-            return "corrupt"
-        if hashlib.sha256(target.read_bytes()).hexdigest() != artifact.sha256:
-            return "corrupt"
-        if artifact.destination.startswith("custom_nodes/"):
-            expected_root = _custom_node_root_name(artifact)
-            marker = (
-                _managed_runtime_root(root)
-                / "ComfyUI"
-                / "custom_nodes"
-                / expected_root
-                / "__init__.py"
-            )
-            if not marker.is_file():
-                return "corrupt"
-        return "ready"
+        return _classify_profile_artifact(artifact, root, records)
 
     def _installed_bytes(
         self,

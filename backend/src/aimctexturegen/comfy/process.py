@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import os
+import signal
 import socket
 import subprocess
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -99,6 +101,58 @@ class ProcessLauncher:
 
     def identity_for(self, pid: int) -> ProcessIdentity:
         return self._identity_provider(pid)
+
+    def stop_owned(
+        self,
+        identity: ProcessIdentity,
+        *,
+        graceful_timeout: float,
+    ) -> None:
+        """Stop a recorded child after revalidating its process identity."""
+
+        current = self.identity_for(identity.pid)
+        if (
+            current.pid != identity.pid
+            or current.creation_time_ns != identity.creation_time_ns
+            or current.executable.casefold() != identity.executable.casefold()
+        ):
+            raise ProcessIdentityError(
+                "live process identity no longer matches the owned record"
+            )
+        if not _pid_alive(identity.pid):
+            return
+        try:
+            os.kill(identity.pid, signal.SIGTERM)
+        except OSError as exc:
+            if _pid_alive(identity.pid):
+                raise ProcessStopError("cannot stop owned child") from exc
+            return
+        deadline = time.monotonic() + graceful_timeout
+        while _pid_alive(identity.pid) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        if not _pid_alive(identity.pid):
+            return
+        current = self.identity_for(identity.pid)
+        if (
+            current.pid != identity.pid
+            or current.creation_time_ns != identity.creation_time_ns
+            or current.executable.casefold() != identity.executable.casefold()
+        ):
+            raise ProcessIdentityError(
+                "live process identity no longer matches the owned record"
+            )
+        try:
+            force_signal = getattr(signal, "SIGKILL", signal.SIGTERM)
+            os.kill(identity.pid, force_signal)
+        except OSError as exc:
+            if _pid_alive(identity.pid):
+                raise ProcessStopError(
+                    "owned child did not exit after force termination"
+                ) from exc
+        if _pid_alive(identity.pid):
+            raise ProcessStopError(
+                "owned child did not exit after force termination"
+            )
 
     def start(
         self,

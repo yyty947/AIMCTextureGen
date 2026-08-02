@@ -71,6 +71,13 @@ def test_supported_windows_x64_nvidia_report() -> None:
     assert report.blocking_issues == ()
 
 
+def test_windows_os_name_from_python_is_normalized() -> None:
+    report = _report(os_name="nt")
+    assert report.supported is True
+    assert report.platform == "windows"
+    assert "unsupported_os" not in report.blocking_issues
+
+
 def test_non_windows_is_unsupported() -> None:
     report = _report(os_name="posix")
     assert report.supported is False

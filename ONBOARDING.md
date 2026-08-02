@@ -6,7 +6,9 @@
 
 Phase 3 已通过合并提交 `ae424b1` 进入 `master`/`origin/master`。当前 checkout
 位于新阶段分支 `codex/phase-4-managed-comfyui`。Phase 4 的设计和实施计划已
-落盘。Phase 4 Task 1 已于 2026-08-02 完成：
+落盘。Task 1–10 的实现与真实 GPU 冒烟已完成；本轮收尾还修正了 Windows
+环境规范化、后台安装执行、端口占用错误映射、重建 manager 的安全停止、
+profile 哈希/receipt 就绪判定，以及取消/完成状态竞态：
 
 - 后端依赖已锁定：`httpx==0.28.1` 转入生产依赖，新增 `websockets==16.1.1`
   与 `py7zr==1.1.3`，仓库 `.venv` 已按文档命令重建并通过 `pip check`。
@@ -18,7 +20,8 @@ Phase 3 已通过合并提交 `ae424b1` 进入 `master`/`origin/master`。当前
   未知字段拒绝、SHA/路径/大小/可变版本校验、canonical 序列化）与
   `comfy/registry.py`（只读、按文件名确定性排序、runtime/profile 兼容
   校验、workflow 根目录逃逸拒绝）。
-- 两个 tracked manifest 已提交，状态均为 `candidate_unverified`：
+- 两个 tracked manifest 已提交；runtime 使用固定版本与摘要，profile 状态为
+  `verified`：
   `manifests/runtimes/comfyui-windows-nvidia-v0.29.2.json` 与
   `manifests/model-profiles/sdxl-mapchip-ipadapter-v1.json`。
   规范摘要：runtime `89f05bd7…70ee86`，profile `b4e10bd7…a40239`；
@@ -72,9 +75,9 @@ Phase 4 Task 8–9 已于 2026-08-02 完成（提交 `946221a`、`277f476`）：
   `profile_id`，按结构参考是否存在解析 text2img/img2img 绑定，
   未知 profile/能力不匹配/digest 未锁定在创建任务目录前失败。
 - Task 9：新增 `/api/system/inference/*` 设置面（状态、安装计划、
-  安装操作 202/详情/取消、受管进程启停、有界日志 tail），默认服务
-  `inference/service.py` 只读检查 + consent 创建操作 + 启动时把中断
-  操作标记为 `INSTALL_INTERRUPTED`；前端新增 `InferenceSetup` 面板
+  安装操作 202/详情/取消、受管进程启停、有界日志 tail）；确认后由受控
+  后台线程执行下载、解压、模型安装并持久化状态，启动时把中断操作标记为
+  `INSTALL_INTERRUPTED`；前端新增 `InferenceSetup` 面板
   （默认折叠、展开才轮询，AbortController 清理，逐组件许可确认、
   GB/GiB 精确总量、启停/取消/日志控件，无生成按钮），App 集成后
   项目导入/历史流程不受影响。
@@ -102,14 +105,19 @@ GPU 双冒烟全部通过，profile 已提升为 `verified`。
   两次 text2img 输出 SHA-256 一致（确定性）；受管进程 stop→start→stop
   重启审计通过。证据：`docs/evidence/phase-4/evidence.json`（已脱敏）；
   文档：`docs/MODEL_PROFILES.md`。
-- 新摘要：runtime `5d5fe88a…4e10`，profile `fb59059d…abe5`。
-- 门禁：全量后端 865/865（`-W error` 零警告），前端 132/132 + 20 模块
-  构建通过；`git diff --check` 通过。
+- 新摘要：runtime `5d5fe88a…4e10`；profile 摘要以 manifest canonical
+  SHA-256 为准，并随本轮限制文字修订更新。
+- 门禁：Task 10 原始全量后端 865/865（`-W error` 零警告），前端 132/132 +
+  20 模块构建通过；本轮收尾后全量后端 **874/874**（86% 覆盖率）和前端
+  **134/134** + 20 模块构建通过，`pip check`、`git diff --check` 通过。
+- 本轮重新执行受管已安装配置的真实 GPU 冒烟：text2img 11.8 秒、img2img
+  5.9 秒，均 completed、1024×1024；profile 摘要为
+  `8835cdb7…e58af3`，证据已同步到 `docs/evidence/phase-4/evidence.json`。
 
-本地忽略的 `runtime/` 中已存在与候选锁完全一致的 7z 与四个模型文件
-（大小与 SHA-256 已独立复算匹配），但它们未经过应用安装流程、无安装记录、
-无 GPU 冒烟，仍不算受支持配置；Task 10 必须通过实现后的安装界面再次确认并
-完成 text2img/img2img 冒烟后才能提升状态。
+本地忽略的 `runtime/` 中已存在与 manifest 锁完全一致的受管运行时、模型和
+安装记录；运行时发布成功后归档按设计删除，安装计划会把已验证组件显示为
+`ready`，无需重新下载。真实 text2img/img2img 冒烟证据已脱敏提交到
+`docs/evidence/phase-4/evidence.json`。
 
 已确认的 Phase 4 决策：
 
@@ -118,13 +126,12 @@ GPU 双冒烟全部通过，profile 已提升为 `verified`。
 - ComfyUI 使用官方 Windows NVIDIA portable 包，项目下载并校验固定版本和
   SHA-256；其内置 Python/PyTorch 与后端 `.venv`、全局 Python、Conda 和用户
   既有 ComfyUI 隔离。
-- 首个 runtime 候选为 ComfyUI `v0.29.2`、commit
+- 首个 runtime 锁定为 ComfyUI `v0.29.2`、commit
   `322122449c9d2ba8b8df1bb517364527dd0615f1`、官方 NVIDIA archive SHA-256
   `e7a39a817002d85b4fb2d4f6bd176c10d104a0d04031f99b9d8b7b1fd920c6fc`。
-- 上述版本只是候选锁定值；只有真实下载复算哈希并完成 text2img、img2img
-  两个 GPU 冒烟后，才能标记为受支持配置。
-- 架构确认不等于同意立即下载约 13.18 GB 运行时/模型。真实下载前还必须通过
-  实现后的安装界面展示全部来源、许可、大小和磁盘需求，并再次取得明确确认。
+- 上述 runtime/profile 已完成真实下载复算、安装记录、text2img/img2img GPU
+  冒烟和重启审计；profile manifest 当前标记为 `verified`。
+- 安装仍要求用户在 WebUI 中逐组件确认许可；已安装且哈希匹配的组件不会重复下载。
 
 权威入口：
 
@@ -190,7 +197,7 @@ Phase 4 剩余两项需要用户在场：
 全局 Node v24.13.0 复现；恢复固定运行时后再更新 `docs/TESTING.md` 的
 命令路径。
 
-当前工作树预计只有本轮文档变更和用户已有的未跟踪 `temp/`；`temp/` 不属于
-项目变更，必须保留。接手按 `AGENTS.md` 的必读顺序阅读，以当前代码和可重复
-验证结果为准。Phase 4 不做生产目录、候选采用、导出、移动端或 Java/Bedrock
-转换。
+当前工作树包含本轮收尾代码/文档变更和用户已有的未跟踪 `temp/`；`temp/`
+不属于项目变更，必须保留。接手按 `AGENTS.md` 的必读顺序阅读，以当前代码和
+可重复验证结果为准。Phase 4 不做生产目录、候选采用、导出、移动端或
+Java/Bedrock 转换。

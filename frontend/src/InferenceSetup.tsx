@@ -232,9 +232,19 @@ export default function InferenceSetup() {
       {expanded && (
         <div className="inference-body" aria-busy={busy}>
           {error !== null && (
-            <p className="inline-error" role="alert">
-              {error.userMessage}
-            </p>
+            <div className="inline-error" role="alert">
+              <p>{error.userMessage}</p>
+              {error.recommendedActions.length > 0 && (
+                <div>
+                  <p className="error-guidance">建议操作</p>
+                  <ul>
+                    {error.recommendedActions.map((action) => (
+                      <li key={action}>{action}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
           )}
           {status === null || plan === null ? (
             <p className="loading-note">正在读取推理环境状态…</p>

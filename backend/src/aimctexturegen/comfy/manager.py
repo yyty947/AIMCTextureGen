@@ -11,13 +11,16 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal, Protocol
 
-from pydantic import ConfigDict, Field
+from pydantic import ConfigDict, Field, ValidationError
 from pydantic import BaseModel
 
 from aimctexturegen.comfy.errors import (
     ManagerStartError,
+    ManagerPortInUseError,
+    PortInUseError,
     ProcessError,
     ProcessIdentityError,
+    ProcessStopError,
     ReadinessError,
 )
 from aimctexturegen.comfy.installer import (
@@ -99,9 +102,29 @@ class ComfyUIManager:
         record = self._read_record()
         if record is None:
             return ManagerProcessStatus(state="stopped")
-        if not self._alive_check(int(record["pid"])):
+        expected = _record_identity(record)
+        if expected is None:
+            return ManagerProcessStatus(
+                state="unhealthy",
+                errors=("invalid_process_record",),
+            )
+        if not self._alive_check(expected.pid):
             self._delete_record()
             return ManagerProcessStatus(state="stopped")
+        try:
+            current = self._launcher.identity_for(expected.pid)
+        except ProcessError:
+            return ManagerProcessStatus(
+                state="unhealthy",
+                pid=expected.pid,
+                errors=("process_identity_unavailable",),
+            )
+        if not _same_identity(current, expected):
+            return ManagerProcessStatus(
+                state="unhealthy",
+                pid=expected.pid,
+                errors=("process_identity_mismatch",),
+            )
         errors: list[str] = []
         version: str | None = None
         try:
@@ -129,8 +152,25 @@ class ComfyUIManager:
     def start(self) -> ManagerProcessStatus:
         with self._lock:
             record = self._read_record()
-            if record is not None and self._alive_check(int(record["pid"])):
-                return self.status()
+            if record is not None:
+                expected = _record_identity(record)
+                if expected is None:
+                    raise ManagerStartError(
+                        "managed process record is invalid; repair it before starting"
+                    )
+                if self._alive_check(expected.pid):
+                    try:
+                        current = self._launcher.identity_for(expected.pid)
+                    except ProcessError as exc:
+                        raise ManagerStartError(
+                            "cannot validate the existing managed process"
+                        ) from exc
+                    if not _same_identity(current, expected):
+                        raise ManagerStartError(
+                            "managed process identity no longer matches its record"
+                        )
+                    return self.status()
+                self._delete_record()
             if self._runtime_check() != "ready":
                 raise ManagerStartError(
                     "runtime is not installed and verified"
@@ -159,6 +199,10 @@ class ComfyUIManager:
                     log_path=self._root / "logs" / "comfyui.log",
                     port=self._port,
                 )
+            except PortInUseError as exc:
+                raise ManagerPortInUseError(
+                    f"loopback port {self._port} is already occupied"
+                ) from exc
             except ProcessError as exc:
                 raise ManagerStartError(str(exc)) from exc
             self._child = child
@@ -181,20 +225,30 @@ class ComfyUIManager:
                 return ManagerProcessStatus(state="stopped")
             child = self._child
             if child is None:
+                expected = _record_identity(record)
+                if expected is None:
+                    raise ProcessIdentityError("managed process record is invalid")
+                if not self._alive_check(expected.pid):
+                    self._delete_record()
+                    return ManagerProcessStatus(state="stopped")
+                current = self._launcher.identity_for(expected.pid)
+                if not _same_identity(current, expected):
+                    raise ProcessIdentityError(
+                        "live process identity no longer matches the owned record"
+                    )
+                stop_owned = getattr(self._launcher, "stop_owned", None)
+                if not callable(stop_owned):
+                    raise ProcessStopError(
+                        "cannot stop persisted owned process"
+                    )
+                stop_owned(expected, graceful_timeout=5.0)
                 self._delete_record()
                 return ManagerProcessStatus(state="stopped")
-            current = self._launcher.identity_for(int(record["pid"]))
-            expected = ProcessIdentity(
-                pid=int(record["pid"]),
-                executable=str(record["executable"]),
-                creation_time_ns=int(record["creation_time_ns"]),
-            )
-            if (
-                current.pid != expected.pid
-                or current.creation_time_ns != expected.creation_time_ns
-                or current.executable.casefold()
-                != expected.executable.casefold()
-            ):
+            expected = _record_identity(record)
+            if expected is None:
+                raise ProcessIdentityError("managed process record is invalid")
+            current = self._launcher.identity_for(expected.pid)
+            if not _same_identity(current, expected):
                 raise ProcessIdentityError(
                     "live process identity no longer matches the owned record"
                 )
@@ -308,3 +362,22 @@ def _bounded_environment() -> dict[str, str]:
         for key, value in os.environ.items()
         if key in _ENV_ALLOWLIST
     }
+
+
+def _record_identity(record: dict) -> ProcessIdentity | None:
+    try:
+        return ProcessIdentity(
+            pid=int(record["pid"]),
+            executable=str(record["executable"]),
+            creation_time_ns=int(record["creation_time_ns"]),
+        )
+    except (KeyError, TypeError, ValueError, ValidationError):
+        return None
+
+
+def _same_identity(current: ProcessIdentity, expected: ProcessIdentity) -> bool:
+    return (
+        current.pid == expected.pid
+        and current.creation_time_ns == expected.creation_time_ns
+        and current.executable.casefold() == expected.executable.casefold()
+    )

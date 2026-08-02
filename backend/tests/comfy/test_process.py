@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import socket
+import signal
 import subprocess
 import sys
 import time
@@ -11,6 +12,7 @@ from typing import Any
 
 import pytest
 
+import aimctexturegen.comfy.process as process_module
 from aimctexturegen.comfy.errors import (
     PortInUseError,
     ProcessIdentityError,
@@ -165,6 +167,57 @@ def test_pid_reuse_with_different_identity_is_never_stopped(
     assert child.poll() is None
     provider.creation_time_ns = 10
     child.stop(graceful_timeout=0.5)
+
+
+def test_stop_owned_uses_windows_safe_force_signal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    alive_states = iter([True, True, True, False])
+    kill_calls: list[tuple[int, int]] = []
+
+    monkeypatch.setattr(
+        process_module,
+        "_pid_alive",
+        lambda pid: next(alive_states),
+    )
+    monkeypatch.setattr(
+        process_module.os,
+        "kill",
+        lambda pid, sig: kill_calls.append((pid, sig)),
+    )
+
+    ProcessLauncher(identity_provider=lambda pid: _identity(pid)).stop_owned(
+        _identity(123),
+        graceful_timeout=0.0,
+    )
+
+    assert kill_calls[0] == (123, signal.SIGTERM)
+    assert kill_calls[1][0] == 123
+    assert kill_calls[1][1] == getattr(signal, "SIGKILL", signal.SIGTERM)
+
+
+def test_stop_owned_rechecks_identity_before_force_kill(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    identities = iter([_identity(123), _identity(123, creation_time_ns=2)])
+    kill_calls: list[tuple[int, int]] = []
+
+    monkeypatch.setattr(process_module, "_pid_alive", lambda pid: True)
+    monkeypatch.setattr(
+        process_module.os,
+        "kill",
+        lambda pid, sig: kill_calls.append((pid, sig)),
+    )
+
+    with pytest.raises(ProcessIdentityError):
+        ProcessLauncher(
+            identity_provider=lambda pid: next(identities),
+        ).stop_owned(
+            _identity(123),
+            graceful_timeout=0.0,
+        )
+
+    assert kill_calls == [(123, signal.SIGTERM)]
 
 
 def test_log_rotation_keeps_bounded_history(tmp_path: Path) -> None:
