@@ -85,3 +85,35 @@ class ProfileInstallError(Exception):
 
 class ProfileUnsafeArtifactError(ProfileInstallError):
     """A downloaded model or custom-node artifact is unsafe or invalid."""
+
+
+class ProcessError(Exception):
+    """Base error for owned child-process lifecycle."""
+
+
+class ProcessIdentityError(ProcessError):
+    """The live process no longer matches the owned record identity."""
+
+
+class PortInUseError(ProcessError):
+    """The configured loopback port is already occupied."""
+
+
+class ProcessStartError(ProcessError):
+    """The child process could not be started."""
+
+
+class ProcessStopError(ProcessError):
+    """The owned child process could not be stopped."""
+
+
+class ManagerError(Exception):
+    """Base error for ComfyUI manager orchestration."""
+
+
+class ManagerStartError(ManagerError):
+    """The managed runtime could not be started or verified."""
+
+
+class ReadinessError(ManagerError):
+    """The managed runtime did not become ready."""
