@@ -499,12 +499,6 @@ function parseComfyProcessStatus(
 
 function parseInstallPlan(data: Record<string, unknown>): InstallPlan {
   const components = requireArray(data.components).map(parseInstallComponent);
-  const licenses = components.map(
-    (component) => `${component.licenseName}:${component.licenseSourceUrl}`,
-  );
-  if (new Set(licenses).size !== licenses.length) {
-    throw new TypeError("Install plan contains duplicate licenses");
-  }
   return {
     runtimeId: requireNonemptyString(data.runtime_id),
     runtimeVersion: requireNonemptyString(data.runtime_version),

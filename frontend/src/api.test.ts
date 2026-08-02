@@ -754,7 +754,7 @@ describe("strict inference setup API parsing", () => {
       },
     ],
     [
-      "duplicate licenses",
+      "empty license name",
       {
         ...plan,
         components: [
@@ -762,6 +762,7 @@ describe("strict inference setup API parsing", () => {
           {
             ...plan.components[0],
             artifact_id: "second",
+            license_name: "",
             byte_size: 1,
             destination: "models/loras/y.safetensors",
           },
@@ -775,6 +776,24 @@ describe("strict inference setup API parsing", () => {
   ])("rejects install plan with %s", async (_label, invalidPlan) => {
     respondWith(invalidPlan);
     await expectInvalidResponse(() => getInstallPlan());
+  });
+
+  it("allows the same license record to be shared by components", async () => {
+    respondWith({
+      ...plan,
+      components: [
+        plan.components[0],
+        {
+          ...plan.components[0],
+          artifact_id: "second",
+          byte_size: 1,
+          destination: "models/loras/y.safetensors",
+        },
+      ],
+    });
+
+    const parsed = await getInstallPlan();
+    expect(parsed.components).toHaveLength(2);
   });
 
   it("parses a terminal installation operation", async () => {
