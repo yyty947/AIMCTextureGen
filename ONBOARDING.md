@@ -10,6 +10,10 @@ Phase 3 已通过合并提交 `ae424b1` 进入 `master`/`origin/master`。当前
 环境规范化、后台安装执行、端口占用错误映射、重建 manager 的安全停止、
 profile 哈希/receipt 就绪判定，以及取消/完成状态竞态：
 
+收尾后又修正了一个运行时性能回归：profile 完整性校验改为有界内存的流式
+哈希并按文件元数据缓存；旧版已验证安装记录不会因 WebUI 轮询反复读取多 GB
+模型。
+
 - 后端依赖已锁定：`httpx==0.28.1` 转入生产依赖，新增 `websockets==16.1.1`
   与 `py7zr==1.1.3`，仓库 `.venv` 已按文档命令重建并通过 `pip check`。
 - 自定义节点归档已在仓库外独立下载锁定：`ComfyUI_IPAdapter_plus`

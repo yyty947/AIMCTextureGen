@@ -161,6 +161,27 @@ The following checks are intentionally manual because they exercise a real
 Windows browser, process lifecycle and layout. They do not require repeating
 the multi-GB download when `runtime/` already contains the verified profile.
 
+### Port 8000 troubleshooting
+
+If starting FastAPI reports WinError 10048 on `127.0.0.1:8000`, do not start a
+second copy. Check the listener and command line first:
+
+```powershell
+Get-NetTCPConnection -State Listen -LocalAddress 127.0.0.1 -LocalPort 8000 |
+  Select-Object OwningProcess
+Get-CimInstance Win32_Process -Filter "ProcessId = <PID>" |
+  Select-Object -ExpandProperty CommandLine
+```
+
+If the command line is the repository's `uvicorn aimctexturegen.main:app`,
+reuse that server or stop only that verified PID before restarting it:
+
+```powershell
+Stop-Process -Id <PID>
+```
+
+Do not terminate an unknown process merely because it owns port 8000.
+
 Open three PowerShell windows at the repository root.
 
 Window 1 — FastAPI:

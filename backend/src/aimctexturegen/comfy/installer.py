@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import shutil
+import threading
 import zipfile
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
@@ -61,6 +62,9 @@ class _StrictModel(BaseModel):
 
 
 ComponentState = str
+
+_PROFILE_HASH_CACHE: dict[tuple[str, int, int], str] = {}
+_PROFILE_HASH_CACHE_LOCK = threading.Lock()
 
 
 class InstallComponent(_StrictModel):
@@ -342,7 +346,26 @@ def _classify_profile_artifact(
         record = records.get(artifact.artifact_id)
         if record is None or record.get("sha256") != artifact.sha256:
             return "corrupt"
-        if hashlib.sha256(target.read_bytes()).hexdigest() != artifact.sha256:
+        record_size = record.get("file_size")
+        record_mtime = record.get("mtime_ns")
+        if (
+            record.get("content_sha256") == artifact.sha256
+            and record_size == size
+            and record_mtime == target.stat().st_mtime_ns
+        ):
+            return "ready"
+        if (
+            record.get("content_sha256") is None
+            and record.get("sha256") == artifact.sha256
+            and record.get("byte_size") == size
+            and record.get("installed_at")
+        ):
+            # Legacy receipts were written only after the downloader's exact
+            # hash check. Treat them as verified until a future install writes
+            # the stronger content/mtime fields; this avoids re-reading
+            # multi-GB models on every status poll after an upgrade.
+            return "ready"
+        if _cached_sha256_file(target) != artifact.sha256:
             return "corrupt"
         if artifact.destination.startswith("custom_nodes/"):
             expected_root = _custom_node_root_name(artifact)
@@ -585,6 +608,23 @@ def _sha256_file(path: Path) -> str:
     return hasher.hexdigest()
 
 
+def _cached_sha256_file(path: Path) -> str:
+    """Hash a profile artifact in bounded memory and reuse unchanged files."""
+
+    stat = path.stat()
+    key = (str(path.resolve()), stat.st_size, stat.st_mtime_ns)
+    with _PROFILE_HASH_CACHE_LOCK:
+        cached = _PROFILE_HASH_CACHE.get(key)
+        if cached is not None:
+            return cached
+        digest = _sha256_file(path)
+        _PROFILE_HASH_CACHE[key] = digest
+        for old_key in tuple(_PROFILE_HASH_CACHE):
+            if old_key[0] == key[0] and old_key != key:
+                _PROFILE_HASH_CACHE.pop(old_key, None)
+        return digest
+
+
 def _file_size(path: Path) -> int:
     return path.stat().st_size
 
@@ -642,8 +682,7 @@ class ProfileInstaller:
             target = root / artifact.destination
             if (
                 target.exists()
-                and hashlib.sha256(target.read_bytes()).hexdigest()
-                != artifact.sha256
+                and _cached_sha256_file(target) != artifact.sha256
             ):
                 raise ProfileInstallError(
                     f"destination {artifact.destination!r} already holds "
@@ -854,9 +893,13 @@ def _record_artifact(
     root: Path,
 ) -> dict:
     records = dict(records)
+    stat = target.stat()
     records[artifact.artifact_id] = {
         "sha256": artifact.sha256,
+        "content_sha256": _cached_sha256_file(target),
         "byte_size": artifact.byte_size,
+        "file_size": stat.st_size,
+        "mtime_ns": stat.st_mtime_ns,
         "destination": artifact.destination,
         "installed_at": datetime.now(UTC).isoformat(),
     }
