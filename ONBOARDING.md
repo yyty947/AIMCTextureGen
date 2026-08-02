@@ -84,6 +84,28 @@ Phase 4 Task 8–9 已于 2026-08-02 完成（提交 `946221a`、`277f476`）：
 - manifest 规范摘要已更新：runtime `89f05bd7…70ee86`（不变），
   profile `4c50a99e…01a381`（workflow digest 锁定后变化）。
 
+Phase 4 Task 10 已于 2026-08-02 完成（提交 `ed31d7b`）：真实便携安装 +
+GPU 双冒烟全部通过，profile 已提升为 `verified`。
+
+- 实测修正：官方 7z 根目录为 `ComfyUI_windows_portable`（manifest 已更新）；
+  官方归档使用 BCJ2 压缩，py7zr 无法解压，清单预检仍用 py7zr、解压改用
+  Windows 内置 bsdtar（`tar.exe`，固定参数无 shell，先通过全部安全预检）；
+  自定义节点装入受管运行时内部 `ComfyUI/custom_nodes/`；子进程 CWD 为
+  解压根目录、启动参数去掉可执行文件重复项、就绪轮询容忍启动期连接失败。
+- 实测节点契约：IPAdapter preset 用 `STANDARD (medium strength)`
+  （对应 `ip-adapter_sdxl_vit-h.safetensors`），`CLIPTextEncode` 接
+  LoraLoader 的 CLIP 输出，`IPAdapterAdvanced.image` 只接受单个节点链接
+  （多图用 LoadImage + ImageBatch 链），`CLIPVisionEncode` 需要
+  `crop=center`，img2img 结构参考先经 `ImageScale` 放大到 1024。
+- 真实冒烟（RTX 5080 Laptop，16 GB VRAM，驱动 610.88）：text2img
+  completed 11.1 秒、img2img completed 6.0 秒，输出均为 1024×1024；
+  两次 text2img 输出 SHA-256 一致（确定性）；受管进程 stop→start→stop
+  重启审计通过。证据：`docs/evidence/phase-4/evidence.json`（已脱敏）；
+  文档：`docs/MODEL_PROFILES.md`。
+- 新摘要：runtime `5d5fe88a…4e10`，profile `fb59059d…abe5`。
+- 门禁：全量后端 865/865（`-W error` 零警告），前端 132/132 + 20 模块
+  构建通过；`git diff --check` 通过。
+
 本地忽略的 `runtime/` 中已存在与候选锁完全一致的 7z 与四个模型文件
 （大小与 SHA-256 已独立复算匹配），但它们未经过应用安装流程、无安装记录、
 无 GPU 冒烟，仍不算受支持配置；Task 10 必须通过实现后的安装界面再次确认并
@@ -156,12 +178,17 @@ git status --short
 
 ## 下一入口
 
-从 Phase 4 计划 Task 10 开始：真实便携安装与 GPU 冒烟。本机 `runtime/`
-已存在且哈希验证一致的 7z 与四个模型文件，仍须通过实现后的安装界面
-再次确认，并完成 text2img/img2img 双冒烟与重启完整性审计后才能把
-profile 标记为 verified；不得在没有真实 GPU 证据时宣称支持。固定
-Node 运行时 `runtime/node-v24.18.0-win-x64` 仍缺失，前端门禁暂用全局
-Node v24.13.0 复现，正式恢复固定运行时后再更新 `docs/TESTING.md`。
+Phase 4 剩余两项需要用户在场：
+
+1. **Task 11 Step 3 手工 WebUI 验收**（详见 ONBOARDING 下方/Task 11
+   计划）：安装计划与许可确认、刷新不触发下载、已装 profile 直接 ready、
+   启停/端口占用/400-900px/控制台/既有项目恢复。
+2. **Task 11 Step 6 分支收口**：合并到 `master`/推送必须由用户明确授权；
+   当前 `codex/phase-4-managed-comfyui` 未合并未推送。
+
+固定 Node 运行时 `runtime/node-v24.18.0-win-x64` 仍缺失，前端门禁暂用
+全局 Node v24.13.0 复现；恢复固定运行时后再更新 `docs/TESTING.md` 的
+命令路径。
 
 当前工作树预计只有本轮文档变更和用户已有的未跟踪 `temp/`；`temp/` 不属于
 项目变更，必须保留。接手按 `AGENTS.md` 的必读顺序阅读，以当前代码和可重复

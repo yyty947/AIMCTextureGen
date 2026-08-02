@@ -129,3 +129,25 @@ migration.
 
 Rejected because old task records would refer to a moving target. Material
 artifact, workflow or default changes require a new profile version.
+
+## Verification note (2026-08-02)
+
+Task 10 real verification produced these measured corrections, which update
+the candidate values above without changing the decision:
+
+- The official portable archive's single root is
+  `ComfyUI_windows_portable` (candidate value corrected in the runtime
+  manifest).
+- The archive uses a BCJ2 filter that the pinned py7zr cannot extract;
+  inventory preflight still uses py7zr, while extraction shells to the
+  OS-bundled `tar.exe` (libarchive) with fixed, shell-free arguments after
+  the full safe-member preflight. No new dependency is downloaded.
+- The first profile uses the `STANDARD (medium strength)` IPAdapter preset
+  matching `ip-adapter_sdxl_vit-h.safetensors` (the PLUS variant is not
+  bundled); multi-image style references are combined through LoadImage +
+  ImageBatch with `combine_embeds=average`; img2img upscales the structure
+  reference to 1024 via `ImageScale`.
+- Both real smokes completed at 1024×1024 on the 16 GB development GPU;
+  the profile is now `verified` (see `docs/MODEL_PROFILES.md` and
+  `docs/evidence/phase-4/evidence.json`). These measurements do not
+  constitute an 8 GB claim.

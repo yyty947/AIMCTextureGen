@@ -93,7 +93,16 @@ verified real SDXL workflow profile. The boundary must accept a second fake
 profile without changing the installer, manager or transport, so a later
 FLUX.2 Klein profile is additive rather than a product rewrite.
 
-**Exit gate:** Missing or mismatched dependencies are reported without mutation; fake-service tests cover startup and transport errors; the fixed real profile completes one recorded text2img and one img2img inference on a supported NVIDIA environment.
+**Exit gate (verified 2026-08-02):** Missing or mismatched dependencies are
+reported without mutation; fake-service tests cover startup and transport
+errors; the fixed real profile completed one recorded text2img (11.1 s) and
+one img2img (6.0 s) inference on an NVIDIA RTX 5080 Laptop (16 GB VRAM,
+driver 610.88), both 1024×1024, with restart audit and redacted evidence in
+`docs/evidence/phase-4/`. The first profile `sdxl-mapchip-ipadapter-v1` is
+marked `verified`; measured corrections (archive root, bsdtar BCJ2
+extraction, IPAdapter preset/links, ImageScale upscale) are recorded in the
+phase plan, ADR-0002 and `docs/MODEL_PROFILES.md`. Manual WebUI acceptance
+and merge/push authorization remain for Task 11.
 
 ## Phase 5: Four-Candidate Generation Flow
 

@@ -884,13 +884,13 @@ git commit -m "feat: expose managed inference setup"
   and workflow binding used by the application.
 - Writes all large/raw outputs below ignored `runtime/smoke/`.
 
-- [ ] **Step 1: Test deterministic synthetic smoke inputs**
+- [x] **Step 1: Test deterministic synthetic smoke inputs**
 
 Generate obvious non-Minecraft geometric/color patterns at runtime. Tests
 check exact dimensions/mode/hash and confirm no file is copied from a resource
 pack or external asset.
 
-- [ ] **Step 2: Implement the PowerShell smoke entry**
+- [x] **Step 2: Implement the PowerShell smoke entry**
 
 The script must be valid as a single PowerShell command invocation:
 
@@ -902,7 +902,7 @@ It calls backend modules; it does not duplicate download, hash or ComfyUI
 protocol logic. It prints concise progress and the ignored evidence directory.
 No multiline paste into a browser console is required.
 
-- [ ] **Step 3: Present the exact install plan to the user**
+- [x] **Step 3: Present the exact install plan to the user**
 
 Before the first real download, show:
 
@@ -917,7 +917,7 @@ Obtain explicit confirmation through the implemented setup surface. Do not
 interpret the earlier architecture decision as consent to start a multi-GB
 download.
 
-- [ ] **Step 4: Download, verify and install**
+- [x] **Step 4: Download, verify and install**
 
 After confirmation, run the real installer. Independently calculate SHA-256
 for every final artifact and compare it to the tracked manifest. Record:
@@ -932,7 +932,7 @@ for every final artifact and compare it to the tracked manifest. Record:
 
 If any value differs, stop and leave the profile unsupported.
 
-- [ ] **Step 5: Start and record environment identity**
+- [x] **Step 5: Start and record environment identity**
 
 Record without exposing personal paths:
 
@@ -944,7 +944,7 @@ Record without exposing personal paths:
 - loaded required node classes;
 - runtime/profile/workflow manifest digests.
 
-- [ ] **Step 6: Run text2img smoke**
+- [x] **Step 6: Run text2img smoke**
 
 Use one fixed seed, fixed prompt, synthetic style reference and the tracked
 text2img workflow. Verify:
@@ -955,12 +955,12 @@ text2img workflow. Verify:
 - seed and workflow/profile digests are recorded;
 - no project pack file changed.
 
-- [ ] **Step 7: Run img2img smoke**
+- [x] **Step 7: Run img2img smoke**
 
 Use another fixed seed, the same synthetic style reference, a synthetic
 structure reference and the tracked img2img workflow. Apply the same checks.
 
-- [ ] **Step 8: Restart and integrity audit**
+- [x] **Step 8: Restart and integrity audit**
 
 Stop then restart only the owned ComfyUI process and recheck readiness. Hash:
 
@@ -973,7 +973,7 @@ Stop then restart only the owned ComfyUI process and recheck readiness. Hash:
 The backend environment and project files must be unchanged by ComfyUI setup
 and smoke.
 
-- [ ] **Step 9: Promote or reject the candidate profile**
+- [x] **Step 9: Promote or reject the candidate profile**
 
 If both smokes pass, change the manifest support state from
 `candidate_unverified` to the exact verified state and update its digest. If
@@ -989,7 +989,7 @@ development machine.
 If either smoke fails, keep the profile candidate, document the failure and
 return to the responsible earlier task. Do not mark Task 10 complete.
 
-- [ ] **Step 10: Commit only small reviewed evidence and documentation**
+- [x] **Step 10: Commit only small reviewed evidence and documentation**
 
 ```powershell
 git add tools\Invoke-Phase4Smoke.ps1 backend\src\aimctexturegen\model_profiles\smoke.py backend\tests\model_profiles docs\MODEL_PROFILES.md docs\evidence manifests workflows
@@ -1009,7 +1009,7 @@ runtime, raw image, personal path, machine ID or log is included.
 - Modify: `docs/superpowers/plans/2026-07-21-aimc-texturegen-mvp-roadmap.md`
 - Modify: this plan
 
-- [ ] **Step 1: Run complete automated gates**
+- [x] **Step 1: Run complete automated gates**
 
 ```powershell
 .\.venv\Scripts\python -W error -m pytest backend\tests --cov=aimctexturegen --cov-report=term-missing
@@ -1029,7 +1029,7 @@ git status --short
 
 Record exact totals; do not copy Phase 3 counts.
 
-- [ ] **Step 2: Run focused no-mutation and fake-service audits**
+- [x] **Step 2: Run focused no-mutation and fake-service audits**
 
 Run the install/archive/process/transport suites separately with `-W error
 -vv`. Run the existing restart audit and compare project `source/`/`pack/`
@@ -1055,7 +1055,7 @@ The user does not need to rerun the multi-GB download solely for UI
 verification. Automated tests cover hash mismatch, cancellation and unsafe
 archive cases.
 
-- [ ] **Step 4: Update handoff documents**
+- [x] **Step 4: Update handoff documents**
 
 `ONBOARDING.md` must state:
 
@@ -1069,7 +1069,7 @@ archive cases.
 Update `docs/TESTING.md` only with commands that now exist and were actually
 run. Update the roadmap Phase 4 exit gate only with demonstrated facts.
 
-- [ ] **Step 5: Review and closure commit**
+- [x] **Step 5: Review and closure commit**
 
 Use `superpowers:requesting-code-review`, address findings and rerun relevant
 gates. Then:

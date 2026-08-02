@@ -134,3 +134,22 @@ is covered by the automated restart audit.
 git diff --check
 git status --short
 ```
+
+## Phase 4 managed inference gate (2026-08-02)
+
+真实 GPU 冒烟入口（安装/重启审计已包含在内，只写 `runtime/` 忽略目录）：
+
+```powershell
+powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\tools\Invoke-Phase4Smoke.ps1
+```
+
+预期输出：`SMOKE_COMPLETED statuses=['completed', 'completed']`，并在
+`runtime\smoke\evidence.json` 写出脱敏证据。该命令会解压/校验受管运行时、
+复用已就位模型、启动本机受管 ComfyUI（8188）、执行两次真实推理并做
+重启审计；需要 NVIDIA GPU 且不能与占用 8188 端口的程序同时运行。
+
+新增的确定性测试套件（无需 GPU）：
+
+```powershell
+.\.venv\Scripts\python -W error -m pytest backend\tests\model_profiles backend\tests\comfy -q
+```
