@@ -1096,12 +1096,14 @@ profile 完整性校验）以及文档提交 `4fd8ab8`、`920e44a`；对应回�
 用户已完成并通过 Step 3 的手动 WebUI 验收；截图中的 ready/stopped 状态与
 已安装配置均符合预期。
 
-- [ ] **Step 6: Prepare, but do not merge or push without authorization**
+- [x] **Step 6: Complete the Phase 4 handoff**
 
-Use `superpowers:finishing-a-development-branch`. Report the exact commits,
-tests, real GPU evidence, user manual checks and any local ignored runtime
-state. Wait for explicit user authorization before merging to `master` or
-pushing.
+Use `superpowers:finishing-a-development-branch`. The user authorized the
+integration after reviewing the manual results. The branch was merged into
+`master` as `46c8d0e`, the digest-stability `.gitattributes` fix was recorded
+as `54a58b5`, and `master` was pushed to `origin/master`. The exact tests,
+real GPU evidence, manual checks and local ignored runtime state are recorded
+above and in `ONBOARDING.md`/`docs/TESTING.md`.
 
 ---
 

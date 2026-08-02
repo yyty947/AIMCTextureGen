@@ -4,8 +4,9 @@
 
 ## 当前状态
 
-Phase 3 已通过合并提交 `ae424b1` 进入 `master`/`origin/master`。当前 checkout
-位于 Phase 4 收尾分支 `codex/phase-4-managed-comfyui`。Phase 4 的设计和实施计划已
+Phase 3 已通过合并提交 `ae424b1` 进入 `master`/`origin/master`。Phase 4
+已通过合并提交 `46c8d0e` 进入 `master`，并随 `54a58b5` 的 Windows 行尾
+稳定性修复推送到 `origin/master`；当前 checkout 位于 `master`。Phase 4 的设计和实施计划已
 落盘。Task 1–10 的实现与真实 GPU 冒烟已完成；本轮收尾还修正了 Windows
 环境规范化、后台安装执行、端口占用错误映射、重建 manager 的安全停止、
 profile 哈希/receipt 就绪判定，以及取消/完成状态竞态：
@@ -194,8 +195,8 @@ git status --short
 
 Phase 4 的自动化门禁和用户手工 WebUI 验收均已完成。用户已在 Windows
 桌面浏览器确认受管运行时状态、启停/重启、端口占用保护、400/600/900 px
-布局、控制台以及既有 Phase 3 数据均符合预期，并明确授权合并到 `master`
-并推送。当前只剩本次分支收口；完成后下一实现入口为 Phase 5。
+布局、控制台以及既有 Phase 3 数据均符合预期。Phase 4 分支已完成合并并
+推送；下一实现入口为 Phase 5。
 
 固定 Node 运行时 `runtime/node-v24.18.0-win-x64` 仍缺失，前端门禁暂用
 全局 Node v24.13.0 复现；恢复固定运行时后再更新 `docs/TESTING.md` 的

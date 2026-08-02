@@ -251,6 +251,5 @@ Window 3 is reserved for the optional occupied-port check below. Open
    ZIP for this check.
 
 Record each result and any screenshot or console line in the task response.
-The Phase 4 branch remains open only until these checks pass and the user
-explicitly authorizes merge/push; after that handoff, Phase 5 is the next
-implementation entry.
+The Phase 4 manual checks passed and the branch was merged into and pushed
+from `master`; Phase 5 is the next implementation entry.

@@ -103,7 +103,7 @@ marked `verified`; measured corrections (archive root, bsdtar BCJ2
 extraction, IPAdapter preset/links, ImageScale upscale) are recorded in the
 phase plan, ADR-0002 and `docs/MODEL_PROFILES.md`. Manual WebUI acceptance
 passed on 2026-08-02, and the user authorized the remaining merge/push step
-for Task 11; integration is recorded at handoff.
+for Task 11; Phase 4 is now merged into and pushed from `master`.
 
 ## Phase 5: Four-Candidate Generation Flow
 
