@@ -4,17 +4,33 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import shutil
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Literal
+from uuid import uuid4
 
 from pydantic import ConfigDict, Field
 from pydantic import BaseModel
 
+from aimctexturegen.comfy.archives import (
+    ExtractionPolicy,
+    SevenZipReader,
+    extract_and_audit_7z,
+    inspect_7z,
+    remove_staging,
+)
 from aimctexturegen.comfy.environment import EnvironmentInspector, EnvironmentReport
 from aimctexturegen.comfy.errors import (
+    ArchiveError,
     InstallBlockedError,
+    InstallError,
     InstallValidationError,
+    RuntimeInstallError,
+    RuntimeInstallValidationError,
+    RuntimePublicationError,
 )
 from aimctexturegen.comfy.install_state import (
     InstallOperation,
@@ -27,6 +43,7 @@ from aimctexturegen.comfy.manifests import (
     manifest_sha256,
 )
 from aimctexturegen.comfy.registry import ManifestRegistry
+from aimctexturegen.core.atomic_files import atomic_replace_bytes
 
 
 class _StrictModel(BaseModel):
@@ -276,3 +293,222 @@ def plan_component_ids(plan: InstallPlan) -> tuple[str, ...]:
 
 def artifact_state(artifact: ArtifactManifest, runtime_root: Path) -> str:
     return _classify_artifact(artifact, Path(runtime_root))
+
+
+class RuntimeStatus(_StrictModel):
+    state: Literal["missing", "partial", "ready", "corrupt"]
+    selected_version: str | None = None
+    error: str | None = None
+
+
+def _default_extraction_policy(runtime: RuntimeManifest) -> ExtractionPolicy:
+    return ExtractionPolicy(
+        max_members=1_000_000,
+        max_total_size=60_000_000_000,
+        max_single_size=30_000_000_000,
+    )
+
+
+class RuntimeInstaller:
+    """Publish verified runtime trees and a strict selection record."""
+
+    def __init__(
+        self,
+        *,
+        reader: SevenZipReader | None = None,
+        policy_factory: Callable[[RuntimeManifest], ExtractionPolicy]
+        | None = None,
+    ) -> None:
+        self._reader = reader
+        self._policy_factory = policy_factory or _default_extraction_policy
+
+    def status(self, runtime: RuntimeManifest, root: Path) -> RuntimeStatus:
+        root = Path(root)
+        selection = _read_json(root / "state" / "selected-runtime.json")
+        if selection is None:
+            comfyui = root / "comfyui"
+            if comfyui.is_dir() and any(comfyui.glob(".staging-*")):
+                return RuntimeStatus(state="partial")
+            return RuntimeStatus(state="missing")
+        directory = root / "comfyui" / str(selection.get("directory", ""))
+        if not directory.is_dir():
+            return RuntimeStatus(
+                state="corrupt",
+                selected_version=selection.get("version"),
+                error="selected runtime directory is missing",
+            )
+        receipt = _read_json(
+            root
+            / "state"
+            / "installation-receipts"
+            / f"{runtime.runtime_id}-{runtime.runtime_version}.json"
+        )
+        required_ok = all(
+            (directory / runtime.expected_archive_root / path).is_file()
+            for path in runtime.required_paths
+        )
+        digest_ok = (
+            selection.get("manifest_sha256") == manifest_sha256(runtime)
+        )
+        if receipt is None or not required_ok or not digest_ok:
+            return RuntimeStatus(
+                state="corrupt",
+                selected_version=selection.get("version"),
+                error="runtime integrity check failed",
+            )
+        return RuntimeStatus(
+            state="ready",
+            selected_version=str(selection.get("version", "")),
+        )
+
+    def install(
+        self,
+        runtime: RuntimeManifest,
+        archive: Path,
+        root: Path,
+    ) -> RuntimeStatus:
+        root = Path(root)
+        current = self.status(runtime, root)
+        if current.state == "ready":
+            return current
+
+        policy = self._policy_factory(runtime)
+        reader = self._reader
+        inventory = inspect_7z(archive, policy, reader=reader)
+        if inventory.root != runtime.expected_archive_root:
+            raise RuntimeInstallValidationError(
+                f"archive root {inventory.root!r} does not match "
+                f"{runtime.expected_archive_root!r}"
+            )
+        required = {f"{inventory.root}/{path}" for path in runtime.required_paths}
+        member_names = {member.name for member in inventory.members}
+        missing = required - member_names
+        if missing:
+            raise RuntimeInstallValidationError(
+                f"archive is missing required paths: {sorted(missing)}"
+            )
+
+        comfyui_dir = root / "comfyui"
+        comfyui_dir.mkdir(parents=True, exist_ok=True)
+        staging = comfyui_dir / f".staging-{uuid4()}"
+        try:
+            extract_and_audit_7z(
+                archive,
+                staging,
+                policy,
+                reader=reader,
+            )
+        except ArchiveError:
+            raise
+        except Exception as exc:
+            remove_staging(staging)
+            raise RuntimeInstallValidationError(
+                "runtime extraction failed"
+            ) from exc
+
+        final_dir = comfyui_dir / (
+            f"{runtime.runtime_version}-{manifest_sha256(runtime)[:8]}"
+        )
+        if final_dir.exists():
+            remove_staging(staging)
+            raise RuntimePublicationError(
+                "target runtime directory already exists"
+            )
+        try:
+            os.replace(staging, final_dir)
+        except OSError as exc:
+            remove_staging(staging)
+            raise RuntimePublicationError(
+                "cannot publish the verified runtime tree"
+            ) from exc
+
+        now = datetime.now(UTC).isoformat()
+        receipt = {
+            "runtime_id": runtime.runtime_id,
+            "runtime_version": runtime.runtime_version,
+            "manifest_sha256": manifest_sha256(runtime),
+            "archive_sha256": _sha256_file(archive),
+            "archive_byte_size": _file_size(archive),
+            "source_url": runtime.archive.source_url,
+            "expected_archive_root": runtime.expected_archive_root,
+            "directory": final_dir.name,
+            "installed_at": now,
+        }
+        selection = {
+            "runtime_id": runtime.runtime_id,
+            "version": runtime.runtime_version,
+            "manifest_sha256": manifest_sha256(runtime),
+            "directory": final_dir.name,
+            "archive_sha256": receipt["archive_sha256"],
+            "installed_at": now,
+        }
+        try:
+            _atomic_json(
+                root
+                / "state"
+                / "installation-receipts"
+                / f"{runtime.runtime_id}-{runtime.runtime_version}.json",
+                receipt,
+            )
+            _atomic_json(root / "state" / "selected-runtime.json", selection)
+        except OSError as exc:
+            raise RuntimePublicationError(
+                "cannot persist runtime records"
+            ) from exc
+        try:
+            archive.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return RuntimeStatus(
+            state="ready",
+            selected_version=runtime.runtime_version,
+        )
+
+    def recover_interrupted(
+        self,
+        root: Path,
+        store: InstallOperationStore,
+    ) -> None:
+        store.recover_interrupted()
+        comfyui = Path(root) / "comfyui"
+        if not comfyui.is_dir():
+            return
+        for staging in comfyui.glob(".staging-*"):
+            remove_staging(staging)
+
+
+def _read_json(path: Path) -> dict | None:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _atomic_json(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    encoded = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    atomic_replace_bytes(
+        path,
+        encoded,
+        validator=lambda readback: json.loads(readback),
+    )
+
+
+def _sha256_file(path: Path) -> str:
+    import hashlib as _hashlib
+
+    hasher = _hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+
+def _file_size(path: Path) -> int:
+    return path.stat().st_size

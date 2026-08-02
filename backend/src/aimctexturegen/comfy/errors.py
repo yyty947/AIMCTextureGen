@@ -53,3 +53,27 @@ class DownloadProtocolError(DownloadError):
 
 class DownloadUnsafePathError(DownloadError):
     """A destination, partial or sidecar path is unsafe."""
+
+
+class ArchiveError(Exception):
+    """Base error for managed archive handling."""
+
+
+class ArchiveUnsafeError(ArchiveError):
+    """An archive member or extracted tree is unsafe."""
+
+
+class ArchiveExtractError(ArchiveError):
+    """The archive could not be listed, extracted or audited."""
+
+
+class RuntimeInstallError(Exception):
+    """Base error for managed runtime publication."""
+
+
+class RuntimeInstallValidationError(RuntimeInstallError):
+    """The archive or runtime does not satisfy the manifest contract."""
+
+
+class RuntimePublicationError(RuntimeInstallError):
+    """The verified runtime tree could not be published atomically."""
