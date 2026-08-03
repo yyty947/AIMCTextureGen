@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import Literal
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from aimctexturegen.catalog.models import CatalogEntry, CatalogProfile
 from aimctexturegen.catalog.registry import CatalogRegistry, UnsupportedPackFormat
@@ -54,8 +54,8 @@ class CreateGenerationCommand(_StrictModel):
     resolution: Literal[16, 32, 64]
     parallelism: Literal[1, 2, 4]
     references: ReferenceSelections
-    denoise: float | None = Field(default=None, ge=0.0, le=1.0)
-    style_weight: float | None = Field(default=None, ge=0.0, le=2.0)
+    denoise: float | None = Field(default=None)
+    style_weight: float | None = Field(default=None)
 
 
 class GenerationService:
@@ -91,10 +91,7 @@ class GenerationService:
             raise TypeError("project_id must be a UUID")
         if not isinstance(command, CreateGenerationCommand):
             raise TypeError("command must be a CreateGenerationCommand")
-        if command.denoise is not None and command.references.structure is None:
-            raise generation_error("INVALID_GENERATION_COMMAND")
-        if command.style_weight is not None and not command.references.style:
-            raise generation_error("REFERENCE_INVALID")
+        advanced = _validated_advanced(command)
 
         with self._repository.open(project_id) as opened:
             profile = _catalog_profile(self._catalogs, opened.manifest.java_pack_format)
@@ -124,13 +121,29 @@ class GenerationService:
                     technical_details=f"{error.code}: {error.user_message}",
                 ) from error
 
-            compiled = compile_block_prompt(
-                resolution=command.resolution,
-                display_name=target.display_name,
-                prompt_terms=target.prompt_terms,
-                user_description=command.user_description,
-                user_negative_prompt=command.user_negative_prompt,
-            )
+            try:
+                compiled = compile_block_prompt(
+                    resolution=command.resolution,
+                    display_name=target.display_name,
+                    prompt_terms=target.prompt_terms,
+                    user_description=command.user_description,
+                    user_negative_prompt=command.user_negative_prompt,
+                )
+                stored_prompt = StoredCompiledPrompt(
+                    prompt_version=compiled.prompt_version,
+                    positive_prompt=compiled.compiled_positive,
+                    negative_prompt=compiled.compiled_negative,
+                    user_prompt=compiled.user_prompt,
+                )
+                target_record = GenerationTarget(
+                    catalog_id=profile.catalog_id,
+                    target_semantic_id=target.semantic_id,
+                    target_display_name=target.display_name,
+                    target_relative_path=target.relative_path,
+                )
+            except (TypeError, ValueError, ValidationError) as error:
+                raise generation_error("INVALID_GENERATION_COMMAND") from error
+            frozen_references = _freeze_references(frozen_snapshot)
             batches = build_execution_batches(
                 parallelism=command.parallelism,
                 seed_source=self._seed_source,
@@ -140,31 +153,32 @@ class GenerationService:
                 job_id=self._job_id_source(),
                 project_id=opened.manifest.project_id,
                 parent_job_id=None,
-                target=GenerationTarget(
-                    catalog_id=profile.catalog_id,
-                    target_semantic_id=target.semantic_id,
-                    target_display_name=target.display_name,
-                    target_relative_path=target.relative_path,
-                ),
-                prompt=StoredCompiledPrompt(
-                    prompt_version=compiled.prompt_version,
-                    positive_prompt=compiled.compiled_positive,
-                    negative_prompt=compiled.compiled_negative,
-                    user_prompt=compiled.user_prompt,
-                ),
+                target=target_record,
+                prompt=stored_prompt,
                 resolution=command.resolution,
                 parallelism=command.parallelism,
                 execution_batches=batches,
-                references=_freeze_references(frozen_snapshot),
-                advanced=GenerationAdvanced(
-                    style_strength=command.style_weight,
-                    denoise_strength=command.denoise,
-                    lora_weight=None,
-                ),
+                references=frozen_references,
+                advanced=advanced,
                 model_profile=binding,
                 created_at=self._clock(),
             )
         return self._store.create_generation(request, frozen_snapshot)
+
+
+def _validated_advanced(command: CreateGenerationCommand) -> GenerationAdvanced:
+    if command.denoise is not None and command.references.structure is None:
+        raise generation_error("INVALID_GENERATION_COMMAND")
+    if command.style_weight is not None and not command.references.style:
+        raise generation_error("REFERENCE_INVALID")
+    try:
+        return GenerationAdvanced(
+            style_strength=command.style_weight,
+            denoise_strength=command.denoise,
+            lora_weight=None,
+        )
+    except ValidationError as error:
+        raise generation_error("INVALID_GENERATION_COMMAND") from error
 
 
 def build_execution_batches(

@@ -395,6 +395,61 @@ def test_create_uses_img2img_variant_when_structure_reference_is_selected(
     assert len(loaded.request.references.structure) == 1
 
 
+def test_create_accepts_style_weight_1_5_and_persists_the_command_value(
+    tmp_path: Path,
+) -> None:
+    projects_root = tmp_path / "projects"
+    _write_project(projects_root)
+    service, _store, _references, seeds, ids = _service(projects_root, tmp_path)
+
+    loaded = service.create_job(
+        PROJECT_ID,
+        _command(style_weight=1.5),
+    )
+
+    assert loaded.request.advanced.style_strength == 1.5
+    assert seeds.calls == 4
+    assert ids.calls == 1
+
+
+@pytest.mark.parametrize(
+    ("command_kwargs", "expected_code"),
+    [
+        ({"style_weight": 2.1}, "INVALID_GENERATION_COMMAND"),
+        (
+            {
+                "denoise": 1.1,
+                "references": ReferenceSelections(
+                    style=(),
+                    structure=UploadReferenceSelection(
+                        source="upload",
+                        reference_id=UUID("cccccccc-cccc-4ccc-8ccc-cccccccccccc"),
+                    ),
+                ),
+            },
+            "INVALID_GENERATION_COMMAND",
+        ),
+    ],
+)
+def test_invalid_advanced_command_range_has_no_job_or_seed_side_effects(
+    tmp_path: Path,
+    command_kwargs: dict,
+    expected_code: str,
+) -> None:
+    projects_root = tmp_path / "projects"
+    project_root = _write_project(projects_root)
+    service, store, _references, seeds, ids = _service(projects_root, tmp_path)
+
+    with pytest.raises(GenerationError) as captured:
+        service.create_job(PROJECT_ID, _command(**command_kwargs))
+
+    assert captured.value.code == expected_code
+    assert seeds.calls == 0
+    assert ids.calls == 0
+    assert not (project_root / "jobs").exists()
+    assert store.list(PROJECT_ID) == ()
+
+
 @pytest.mark.parametrize(
     ("include_target", "support_state", "command", "expected_code"),
     [

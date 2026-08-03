@@ -306,7 +306,7 @@ class FrozenReferences(_StrictModel):
 
 
 class GenerationAdvanced(_StrictModel):
-    style_strength: float | None = Field(default=None, ge=0.0, le=1.0)
+    style_strength: float | None = Field(default=None, ge=0.0, le=2.0)
     denoise_strength: float | None = Field(default=None, ge=0.0, le=1.0)
     lora_weight: float | None = Field(default=None, ge=0.0, le=2.0)
 
