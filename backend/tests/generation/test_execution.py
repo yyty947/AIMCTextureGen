@@ -17,6 +17,7 @@ from aimctexturegen.generation.service import (
     ExecutionContext,
     GenerationService,
 )
+from aimctexturegen.jobs.generation_state import start_generation
 from aimctexturegen.jobs.store import JobStore
 from aimctexturegen.projects.models import ProjectManifest, dump_project_manifest
 from aimctexturegen.projects.repository import ProjectRepository
@@ -257,6 +258,36 @@ def test_run_job_executes_persisted_batches_in_order_and_commits_candidates(
     )
     assert before_source == _hash_tree(project_root / "source")
     assert before_pack == _hash_tree(project_root / "pack")
+
+
+def test_run_job_leaves_active_state_nonterminal_on_shutdown_request(
+    tmp_path: Path,
+) -> None:
+    projects_root = tmp_path / "projects"
+    _write_project(projects_root)
+    service = _service(projects_root)
+    created = service.create_job(PROJECT_ID, _command())
+    store = JobStore(ProjectRepository(projects_root))
+    active = store.replace_state(
+        PROJECT_ID,
+        JOB_ID,
+        start_generation(created.state, now=NOW),
+        expected_revision=created.state.revision,
+    )
+    client = FakeComfyClient()
+
+    returned = service.run_job(
+        PROJECT_ID,
+        JOB_ID,
+        ExecutionContext(
+            client=client,
+            cancel_requested=lambda: False,
+            shutdown_requested=lambda: True,
+        ),
+    )
+
+    assert returned.state.status == active.state.status == "generating"
+    assert client.submitted_batch_sizes == []
 
 
 def test_prompt_registration_precedes_prompt_id_state_write(tmp_path: Path) -> None:

@@ -81,6 +81,7 @@ class GenerationCoordinator:
         self._active_run: _ActiveRun | None = None
         self._active_client = None
         self._active_prompt_id: str | None = None
+        self._shutdown_event = threading.Event()
         self._closed = False
 
     def create_job(self, project_id: UUID, command: CreateGenerationCommand) -> LoadedJob:
@@ -151,17 +152,31 @@ class GenerationCoordinator:
             ) == (project_id, job_id):
                 cancel_event = self._active_run.cancel_event
                 active_client = self._active_client
-        if cancel_event is not None:
-            cancel_event.set()
-        if prompt_id is None:
-            return self._confirm_canceled(project_id, job_id)
-        if active_client is not None:
+        try:
+            if prompt_id is None:
+                if cancel_event is not None:
+                    cancel_event.set()
+                return self._confirm_canceled(project_id, job_id)
+            if active_client is None:
+                active_client = self._inference.ensure_generation_ready(
+                    loaded.request.model_profile
+                )
             active_client.interrupt(prompt_id)
-        if self._wait_for_prompt_clear(active_client, prompt_id):
-            return self._confirm_canceled(project_id, job_id)
-        self._inference.stop_comfyui()
-        if self._wait_for_prompt_clear(active_client, prompt_id):
-            return self._confirm_canceled(project_id, job_id)
+            if self._wait_for_prompt_clear(active_client, prompt_id):
+                if cancel_event is not None:
+                    cancel_event.set()
+                return self._confirm_canceled(project_id, job_id)
+            self._inference.stop_comfyui()
+            if self._wait_for_prompt_clear(active_client, prompt_id):
+                if cancel_event is not None:
+                    cancel_event.set()
+                return self._confirm_canceled(project_id, job_id)
+        except Exception as error:
+            return self._persist_cancel_confirmation_failed(
+                project_id,
+                job_id,
+                cause=error,
+            )
         return self._persist_cancel_confirmation_failed(project_id, job_id)
 
     def retry(self, project_id: UUID, job_id: UUID) -> LoadedJob:
@@ -177,9 +192,7 @@ class GenerationCoordinator:
     def shutdown(self) -> None:
         with self._lock:
             self._closed = True
-            active_run = self._active_run
-        if active_run is not None:
-            active_run.cancel_event.set()
+            self._shutdown_event.set()
         worker = self._worker
         if worker is not None:
             worker.join(timeout=2.0)
@@ -206,6 +219,7 @@ class GenerationCoordinator:
                 ExecutionContext(
                     client=client,
                     cancel_requested=cancel_event.is_set,
+                    shutdown_requested=self._shutdown_event.is_set,
                     prompt_registered=lambda prompt_id: self._register_prompt(
                         project_id,
                         job_id,
@@ -256,6 +270,8 @@ class GenerationCoordinator:
         self,
         project_id: UUID,
         job_id: UUID,
+        *,
+        cause: BaseException | None = None,
     ) -> LoadedJob:
         while True:
             loaded = self._store.load(project_id, job_id)
@@ -265,7 +281,11 @@ class GenerationCoordinator:
                 stage=state.status,
                 user_message="已请求取消，但仍无法确认受管推理已停止",
                 recommended_actions=("再次取消该任务", "查看受管 ComfyUI 日志",),
-                technical_details=None,
+                technical_details=(
+                    None
+                    if cause is None
+                    else f"{type(cause).__name__}: {cause}"
+                ),
                 retryable=True,
                 occurred_at=self._clock(),
             )
@@ -300,7 +320,7 @@ class GenerationCoordinator:
                 continue
             if state.failure.error_code != _INTERRUPTED_CODE:
                 continue
-            prompt_id = _active_prompt_id(state)
+            prompt_id = _recovery_prompt_id(state)
             if prompt_id is None:
                 continue
             client = self._inference.ensure_generation_ready(request.model_profile)
@@ -344,8 +364,28 @@ class GenerationCoordinator:
 
 
 def _active_prompt_id(state: GenerationJobState) -> str | None:
-    for batch in state.batches:
-        if batch.prompt_id:
+    if state.status not in _NONTERMINAL_STATUSES:
+        return None
+    for batch in reversed(state.batches):
+        if batch.status == "generating" and batch.prompt_id:
+            return batch.prompt_id
+    return None
+
+
+def _recovery_prompt_id(state: GenerationJobState) -> str | None:
+    if (
+        state.status != "failed"
+        or state.failure is None
+        or state.failure.error_code != _INTERRUPTED_CODE
+    ):
+        return None
+    for batch in reversed(state.batches):
+        if (
+            batch.status == "failed"
+            and batch.failure is not None
+            and batch.failure.error_code == _INTERRUPTED_CODE
+            and batch.prompt_id
+        ):
             return batch.prompt_id
     return None
 

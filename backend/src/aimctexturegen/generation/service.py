@@ -88,6 +88,7 @@ class CreateGenerationCommand(_StrictModel):
 class ExecutionContext:
     client: ComfyClient | Any
     cancel_requested: Callable[[], bool]
+    shutdown_requested: Callable[[], bool] = lambda: False
     prompt_registered: Callable[[str], None] | None = None
     state_committed: Callable[[LoadedJob], None] | None = None
     progress_interval_seconds: float = 0.25
@@ -99,6 +100,10 @@ class _LoadedExecutionError(Exception):
         super().__init__(str(cause))
         self.loaded = loaded
         self.cause = cause
+
+
+class _GenerationShutdown(Exception):
+    """Stop the worker without translating application shutdown into cancel."""
 
 
 class GenerationService:
@@ -222,6 +227,8 @@ class GenerationService:
         _require_generation_request(loaded)
         _require_generation_state(loaded)
         try:
+            if context.shutdown_requested():
+                return loaded
             if loaded.state.status == "queued":
                 loaded = self._commit_state(
                     loaded,
@@ -238,15 +245,21 @@ class GenerationService:
                 for candidate in _require_generation_state(loaded).candidates
             ):
                 raise generation_error("COMFY_EXECUTION_FAILED")
+            if context.shutdown_requested():
+                raise _GenerationShutdown()
             loaded = self._commit_state(
                 loaded,
                 complete_generation(_require_generation_state(loaded), now=self._clock()),
                 context=context,
             )
             return loaded
+        except _GenerationShutdown:
+            return self._store.load(project_id, job_id)
         except _LoadedExecutionError as error:
             loaded = error.loaded
             if isinstance(error.cause, ComfyCanceledError):
+                if context.shutdown_requested():
+                    return self._store.load(project_id, job_id)
                 return self._confirm_comfy_cancellation(loaded, context)
             mapped = generation_failure_from_error(
                 error.cause,
@@ -419,7 +432,9 @@ class GenerationService:
                 prompt_id,
                 timeout=context.completion_timeout_seconds,
                 progress=progress.record,
-                cancel_requested=context.cancel_requested,
+                cancel_requested=lambda: (
+                    context.cancel_requested() or context.shutdown_requested()
+                ),
             )
             progress.flush()
             declared = context.client.declared_output_images(
@@ -449,6 +464,8 @@ class GenerationService:
             current = self._cancel_if_requested(current, context)
             return self._process_raw_ready_candidates(current, batch, context)
         except _LoadedExecutionError:
+            raise
+        except _GenerationShutdown:
             raise
         except Exception as error:
             raise _LoadedExecutionError(current, error) from error
@@ -483,6 +500,8 @@ class GenerationService:
                 )
             return current
         except _LoadedExecutionError:
+            raise
+        except _GenerationShutdown:
             raise
         except Exception as error:
             raise _LoadedExecutionError(current, error) from error
@@ -615,6 +634,8 @@ class GenerationService:
         loaded: LoadedJob,
         context: ExecutionContext,
     ) -> LoadedJob:
+        if context.shutdown_requested():
+            raise _GenerationShutdown()
         if not context.cancel_requested():
             return loaded
         state = _require_generation_state(loaded)

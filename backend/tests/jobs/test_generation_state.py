@@ -145,6 +145,73 @@ def test_generation_state_happy_path_increments_one_revision_per_transition():
     assert current.revision == 5
 
 
+def test_terminal_batch_releases_prompt_ownership_after_raw_completion():
+    current = start_generation(state(), now=NOW + timedelta(seconds=1))
+    current = start_batch(current, 0, now=NOW + timedelta(seconds=2))
+    current = current.model_copy(
+        update={
+            "batches": (
+                current.batches[0].model_copy(update={"prompt_id": "prompt-0"}),
+                current.batches[1],
+            ),
+            "revision": current.revision + 1,
+            "updated_at": NOW + timedelta(seconds=2),
+        }
+    )
+    current = mark_batch_raw_ready(
+        current,
+        0,
+        artifacts=(artifact("raw/0.png"), artifact("raw/1.png")),
+        now=NOW + timedelta(seconds=3),
+    )
+
+    assert current.batches[0].prompt_id is None
+    current = complete_candidate(
+        current,
+        0,
+        complete_artifacts(0, 100),
+        now=NOW + timedelta(seconds=4),
+    )
+    current = complete_candidate(
+        current,
+        1,
+        complete_artifacts(1, 100),
+        now=NOW + timedelta(seconds=5),
+    )
+    current = start_batch(current, 1, now=NOW + timedelta(seconds=6))
+    current = current.model_copy(
+        update={
+            "batches": (
+                current.batches[0],
+                current.batches[1].model_copy(update={"prompt_id": "prompt-1"}),
+            ),
+            "revision": current.revision + 1,
+            "updated_at": NOW + timedelta(seconds=6),
+        }
+    )
+    current = mark_batch_raw_ready(
+        current,
+        1,
+        artifacts=(artifact("raw/2.png"), artifact("raw/3.png")),
+        now=NOW + timedelta(seconds=7),
+    )
+    current = complete_candidate(
+        current,
+        2,
+        complete_artifacts(2, 101),
+        now=NOW + timedelta(seconds=8),
+    )
+    current = complete_candidate(
+        current,
+        3,
+        complete_artifacts(3, 101),
+        now=NOW + timedelta(seconds=9),
+    )
+    completed = complete_generation(current, now=NOW + timedelta(seconds=10))
+
+    assert completed.status == "completed"
+    assert all(batch.prompt_id is None for batch in completed.batches)
+
 def test_request_cancel_is_idempotent_after_first_timestamp():
     current = request_cancel(start_generation(state(), now=NOW), now=NOW + timedelta(seconds=1))
     again = request_cancel(current, now=NOW + timedelta(seconds=2))

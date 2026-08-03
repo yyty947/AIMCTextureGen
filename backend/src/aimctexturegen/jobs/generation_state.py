@@ -105,6 +105,7 @@ def mark_batch_raw_ready(
     replacement = _replace_batch(
         batch,
         status="raw_ready",
+        prompt_id=None,
         raw_artifacts=artifacts,
         finished_at=now,
     )
@@ -153,7 +154,7 @@ def complete_candidate(
         else batch.status
     )
     batch_replacement = (
-        _replace_batch(batch, status="completed")
+        _replace_batch(batch, status="completed", prompt_id=None)
         if batch_status == "completed"
         else batch
     )
@@ -171,6 +172,10 @@ def complete_generation(state: GenerationJobState, *, now: datetime) -> Generati
     return _replace_state(
         state,
         status="completed",
+        batches=tuple(
+            _replace_batch(batch, prompt_id=None)
+            for batch in state.batches
+        ),
         updated_at=now,
         finished_at=now,
         failure=None,
@@ -263,15 +268,23 @@ def confirm_canceled(state: GenerationJobState, *, now: datetime) -> GenerationJ
     batches = []
     for batch in state.batches:
         if all(candidates[index].status in {"completed", "inherited"} for index in batch.candidate_indices):
-            batches.append(_replace_batch(batch, status="completed", finished_at=now))
+            batches.append(
+                _replace_batch(
+                    batch,
+                    status="completed",
+                    prompt_id=None,
+                    finished_at=now,
+                )
+            )
         elif batch.status == "failed":
-            batches.append(batch)
+            batches.append(_replace_batch(batch, prompt_id=None))
         else:
             started_at = batch.started_at or now
             batches.append(
                 _replace_batch(
                     batch,
                     status="canceled",
+                    prompt_id=None,
                     started_at=started_at,
                     finished_at=now,
                 )
