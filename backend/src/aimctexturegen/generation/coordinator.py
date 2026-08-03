@@ -49,6 +49,13 @@ class _ActiveRun:
     cancel_event: threading.Event
 
 
+@dataclass(frozen=True)
+class CurrentGenerationJob:
+    project_id: UUID
+    job_id: UUID
+    status: str
+
+
 class GenerationCoordinator:
     def __init__(
         self,
@@ -188,6 +195,17 @@ class GenerationCoordinator:
             loaded = self._service.retry_job(project_id, job_id)
             self._publish(loaded)
             return loaded
+
+    def current_job(self) -> CurrentGenerationJob | None:
+        with self._lock:
+            current = self._scan_current_loaded_job()
+            if current is None:
+                return None
+            return CurrentGenerationJob(
+                project_id=current.request.project_id,
+                job_id=current.request.job_id,
+                status=current.state.status,
+            )
 
     def shutdown(self) -> None:
         with self._lock:
@@ -331,10 +349,16 @@ class GenerationCoordinator:
                     self._inference.stop_comfyui()
 
     def _scan_current_nonterminal_job(self) -> tuple[UUID, UUID] | None:
+        current = self._scan_current_loaded_job()
+        if current is not None:
+            return (current.request.project_id, current.request.job_id)
+        return None
+
+    def _scan_current_loaded_job(self) -> LoadedJob | None:
         for loaded in self._scan_generation_jobs():
             state = _require_generation_state(loaded)
             if state.status in _NONTERMINAL_STATUSES:
-                return (loaded.request.project_id, loaded.request.job_id)
+                return loaded
         return None
 
     def _scan_generation_jobs(self) -> list[LoadedJob]:

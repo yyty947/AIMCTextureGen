@@ -12,7 +12,9 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from aimctexturegen.api import jobs as jobs_api
 from aimctexturegen.api import inference as inference_api
+from aimctexturegen.api import generation as generation_api
 from aimctexturegen.api import projects as projects_api
+from aimctexturegen.api import references as references_api
 from aimctexturegen.api import system as system_api
 from aimctexturegen.catalog.models import CatalogProfile
 from aimctexturegen.catalog.registry import CatalogRegistry
@@ -380,6 +382,8 @@ def create_app(
         return {"status": "ok", "schema_version": 1}
 
     app.include_router(projects_api.router)
+    app.include_router(references_api.router)
+    app.include_router(generation_api.router)
     app.include_router(jobs_api.router)
     app.include_router(system_api.router)
     app.include_router(inference_api.router)

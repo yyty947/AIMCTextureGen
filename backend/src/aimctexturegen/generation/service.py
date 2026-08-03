@@ -69,6 +69,21 @@ from .prompts import compile_block_prompt
 PROFILE_KEY = ("sdxl-mapchip-ipadapter", "2")
 
 
+@dataclass(frozen=True)
+class TargetOption:
+    semantic_id: str
+    display_name: str
+    relative_path: str
+
+
+@dataclass(frozen=True)
+class ResolvedArtifactPayload:
+    kind: ArtifactKind
+    media_type: str
+    etag: str
+    payload: bytes
+
+
 class _StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
@@ -137,6 +152,94 @@ class GenerationService:
             (lambda: datetime.now(timezone.utc)) if clock is None else clock
         )
         self._monotonic = monotonic
+
+    def get_job(self, project_id: UUID, job_id: UUID) -> LoadedJob:
+        loaded = self._store.load(project_id, job_id)
+        _require_generation_request(loaded)
+        _require_generation_state(loaded)
+        return loaded
+
+    def list_missing_targets(self, project_id: UUID) -> tuple[TargetOption, ...]:
+        with self._repository.open(project_id) as opened:
+            profile = _catalog_profile(self._catalogs, opened.manifest.java_pack_format)
+            coverage = classify_coverage(opened.pack_root, profile)
+            targets = [
+                TargetOption(
+                    semantic_id=item.semantic_id,
+                    display_name=item.display_name,
+                    relative_path=item.relative_path,
+                )
+                for item in coverage.items
+                if item.status == "missing" and item.mvp_eligible
+            ]
+            targets.sort(key=lambda item: (item.display_name, item.semantic_id))
+            return tuple(targets)
+
+    def generation_options(self, project_id: UUID) -> dict[str, object]:
+        profile = self._manifests.profile(*PROFILE_KEY)
+        if not isinstance(profile, ModelProfileManifestV2):
+            raise generation_error("PROFILE_NOT_READY")
+        defaults = getattr(profile, "profile_defaults", {}) or {}
+        return {
+            "targets": tuple(
+                {
+                    "semantic_id": target.semantic_id,
+                    "display_name": target.display_name,
+                    "relative_path": target.relative_path,
+                }
+                for target in self.list_missing_targets(project_id)
+            ),
+            "profile": {
+                "profile_id": profile.profile_id,
+                "profile_version": profile.profile_version,
+                "support_state": profile.support_state,
+            },
+            "defaults": {
+                "resolution": int(defaults.get("resolution", 16)),
+                "parallelism": int(defaults.get("parallelism", 1)),
+            },
+            "candidate_count": int(defaults.get("candidate_count", 4)),
+            "allowed_parallelism": (1, 2, 4),
+            "resource_hints": (),
+        }
+
+    def read_artifact(
+        self,
+        project_id: UUID,
+        job_id: UUID,
+        candidate_index: int,
+        kind: ArtifactKind,
+    ) -> ResolvedArtifactPayload:
+        loaded = self.get_job(project_id, job_id)
+        state = _require_generation_state(loaded)
+        if candidate_index not in range(4):
+            raise generation_error("ARTIFACT_NOT_AVAILABLE")
+        candidate = state.candidates[candidate_index]
+        stored = getattr(candidate.artifacts, kind)
+        if stored is None:
+            raise generation_error("ARTIFACT_NOT_AVAILABLE")
+        inherited = stored if candidate.status == "inherited" else None
+        try:
+            path = self._artifacts.resolve(
+                project_id,
+                job_id,
+                candidate_index,
+                kind,
+                inherited_from=inherited,
+            )
+        except GenerationError as error:
+            if error.code == "OUTPUT_CONTRACT_VIOLATION":
+                raise generation_error("ARTIFACT_INTEGRITY_ERROR") from error
+            raise
+        payload = path.read_bytes()
+        if hashlib.sha256(payload).hexdigest() != stored.sha256:
+            raise generation_error("ARTIFACT_INTEGRITY_ERROR")
+        return ResolvedArtifactPayload(
+            kind=kind,
+            media_type=stored.media_type,
+            etag=stored.sha256,
+            payload=payload,
+        )
 
     def create_job(self, project_id: UUID, command: CreateGenerationCommand) -> LoadedJob:
         if not isinstance(project_id, UUID):

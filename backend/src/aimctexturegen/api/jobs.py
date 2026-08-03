@@ -17,6 +17,7 @@ from aimctexturegen.jobs.models import (
     JobStateRecord,
     JobSummary,
 )
+from aimctexturegen.jobs.models_v3 import GenerationJobRequest, GenerationJobState
 from aimctexturegen.jobs.service import JobService
 from aimctexturegen.jobs.store import JobStore, LoadedJob
 from aimctexturegen.projects.repository import (
@@ -61,8 +62,8 @@ class CreateJobRequest(_TransportModel):
 class JobDetail(_TransportModel):
     """Canonical persisted request and its current mutable state."""
 
-    request: JobRequest
-    state: JobStateRecord
+    request: JobRequest | GenerationJobRequest
+    state: JobStateRecord | GenerationJobState
 
 
 class CancelJobRequest(_TransportModel):
@@ -270,6 +271,26 @@ def _detail(loaded: LoadedJob) -> JobDetail:
 
 
 def _summary(loaded: LoadedJob) -> JobSummary:
+    if isinstance(loaded.request, GenerationJobRequest) and isinstance(
+        loaded.state,
+        GenerationJobState,
+    ):
+        return JobSummary(
+            job_id=loaded.request.job_id,
+            project_id=loaded.request.project_id,
+            retry_of_job_id=loaded.request.parent_job_id,
+            target_semantic_id=loaded.request.target.target_semantic_id,
+            target_display_name=loaded.request.target.target_display_name,
+            resolution=loaded.request.resolution,
+            parallelism=loaded.request.parallelism,
+            status=loaded.state.status,
+            revision=loaded.state.revision,
+            candidate_statuses=tuple(
+                candidate.status for candidate in loaded.state.candidates
+            ),
+            created_at=loaded.request.created_at,
+            updated_at=loaded.state.updated_at,
+        )
     return JobSummary(
         job_id=loaded.request.job_id,
         project_id=loaded.request.project_id,

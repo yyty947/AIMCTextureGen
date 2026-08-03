@@ -80,14 +80,41 @@ class ReferenceService:
                 return tuple(references)
 
     def upload(self, project_id: UUID, kind: ReferenceKind, payload: bytes) -> StoredReference:
-        validated = validate_reference_png(payload)
-        return self._store.create(project_id, kind, validated, now=_now_utc())
+        try:
+            validated = validate_reference_png(payload)
+            return self._store.create(project_id, kind, validated, now=_now_utc())
+        except ReferenceValidationError as error:
+            raise _service_error("REFERENCE_INVALID") from error
+        except ReferenceStoreError as error:
+            raise _translate_store_error(error) from error
 
     def list_uploads(self, project_id: UUID, kind: ReferenceKind) -> tuple[StoredReference, ...]:
-        return self._store.list(project_id, kind)
+        try:
+            return self._store.list(project_id, kind)
+        except ReferenceStoreError as error:
+            raise _translate_store_error(error) from error
 
     def delete(self, project_id: UUID, kind: ReferenceKind, reference_id: UUID) -> None:
-        self._store.delete(project_id, kind, reference_id)
+        try:
+            self._store.delete(project_id, kind, reference_id)
+        except ReferenceStoreError as error:
+            raise _translate_store_error(error) from error
+
+    def read_pack_reference(self, project_id: UUID, relative_path: str) -> bytes:
+        with self._repository.open(project_id) as opened:
+            with hold_directory_identity(opened.pack_root):
+                return _read_pack_payload(opened.pack_root, relative_path)
+
+    def read_upload(
+        self,
+        project_id: UUID,
+        kind: ReferenceKind,
+        reference_id: UUID,
+    ) -> bytes:
+        try:
+            return self._store.read_content(project_id, kind, reference_id)
+        except ReferenceStoreError as error:
+            raise _translate_store_error(error) from error
 
     def freeze(self, project_id: UUID, selections: ReferenceSelections) -> JobInputSnapshot:
         metadata = {"style": [], "structure": []}
@@ -240,3 +267,13 @@ def _service_error(code: str) -> ReferenceServiceError:
         "REFERENCE_INVALID": "参考图不符合格式要求",
     }
     return ReferenceServiceError(code, messages[code])
+
+
+def _translate_store_error(error: ReferenceStoreError) -> ReferenceServiceError:
+    mapping = {
+        "REFERENCE_NOT_FOUND": "REFERENCE_NOT_FOUND",
+        "CORRUPT_REFERENCE_RECORD": "REFERENCE_INVALID",
+        "UNSAFE_REFERENCE_PATH": "REFERENCE_INVALID",
+        "REFERENCE_STORAGE_UNAVAILABLE": "REFERENCE_INVALID",
+    }
+    return _service_error(mapping.get(error.code, "REFERENCE_INVALID"))
