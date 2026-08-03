@@ -12,7 +12,11 @@ import pytest
 from PIL import Image
 
 from aimctexturegen.catalog.registry import CatalogRegistry
-from aimctexturegen.comfy.manifests import ModelProfileManifestV2, RuntimeManifest
+from aimctexturegen.comfy.manifests import (
+    ModelProfileManifestV2,
+    RuntimeManifest,
+    manifest_sha256,
+)
 from aimctexturegen.comfy.registry import ManifestRegistry
 from aimctexturegen.generation.artifacts import CandidateArtifactStore
 from aimctexturegen.generation.coordinator import GenerationCoordinator
@@ -156,12 +160,12 @@ def make_runtime() -> dict:
     }
 
 
-def make_profile_v2() -> dict:
+def make_profile_v2(*, support_state: str = "verified") -> dict:
     return {
         "schema_version": 2,
         "profile_id": "sdxl-mapchip-ipadapter",
         "profile_version": "2",
-        "support_state": "verified",
+        "support_state": support_state,
         "compatible_runtime_ids": ("comfyui-windows-nvidia",),
         "compatible_runtime_versions": ("0.29.2",),
         "capabilities": {
@@ -234,13 +238,71 @@ def make_profile_v2() -> dict:
     }
 
 
-def _registry(tmp_path: Path) -> ManifestRegistry:
+def _profile_evidence(profile: ModelProfileManifestV2) -> dict[str, object]:
+    return {
+        "profile_id": profile.profile_id,
+        "profile_version": profile.profile_version,
+        "profile_manifest_sha256": manifest_sha256(profile),
+        "results": [
+            {
+                "variant": "text2img-no-style",
+                "batch_size": 1,
+                "output_count": 1,
+                "peak_vram_mib": 4096,
+                "peak_process_ram_mib": 6144,
+                "peak_system_ram_mib": 8192,
+                "elapsed_seconds": 12.5,
+                "postprocess_status": "completed",
+                "status": "completed",
+            },
+            {
+                "variant": "text2img-no-style",
+                "batch_size": 2,
+                "output_count": 2,
+                "peak_vram_mib": 6144,
+                "peak_process_ram_mib": 7168,
+                "peak_system_ram_mib": 9216,
+                "elapsed_seconds": 18.25,
+                "postprocess_status": "completed",
+                "status": "completed",
+            },
+            {
+                "variant": "text2img-no-style",
+                "batch_size": 4,
+                "output_count": 4,
+                "peak_vram_mib": 8192,
+                "peak_process_ram_mib": 9216,
+                "peak_system_ram_mib": 11264,
+                "elapsed_seconds": 31.75,
+                "postprocess_status": "completed",
+                "status": "completed",
+            },
+        ],
+    }
+
+
+def _registry(
+    tmp_path: Path,
+    *,
+    support_state: str = "verified",
+    include_evidence: bool = True,
+) -> ManifestRegistry:
     runtime = RuntimeManifest.model_validate(make_runtime())
-    profile = ModelProfileManifestV2.model_validate(make_profile_v2())
+    profile = ModelProfileManifestV2.model_validate(
+        make_profile_v2(support_state=support_state)
+    )
+    profile_evidence = (
+        {
+            (profile.profile_id, profile.profile_version): _profile_evidence(profile),
+        }
+        if include_evidence
+        else None
+    )
     return ManifestRegistry(
         root=tmp_path,
         runtimes={runtime.runtime_id: runtime},
         profiles={(profile.profile_id, profile.profile_version): profile},
+        profile_evidence=profile_evidence,
     )
 
 
@@ -360,7 +422,12 @@ def _command() -> CreateGenerationCommand:
     )
 
 
-def _services(tmp_path: Path) -> tuple[AppServices, GenerationService, JobStore, ProjectRepository]:
+def _services(
+    tmp_path: Path,
+    *,
+    support_state: str = "verified",
+    include_evidence: bool = True,
+) -> tuple[AppServices, GenerationService, JobStore, ProjectRepository]:
     projects_root = tmp_path / "projects"
     _write_project(projects_root)
     _write_project(projects_root, OTHER_PROJECT_ID)
@@ -372,7 +439,11 @@ def _services(tmp_path: Path) -> tuple[AppServices, GenerationService, JobStore,
         catalogs=catalogs,
         store=ProjectReferenceStore(repository),
     )
-    registry = _registry(tmp_path)
+    registry = _registry(
+        tmp_path,
+        support_state=support_state,
+        include_evidence=include_evidence,
+    )
     generation = GenerationService(
         repository=repository,
         catalogs=catalogs,
@@ -399,8 +470,17 @@ def _services(tmp_path: Path) -> tuple[AppServices, GenerationService, JobStore,
     return services, generation, store, repository
 
 
-def _app(tmp_path: Path):
-    services, generation, store, repository = _services(tmp_path)
+def _app(
+    tmp_path: Path,
+    *,
+    support_state: str = "verified",
+    include_evidence: bool = True,
+):
+    services, generation, store, repository = _services(
+        tmp_path,
+        support_state=support_state,
+        include_evidence=include_evidence,
+    )
     app = create_app(services=services)
     return app, generation, store, repository
 
@@ -466,6 +546,30 @@ def test_generation_options_and_current_job_surface_verified_defaults_and_slot_s
     assert body["defaults"] == {"resolution": 16, "parallelism": 1}
     assert body["profile"]["profile_id"] == "sdxl-mapchip-ipadapter"
     assert body["profile"]["profile_version"] == "2"
+    assert body["profile"]["support_state"] == "verified"
+    assert body["resource_hints"] == [
+        {
+            "parallelism": 1,
+            "peak_vram_mib": 4096,
+            "peak_process_ram_mib": 6144,
+            "peak_system_ram_mib": 8192,
+            "elapsed_seconds": 12.5,
+        },
+        {
+            "parallelism": 2,
+            "peak_vram_mib": 6144,
+            "peak_process_ram_mib": 7168,
+            "peak_system_ram_mib": 9216,
+            "elapsed_seconds": 18.25,
+        },
+        {
+            "parallelism": 4,
+            "peak_vram_mib": 8192,
+            "peak_process_ram_mib": 9216,
+            "peak_system_ram_mib": 11264,
+            "elapsed_seconds": 31.75,
+        },
+    ]
     assert body["targets"][0]["semantic_id"] == "minecraft:deepslate"
     assert current.status_code == 200, current.text
     assert current.json() == {
@@ -473,6 +577,34 @@ def test_generation_options_and_current_job_surface_verified_defaults_and_slot_s
         "job_id": str(created.request.job_id),
         "status": "queued",
     }
+
+
+@pytest.mark.parametrize(
+    ("support_state", "include_evidence"),
+    [
+        ("candidate_unverified", True),
+        ("verified", False),
+    ],
+    ids=("candidate-profile", "missing-evidence"),
+)
+def test_generation_options_fails_closed_without_verified_profile_evidence(
+    tmp_path: Path,
+    support_state: str,
+    include_evidence: bool,
+) -> None:
+    app, _generation, _store, _repository = _app(
+        tmp_path,
+        support_state=support_state,
+        include_evidence=include_evidence,
+    )
+
+    response = _request(app, "GET", f"/api/projects/{PROJECT_ID}/generation-options")
+
+    _assert_error(
+        response,
+        status_code=422,
+        code="PROFILE_NOT_READY",
+    )
 
 
 @pytest.mark.parametrize(

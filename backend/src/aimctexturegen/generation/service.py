@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import secrets
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -67,6 +68,7 @@ from .prompts import compile_block_prompt
 
 
 PROFILE_KEY = ("sdxl-mapchip-ipadapter", "2")
+_ALLOWED_PARALLELISM = (1, 2, 4)
 
 
 @dataclass(frozen=True)
@@ -131,6 +133,7 @@ class GenerationService:
         store: JobStore,
         manifests: ManifestRegistry,
         artifacts: CandidateArtifactStore | None = None,
+        profile_evidence: dict[tuple[str, str], object] | None = None,
         seed_source: Callable[[], int] | None = None,
         job_id_source: Callable[[], UUID] = uuid4,
         clock: Callable[[], datetime] | None = None,
@@ -142,6 +145,7 @@ class GenerationService:
         self._store = store
         self._manifests = manifests
         self._artifacts = artifacts or CandidateArtifactStore(store)
+        self._profile_evidence = dict(profile_evidence or {})
         self._seed_source = (
             (lambda: secrets.randbelow(MAX_SAFE_SEED + 1))
             if seed_source is None
@@ -176,10 +180,24 @@ class GenerationService:
             return tuple(targets)
 
     def generation_options(self, project_id: UUID) -> dict[str, object]:
-        profile = self._manifests.profile(*PROFILE_KEY)
-        if not isinstance(profile, ModelProfileManifestV2):
+        try:
+            profile = self._manifests.profile(*PROFILE_KEY)
+        except ManifestNotFoundError as error:
+            raise generation_error("PROFILE_NOT_READY") from error
+        if (
+            not isinstance(profile, ModelProfileManifestV2)
+            or profile.support_state != "verified"
+        ):
+            raise generation_error("PROFILE_NOT_READY")
+        resource_hints = _verified_resource_hints(
+            profile,
+            self._profile_evidence_for(PROFILE_KEY),
+        )
+        if not resource_hints:
             raise generation_error("PROFILE_NOT_READY")
         defaults = getattr(profile, "profile_defaults", {}) or {}
+        if defaults.get("candidate_count", 4) != 4:
+            raise generation_error("PROFILE_NOT_READY")
         return {
             "targets": tuple(
                 {
@@ -199,9 +217,17 @@ class GenerationService:
                 "parallelism": int(defaults.get("parallelism", 1)),
             },
             "candidate_count": int(defaults.get("candidate_count", 4)),
-            "allowed_parallelism": (1, 2, 4),
-            "resource_hints": (),
+            "allowed_parallelism": _ALLOWED_PARALLELISM,
+            "resource_hints": resource_hints,
         }
+
+    def _profile_evidence_for(self, profile_key: tuple[str, str]) -> object | None:
+        if self._profile_evidence:
+            return self._profile_evidence.get(profile_key)
+        registry_evidence = getattr(self._manifests, "profile_evidence", {})
+        if not isinstance(registry_evidence, Mapping):
+            return None
+        return registry_evidence.get(profile_key)
 
     def read_artifact(
         self,
@@ -904,6 +930,134 @@ def _require_generation_state(loaded: LoadedJob) -> GenerationJobState:
     if not isinstance(loaded.state, GenerationJobState):
         raise generation_error("COMFY_EXECUTION_FAILED")
     return loaded.state
+
+
+def _verified_resource_hints(
+    profile: ModelProfileManifestV2,
+    evidence: object | None,
+) -> tuple[dict[str, object], ...]:
+    data = _evidence_mapping(evidence)
+    if data is None:
+        return ()
+    if data.get("profile_id") != profile.profile_id:
+        return ()
+    if data.get("profile_version") != profile.profile_version:
+        return ()
+    evidence_digest = data.get("profile_manifest_sha256")
+    if evidence_digest is not None and evidence_digest != manifest_sha256(profile):
+        return ()
+
+    raw_hints = data.get("resource_hints")
+    if raw_hints is not None:
+        if not isinstance(raw_hints, (list, tuple)):
+            return ()
+        hints: list[dict[str, object]] = []
+        for item in raw_hints:
+            normalized = _normalize_resource_hint(item)
+            if normalized is None:
+                return ()
+            hints.append(normalized)
+        return tuple(sorted(hints, key=lambda item: item["parallelism"]))
+
+    raw_results = data.get("results")
+    if not isinstance(raw_results, (list, tuple)) or not raw_results:
+        return ()
+    by_parallelism: dict[int, dict[str, object]] = {}
+    for item in raw_results:
+        result = _evidence_mapping(item)
+        if result is None:
+            return ()
+        if result.get("status", "completed") != "completed":
+            return ()
+        if result.get("postprocess_status", "completed") != "completed":
+            return ()
+        if result.get("success") is False:
+            return ()
+        output_count = result.get("output_count")
+        parallelism = result.get("batch_size", result.get("parallelism"))
+        if output_count is not None and output_count != parallelism:
+            return ()
+        normalized = _normalize_resource_hint(result)
+        if normalized is None:
+            return ()
+        key = int(normalized["parallelism"])
+        prior = by_parallelism.get(key)
+        if prior is None:
+            by_parallelism[key] = normalized
+            continue
+        for metric in (
+            "peak_vram_mib",
+            "peak_process_ram_mib",
+            "peak_system_ram_mib",
+            "elapsed_seconds",
+        ):
+            prior[metric] = max(prior[metric], normalized[metric])
+    return tuple(
+        by_parallelism[key]
+        for key in sorted(by_parallelism)
+    )
+
+
+def _evidence_mapping(value: object | None) -> Mapping[str, object] | None:
+    if isinstance(value, Mapping):
+        return value
+    model_dump = getattr(value, "model_dump", None)
+    if not callable(model_dump):
+        return None
+    dumped = model_dump(mode="json")
+    return dumped if isinstance(dumped, Mapping) else None
+
+
+def _normalize_resource_hint(value: object) -> dict[str, object] | None:
+    data = _evidence_mapping(value)
+    if data is None:
+        return None
+    parallelism = data.get("parallelism", data.get("batch_size"))
+    if type(parallelism) is not int or parallelism not in _ALLOWED_PARALLELISM:
+        return None
+    peak_vram_mib = _positive_int(
+        data.get("peak_vram_mib", data.get("peak_vram_mb"))
+    )
+    peak_process_ram_mib = _positive_int(
+        data.get(
+            "peak_process_ram_mib",
+            data.get("peak_process_memory_mib"),
+        )
+    )
+    peak_system_ram_mib = _positive_int(
+        data.get(
+            "peak_system_ram_mib",
+            data.get("peak_system_memory_mib"),
+        )
+    )
+    elapsed_seconds = _nonnegative_float(
+        data.get("elapsed_seconds", data.get("duration_seconds"))
+    )
+    if (
+        peak_vram_mib is None
+        or peak_process_ram_mib is None
+        or peak_system_ram_mib is None
+        or elapsed_seconds is None
+    ):
+        return None
+    return {
+        "parallelism": parallelism,
+        "peak_vram_mib": peak_vram_mib,
+        "peak_process_ram_mib": peak_process_ram_mib,
+        "peak_system_ram_mib": peak_system_ram_mib,
+        "elapsed_seconds": elapsed_seconds,
+    }
+
+
+def _positive_int(value: object) -> int | None:
+    return value if type(value) is int and value > 0 else None
+
+
+def _nonnegative_float(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    converted = float(value)
+    return converted if math.isfinite(converted) and converted >= 0 else None
 
 
 def _validated_advanced(command: CreateGenerationCommand) -> GenerationAdvanced:

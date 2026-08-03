@@ -79,9 +79,11 @@ class ManifestRegistry:
         runtimes: dict[str, RuntimeManifest],
         profiles: dict[ProfileKey, ModelProfileManifestRecord]
         | dict[str, ModelProfileManifestRecord],
+        profile_evidence: dict[ProfileKey, object] | None = None,
     ) -> None:
         self._root = root
         self._runtimes = dict(runtimes)
+        self._profile_evidence = dict(profile_evidence or {})
         self._profiles: dict[ProfileKey, ModelProfileManifestRecord] = {}
         for key, manifest in profiles.items():
             profile_key = (
@@ -98,6 +100,10 @@ class ManifestRegistry:
     @property
     def profiles(self) -> dict[ProfileKey, ModelProfileManifestRecord]:
         return dict(self._profiles)
+
+    @property
+    def profile_evidence(self) -> dict[ProfileKey, object]:
+        return dict(self._profile_evidence)
 
     @classmethod
     def load(cls, root: Path | str) -> Self:
@@ -145,7 +151,12 @@ class ManifestRegistry:
                 )
             profiles[profile_key] = profile
 
-        return cls(root=root, runtimes=runtimes, profiles=profiles)
+        return cls(
+            root=root,
+            runtimes=runtimes,
+            profiles=profiles,
+            profile_evidence=_load_profile_evidence(root),
+        )
 
     def runtime(self, runtime_id: str) -> RuntimeManifest:
         try:
@@ -173,3 +184,18 @@ class ManifestRegistry:
             for _, profile in sorted(self._profiles.items())
             if runtime_id in profile.compatible_runtime_ids
         )
+
+
+def _load_profile_evidence(root: Path) -> dict[ProfileKey, object]:
+    path = root / "docs" / "evidence" / "phase-5" / "evidence.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    profile_id = payload.get("profile_id")
+    profile_version = payload.get("profile_version")
+    if not isinstance(profile_id, str) or not isinstance(profile_version, str):
+        return {}
+    return {(profile_id, profile_version): payload}

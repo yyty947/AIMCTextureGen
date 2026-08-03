@@ -8,6 +8,7 @@ from pathlib import Path
 from uuid import UUID
 
 from aimctexturegen.catalog.registry import CatalogRegistry
+from aimctexturegen.core.relative_paths import validate_project_relative_path
 from aimctexturegen.jobs.store import JobInputFile, JobInputSnapshot
 from aimctexturegen.packs.coverage import classify_coverage
 from aimctexturegen.projects._directory_guard import hold_directory_identity, is_reparse_point
@@ -64,7 +65,7 @@ class ReferenceService:
                     try:
                         payload = _read_pack_payload(opened.pack_root, relative_path)
                         validated = validate_reference_png(payload)
-                    except ReferenceValidationError:
+                    except (ReferenceServiceError, ReferenceValidationError):
                         continue
                     references.append(
                         PackReference(
@@ -223,8 +224,7 @@ class ReferenceService:
 
 
 def _read_pack_payload(pack_root: Path, relative_path: str) -> bytes:
-    target = pack_root / Path(*relative_path.split("/"))
-    _ensure_plain_descendant(pack_root, target)
+    target = _safe_pack_target(pack_root, relative_path)
     try:
         status = os.lstat(target)
     except OSError as error:
@@ -237,6 +237,26 @@ def _read_pack_payload(pack_root: Path, relative_path: str) -> bytes:
     if hashlib.sha256(payload).hexdigest() != validate_reference_png(payload).sha256:
         raise _service_error("REFERENCE_INVALID")
     return payload
+
+
+def _safe_pack_target(pack_root: Path, relative_path: str) -> Path:
+    try:
+        validate_project_relative_path(relative_path)
+    except ValueError as error:
+        raise _service_error("REFERENCE_INVALID") from error
+
+    try:
+        canonical_root = pack_root.resolve(strict=True)
+        target = canonical_root.joinpath(*relative_path.split("/"))
+        canonical_target = target.resolve(strict=False)
+    except (OSError, RuntimeError) as error:
+        raise _service_error("REFERENCE_INVALID") from error
+    try:
+        canonical_target.relative_to(canonical_root)
+    except ValueError as error:
+        raise _service_error("REFERENCE_INVALID") from error
+    _ensure_plain_descendant(canonical_root, target)
+    return target
 
 
 def _ensure_plain_descendant(root: Path, target: Path) -> None:

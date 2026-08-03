@@ -203,6 +203,26 @@ def test_pack_reference_listing_and_binary_content_are_served_through_api(
     assert image.content == _png_bytes()
 
 
+def test_pack_reference_cannot_read_a_valid_png_outside_pack_root(
+    tmp_path: Path,
+) -> None:
+    projects_root = tmp_path / "projects"
+    _write_project(projects_root)
+    outside = projects_root / str(PROJECT_ID) / "outside.png"
+    outside.write_bytes(_png_bytes(color=(200, 10, 20)))
+    app = create_app(project_root=projects_root, catalog_root=CATALOG_ROOT)
+
+    response = _request(
+        app,
+        "GET",
+        f"/api/projects/{PROJECT_ID}/references/pack/image",
+        params={"relative_path": "../outside.png"},
+    )
+
+    _assert_error(response, status_code=422, code="REFERENCE_INVALID")
+    assert response.content != outside.read_bytes()
+
+
 def test_reference_upload_and_readback_accept_fragmented_png_streams_without_filename(
     tmp_path: Path,
 ) -> None:
