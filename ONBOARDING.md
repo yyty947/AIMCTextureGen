@@ -12,12 +12,13 @@ Phase 3 已通过合并提交 `ae424b1` 进入 `master`/`origin/master`。Phase 
 profile 哈希/receipt 就绪判定，以及取消/完成状态竞态：
 
 当前 checkout 位于 `codex/phase-5-four-candidate-generation`。Phase 5 已完成
-交互式设计确认，书面规格位于
+交互式设计与书面规格复核，书面规格位于
 [`docs/superpowers/specs/2026-08-03-phase-5-four-candidate-generation-design.md`](docs/superpowers/specs/2026-08-03-phase-5-four-candidate-generation-design.md)，
 原生批次 seed、单活动任务协调器和 profile v2 的架构决定位于
 [`docs/adr/0003-native-batch-seeds-and-generation-coordinator.md`](docs/adr/0003-native-batch-seeds-and-generation-coordinator.md)。
-当前只在做文档/计划，没有开始 Phase 5 实现；书面规格经用户复核后才进入
-详细实施计划。
+详细实施计划位于
+[`docs/superpowers/plans/2026-08-03-phase-5-four-candidate-generation.md`](docs/superpowers/plans/2026-08-03-phase-5-four-candidate-generation.md)。
+当前只完成设计和计划，没有开始 Phase 5 业务实现。
 
 收尾后又修正了一个运行时性能回归：profile 完整性校验改为有界内存的流式
 哈希并按文件元数据缓存；旧版已验证安装记录不会因 WebUI 轮询反复读取多 GB
@@ -201,9 +202,14 @@ git status --short
 
 ## 下一入口
 
-先复核 Phase 5 书面设计规格，不开始业务代码。用户确认书面规格后，使用
-`superpowers:writing-plans` 创建唯一的 Phase 5 实施计划，写明测试先行步骤、
-精确文件/接口、真实 GPU 门禁和人工验收。该计划落盘并提交后才选择执行方式。
+先由用户选择 Phase 5 的执行方式，不在选择前开始业务代码：
+
+1. `superpowers:subagent-driven-development`（推荐）：当前会话逐任务派发新
+   subagent，每项进行规格和质量两轮复核；
+2. `superpowers:executing-plans`：当前会话按计划批次执行，并在检查点交接。
+
+无论选择哪种方式，都从实施计划 Task 1 开始，测试先行、每项独立提交；不得
+同时执行其他阶段计划。
 
 已确认的 Phase 5 关键边界：
 

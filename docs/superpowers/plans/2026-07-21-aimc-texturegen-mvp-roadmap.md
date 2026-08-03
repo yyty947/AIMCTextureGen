@@ -110,6 +110,8 @@ for Task 11; Phase 4 is now merged into and pushed from `master`.
 
 **Approved design:** [`../specs/2026-08-03-phase-5-four-candidate-generation-design.md`](../specs/2026-08-03-phase-5-four-candidate-generation-design.md)
 
+**Implementation plan:** [`2026-08-03-phase-5-four-candidate-generation.md`](2026-08-03-phase-5-four-candidate-generation.md)
+
 **Planned ownership:** `backend/src/aimctexturegen/generation/`, generation API/WebSocket endpoints, and the reference/configuration/candidate UI steps.
 
 **Deliverable:** Versioned block prompt construction; 0–8 pack/upload style
