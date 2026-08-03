@@ -3,6 +3,7 @@ import io
 import json
 import os
 import subprocess
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID
@@ -170,3 +171,42 @@ def test_delete_removes_only_library_record_not_job_local_copy(tmp_path: Path) -
 
     assert snapshot.read_bytes() == b"struct"
     assert store.list(PROJECT_ID, "structure") == ()
+
+
+def test_delete_keeps_record_directory_guarded_during_removal(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    projects_root = tmp_path / "projects"
+    project_root = _write_project(projects_root)
+    store = _store(projects_root)
+    stored = store.create(PROJECT_ID, "style", _validated(), now=NOW)
+    record_root = project_root / "uploads" / "style-references" / str(stored.reference_id)
+    real_hold = store_module.hold_directory_identity
+    real_rmtree = store_module.shutil.rmtree
+    active_record_guards = 0
+
+    @contextmanager
+    def tracking_hold(path: Path):
+        nonlocal active_record_guards
+        with real_hold(path) as identity:
+            is_record = path == record_root
+            if is_record:
+                active_record_guards += 1
+            try:
+                yield identity
+            finally:
+                if is_record:
+                    active_record_guards -= 1
+
+    def checked_rmtree(path: Path, *args, **kwargs) -> None:
+        assert path == record_root
+        assert active_record_guards == 1
+        real_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr(store_module, "hold_directory_identity", tracking_hold)
+    monkeypatch.setattr(store_module.shutil, "rmtree", checked_rmtree)
+
+    store.delete(PROJECT_ID, "style", stored.reference_id)
+
+    assert not record_root.exists()

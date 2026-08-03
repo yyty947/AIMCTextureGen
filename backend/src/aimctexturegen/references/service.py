@@ -22,7 +22,11 @@ from .models import (
     UploadReferenceSelection,
 )
 from .store import ProjectReferenceStore, ReferenceStoreError
-from .validation import MAX_REFERENCE_BYTES, validate_reference_png
+from .validation import (
+    MAX_REFERENCE_BYTES,
+    ReferenceValidationError,
+    validate_reference_png,
+)
 
 
 class ReferenceServiceError(Exception):
@@ -57,8 +61,11 @@ class ReferenceService:
                 candidates = sorted((*display_names.keys(), *coverage.unknown_paths))
                 references: list[PackReference] = []
                 for relative_path in candidates:
-                    payload = _read_pack_payload(opened.pack_root, relative_path)
-                    validated = validate_reference_png(payload)
+                    try:
+                        payload = _read_pack_payload(opened.pack_root, relative_path)
+                        validated = validate_reference_png(payload)
+                    except ReferenceValidationError:
+                        continue
                     references.append(
                         PackReference(
                             relative_path=relative_path,
@@ -149,7 +156,7 @@ class ReferenceService:
             return {
                 "source": "pack",
                 "source_relative_path": selection.relative_path,
-                "display_label": selection.relative_path,
+                "display_label": self._pack_display_label(opened, selection.relative_path),
                 "payload": payload,
                 "sha256": validated.sha256,
                 "byte_size": validated.byte_size,
@@ -179,6 +186,13 @@ class ReferenceService:
                 "mode": validated.mode,
             }
         raise TypeError("unsupported reference selection")
+
+    def _pack_display_label(self, opened, relative_path: str) -> str:
+        profile = self._catalogs.for_pack_format(opened.manifest.java_pack_format)
+        for entry in profile.entries:
+            if entry.relative_path == relative_path:
+                return entry.display_name
+        return Path(relative_path).name
 
 
 def _read_pack_payload(pack_root: Path, relative_path: str) -> bytes:

@@ -210,8 +210,8 @@ class ProjectReferenceStore:
                         )
                         if _tree_contains_reparse_point(record_root):
                             raise _reference_error("UNSAFE_REFERENCE_PATH")
-                    if os.path.lexists(record_root):
-                        shutil.rmtree(record_root)
+                        if os.path.lexists(record_root):
+                            shutil.rmtree(record_root)
                 except ReferenceStoreError:
                     raise
                 except (DirectoryGuardError, OSError) as error:

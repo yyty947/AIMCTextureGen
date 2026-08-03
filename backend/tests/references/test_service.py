@@ -106,6 +106,23 @@ def test_list_pack_references_returns_catalog_covered_and_unknown_square_pngs(tm
     assert {reference.source for reference in references} == {"pack"}
 
 
+def test_list_pack_references_skips_square_pngs_with_invalid_modes(tmp_path: Path) -> None:
+    projects_root = tmp_path / "projects"
+    project_root = _write_project(projects_root)
+    _png(
+        project_root / "pack" / "assets/example/textures/block/grayscale.png",
+        mode="L",
+        color=128,
+    )
+
+    references = _service(projects_root).list_pack_references(PROJECT_ID)
+
+    assert [reference.relative_path for reference in references] == [
+        "assets/minecraft/textures/block/custom_ref.png",
+        "assets/minecraft/textures/block/stone.png",
+    ]
+
+
 def test_upload_list_and_freeze_resolve_pack_and_upload_inputs_into_job_snapshot(tmp_path: Path) -> None:
     projects_root = tmp_path / "projects"
     project_root = _write_project(projects_root)
@@ -192,3 +209,30 @@ def test_upload_reuses_shared_validator_contract(tmp_path: Path) -> None:
     assert stored.width == validated.width
     assert stored.height == validated.height
     assert stored.mode == validated.mode
+
+
+def test_freeze_preserves_pack_reference_display_label(tmp_path: Path) -> None:
+    projects_root = tmp_path / "projects"
+    _write_project(projects_root)
+    service = _service(projects_root)
+    listed = next(
+        reference
+        for reference in service.list_pack_references(PROJECT_ID)
+        if reference.relative_path == "assets/minecraft/textures/block/stone.png"
+    )
+
+    snapshot = service.freeze(
+        PROJECT_ID,
+        ReferenceSelections(
+            style=(
+                PackReferenceSelection(
+                    source="pack",
+                    relative_path=listed.relative_path,
+                ),
+            ),
+            structure=None,
+        ),
+    )
+
+    metadata = json.loads(snapshot.references_json)
+    assert metadata["style"][0]["display_label"] == listed.display_name
