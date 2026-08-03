@@ -66,7 +66,9 @@ class CandidateArtifactStore:
                 guard.require()
                 if os.path.lexists(final_root):
                     raise generation_error("OUTPUT_CONTRACT_VIOLATION")
+                temporary_identity: FileIdentity | None = None
                 temporary_identity = _reset_temporary_directory(temporary_root, guard)
+                assert temporary_identity is not None
                 temporary_guard = guard.with_directory(temporary_root, temporary_identity)
                 published_identity: FileIdentity | None = None
                 try:
@@ -119,11 +121,12 @@ class CandidateArtifactStore:
                         published_identity = None
                         raise
                 finally:
-                    _cleanup_temporary_directory(
-                        temporary_root,
-                        temporary_identity,
-                        guard,
-                    )
+                    if temporary_identity is not None:
+                        _cleanup_temporary_directory(
+                            temporary_root,
+                            temporary_identity,
+                            guard,
+                        )
         except GenerationError:
             raise
         except (AtomicWriteError, DirectoryGuardError, OSError, ValidationError) as error:
@@ -170,7 +173,9 @@ class CandidateArtifactStore:
                     canvas_size=1024,
                     require_rgb=True,
                 )
+                temporary_identity: FileIdentity | None = None
                 temporary_identity = _reset_temporary_directory(temporary_root, guard)
+                assert temporary_identity is not None
                 temporary_guard = guard.with_directory(temporary_root, temporary_identity)
                 published_identity: FileIdentity | None = None
                 try:
@@ -248,11 +253,12 @@ class CandidateArtifactStore:
                         published_identity = None
                         raise
                 finally:
-                    _cleanup_temporary_directory(
-                        temporary_root,
-                        temporary_identity,
-                        guard,
-                    )
+                    if temporary_identity is not None:
+                        _cleanup_temporary_directory(
+                            temporary_root,
+                            temporary_identity,
+                            guard,
+                        )
         except GenerationError:
             raise
         except (AtomicWriteError, DirectoryGuardError, OSError, ValidationError) as error:
@@ -619,6 +625,12 @@ def _reset_temporary_directory(
     try:
         identity = capture_directory_identity(path)
     except (DirectoryGuardError, OSError) as error:
+        try:
+            _remove_owned_directory(path, guard)
+        except (DirectoryGuardError, OSError) as cleanup_error:
+            raise DirectoryGuardError(
+                "temporary publication directory cleanup failed"
+            ) from cleanup_error
         raise DirectoryGuardError("temporary publication directory is unsafe") from error
     if not matches_directory_identity(path, identity):
         raise DirectoryGuardError("temporary publication directory identity changed")
@@ -694,7 +706,35 @@ def _publish_directory(
     try:
         os.replace(temporary_root, final_root)
     except OSError as error:
+        try:
+            _remove_owned_directory(
+                final_root,
+                guard,
+                expected_identity=temporary_identity,
+            )
+        except (DirectoryGuardError, OSError) as cleanup_error:
+            raise _storage_error() from cleanup_error
         raise _storage_error() from error
+    try:
+        _verify_published_directory(final_root, temporary_identity, guard)
+    except BaseException:
+        try:
+            _remove_owned_directory(
+                final_root,
+                guard,
+                expected_identity=temporary_identity,
+            )
+        except (DirectoryGuardError, OSError) as cleanup_error:
+            raise _storage_error() from cleanup_error
+        raise
+    return temporary_identity
+
+
+def _verify_published_directory(
+    final_root: Path,
+    expected_identity: FileIdentity,
+    guard: _PublicationGuard,
+) -> None:
     guard.require_parent(final_root)
     try:
         final_status = os.lstat(final_root)
@@ -703,10 +743,9 @@ def _publish_directory(
     if (
         not stat.S_ISDIR(final_status.st_mode)
         or is_reparse_point(final_root, final_status)
-        or not matches_directory_identity(final_root, temporary_identity)
+        or not matches_directory_identity(final_root, expected_identity)
     ):
         raise DirectoryGuardError("published directory identity changed")
-    return temporary_identity
 
 
 def _write_atomic_bytes(

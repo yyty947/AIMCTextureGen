@@ -354,6 +354,92 @@ def test_raw_batch_publication_failure_leaves_no_visible_batch(tmp_path: Path, m
     assert list((loaded.root / "raw").iterdir()) == []
 
 
+def test_raw_batch_post_rename_failure_removes_final_and_temp_directories(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    loaded = _loaded_generation_job(tmp_path / "projects")
+    store = _artifact_store(tmp_path / "projects")
+    import aimctexturegen.generation.artifacts as artifact_module
+
+    def fail_published_directory_verification(*args, **kwargs) -> None:
+        raise OSError("post-rename reopen blocked")
+
+    monkeypatch.setattr(
+        artifact_module,
+        "_verify_published_directory",
+        fail_published_directory_verification,
+    )
+
+    with pytest.raises(GenerationError) as captured:
+        store.publish_raw_batch(
+            loaded,
+            _batch(0),
+            (_png_bytes(), _png_bytes(color=(4, 5, 6))),
+            canvas_size=1024,
+        )
+
+    assert captured.value.code == "JOB_STORAGE_UNAVAILABLE"
+    assert not (loaded.root / "raw/batch-0").exists()
+    assert not (loaded.root / "raw/.batch-0.tmp").exists()
+
+
+def test_processed_post_rename_failure_removes_final_and_temp_directories(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    loaded = _loaded_generation_job(tmp_path / "projects")
+    store = _artifact_store(tmp_path / "projects")
+    store.publish_raw_batch(
+        loaded,
+        _batch(0),
+        (_png_bytes(), _png_bytes(color=(8, 9, 10))),
+        canvas_size=1024,
+    )
+    import aimctexturegen.generation.artifacts as artifact_module
+
+    def fail_published_directory_verification(*args, **kwargs) -> None:
+        raise OSError("post-rename reopen blocked")
+
+    monkeypatch.setattr(
+        artifact_module,
+        "_verify_published_directory",
+        fail_published_directory_verification,
+    )
+
+    with pytest.raises(GenerationError) as captured:
+        store.process_and_publish(loaded, candidate_index=0, resolution=16)
+
+    assert captured.value.code == "JOB_STORAGE_UNAVAILABLE"
+    assert not (loaded.root / "processed/candidate-0").exists()
+    assert not (loaded.root / "processed/.candidate-0.tmp").exists()
+
+
+def test_reset_identity_failure_does_not_leave_temporary_directory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    loaded = _loaded_generation_job(tmp_path / "projects")
+    store = _artifact_store(tmp_path / "projects")
+    import aimctexturegen.generation.artifacts as artifact_module
+
+    def fail_capture(_path: Path) -> None:
+        raise OSError("identity capture blocked")
+
+    monkeypatch.setattr(artifact_module, "capture_directory_identity", fail_capture)
+
+    with pytest.raises(GenerationError) as captured:
+        store.publish_raw_batch(
+            loaded,
+            _batch(0),
+            (_png_bytes(), _png_bytes(color=(4, 5, 6))),
+            canvas_size=1024,
+        )
+
+    assert captured.value.code == "JOB_STORAGE_UNAVAILABLE"
+    assert not (loaded.root / "raw/.batch-0.tmp").exists()
+
+
 def test_raw_batch_rejects_reparse_parent_before_writing_outside_job_root(tmp_path: Path) -> None:
     loaded = _loaded_generation_job(tmp_path / "projects")
     store = _artifact_store(tmp_path / "projects")
