@@ -72,6 +72,7 @@ class SDXLBinding(WorkflowBinding):
             kind=kind,
             template=data,
             required_node_classes=tuple(required),
+            output_node_id="19",
         )
 
     def _apply(
@@ -79,6 +80,14 @@ class SDXLBinding(WorkflowBinding):
         inputs: GenericWorkflowInputs,
         working: dict,
     ) -> None:
+        if inputs.batch_size != 1:
+            raise WorkflowBindingError(
+                "sdxl v1 workflows support only batch_size=1"
+            )
+        if not inputs.style_reference_names:
+            raise WorkflowBindingError(
+                "sdxl v1 requires at least one style reference"
+            )
         for name in inputs.style_reference_names:
             _validate_upload_name(name)
         working["3"]["inputs"]["text"] = inputs.prompt

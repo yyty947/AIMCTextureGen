@@ -104,25 +104,25 @@
     {
       "variant": "text2img-no-style",
       "relative_path": "sdxl-mapchip-ipadapter-v2/text2img-no-style.api.json",
-      "sha256": null,
+      "sha256": "25c1c1d238a126daf13b392a2844a20ba99ba2facd3d66c13ca8278323af3e7c",
       "output_node_id": "19"
     },
     {
       "variant": "text2img-style",
       "relative_path": "sdxl-mapchip-ipadapter-v2/text2img-style.api.json",
-      "sha256": null,
+      "sha256": "80362974e036874262d166389c4099bfc0b85efb1aa6c9f98e58dce6ba8cad27",
       "output_node_id": "19"
     },
     {
       "variant": "img2img-no-style",
       "relative_path": "sdxl-mapchip-ipadapter-v2/img2img-no-style.api.json",
-      "sha256": null,
+      "sha256": "185d2e968082425d9b63521c9d38ebec51b9c8a8d718b6b229f4c782ef544bba",
       "output_node_id": "19"
     },
     {
       "variant": "img2img-style",
       "relative_path": "sdxl-mapchip-ipadapter-v2/img2img-style.api.json",
-      "sha256": null,
+      "sha256": "766d7f7523ad17055240e36021abc1cec9fd359a763c0712670be6418a152c90",
       "output_node_id": "19"
     }
   ],

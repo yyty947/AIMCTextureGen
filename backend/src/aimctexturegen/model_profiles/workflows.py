@@ -29,8 +29,8 @@ class GenericWorkflowInputs(_StrictModel):
     negative_prompt: str = Field(default="", max_length=4000)
     seed: int = Field(ge=0, le=MAX_SAFE_SEED)
     inference_canvas: Literal[16, 32, 64]
+    batch_size: Literal[1, 2, 4] = 1
     style_reference_names: tuple[str, ...] = Field(
-        min_length=1,
         max_length=8,
     )
     structure_reference_name: str | None = None
@@ -55,11 +55,22 @@ class WorkflowBinding:
         kind: str,
         template: dict,
         required_node_classes: tuple[str, ...],
+        output_node_id: str | None = None,
     ) -> None:
         _validate_template(template)
         self._kind = kind
         self._template = deepcopy(template)
         self._required = tuple(required_node_classes)
+        resolved_output_node_id = (
+            output_node_id
+            if output_node_id is not None
+            else next(reversed(template))
+        )
+        if resolved_output_node_id not in template:
+            raise WorkflowBindingError(
+                f"output node {resolved_output_node_id!r} is not present in the workflow template"
+            )
+        self._output_node_id = resolved_output_node_id
 
     @property
     def kind(self) -> str:
@@ -72,6 +83,10 @@ class WorkflowBinding:
     @property
     def required_node_classes(self) -> tuple[str, ...]:
         return self._required
+
+    @property
+    def output_node_id(self) -> str:
+        return self._output_node_id
 
     def validate_server_nodes(self, available: set[str]) -> None:
         missing = set(self._required) - set(available)

@@ -27,6 +27,7 @@ def _inputs(**updates: object) -> GenericWorkflowInputs:
         negative_prompt="blurry",
         seed=12345,
         inference_canvas=16,
+        batch_size=1,
         style_reference_names=("style.png",),
         structure_reference_name=None,
         advanced={},
@@ -45,8 +46,10 @@ def test_text2img_compile_sets_only_semantic_slots() -> None:
     assert compiled["8"]["inputs"]["image"] == "style.png"
     assert compiled["11"]["inputs"]["image"] == ["8", 0]
     assert compiled["13"]["inputs"]["width"] == 1024
+    assert compiled["13"]["inputs"]["batch_size"] == 1
     assert template["3"]["inputs"]["text"] == "<positive_prompt>"
     assert template["12"]["inputs"]["seed"] == 0
+    assert binding.output_node_id == "19"
 
 
 def test_text2img_rejects_structure_reference() -> None:
@@ -54,6 +57,11 @@ def test_text2img_rejects_structure_reference() -> None:
         _binding().compile(
             _inputs(structure_reference_name="layout.png")
         )
+
+
+def test_v1_rejects_zero_style_references_explicitly() -> None:
+    with pytest.raises(WorkflowBindingError, match="style reference"):
+        _binding().compile(_inputs(style_reference_names=()))
 
 
 def test_img2img_requires_one_structure_reference() -> None:

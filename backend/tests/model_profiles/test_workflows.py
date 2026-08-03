@@ -69,6 +69,7 @@ def _inputs(**updates: object) -> GenericWorkflowInputs:
         negative_prompt="",
         seed=42,
         inference_canvas=16,
+        batch_size=1,
         style_reference_names=("style.png",),
         structure_reference_name=None,
         advanced={},
@@ -79,6 +80,7 @@ def _inputs(**updates: object) -> GenericWorkflowInputs:
 
 def test_workflow_inputs_enforce_js_safe_seed_and_style_bounds() -> None:
     assert _inputs().seed == 42
+    assert _inputs().batch_size == 1
     assert (
         _inputs(seed=9_007_199_254_740_991).seed
         == 9_007_199_254_740_991
@@ -86,13 +88,17 @@ def test_workflow_inputs_enforce_js_safe_seed_and_style_bounds() -> None:
     with pytest.raises(ValidationError):
         _inputs(seed=9_007_199_254_740_992)
     with pytest.raises(ValidationError):
-        _inputs(style_reference_names=())
-    with pytest.raises(ValidationError):
         _inputs(
             style_reference_names=tuple(
                 f"{index}.png" for index in range(9)
             )
         )
+    with pytest.raises(ValidationError):
+        _inputs(batch_size=3)
+
+
+def test_workflow_inputs_allow_zero_style_references_for_v2_bindings() -> None:
+    assert _inputs(style_reference_names=()).style_reference_names == ()
 
 
 def test_load_workflow_template_requires_the_tracked_digest(
@@ -170,6 +176,7 @@ def test_fake_second_profile_uses_the_same_protocol_with_different_nodes() -> No
     assert compiled["2"]["inputs"]["seed"] == 42
     assert binding.required_node_classes == ("FakeNodeA", "FakeNodeB")
     assert binding.kind == "fake-second"
+    assert binding.output_node_id == "2"
 
 
 def _registry(tmp_path: Path, profile_updates: dict | None = None) -> ManifestRegistry:
