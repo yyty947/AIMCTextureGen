@@ -103,10 +103,10 @@ def state() -> GenerationJobState:
 def complete_artifacts(index: int, batch_seed: int) -> CandidateArtifacts:
     return CandidateArtifacts(
         raw=artifact(f"raw/batch-{batch_seed}-{index}.png"),
-        final=artifact(f"processed/{index}.png", kind="final"),
-        nearest=artifact(f"previews/{index}-nearest.png", kind="nearest"),
-        tile=artifact(f"previews/{index}-tile.png", kind="tile"),
-        report=artifact(f"reports/{index}.json", kind="report"),
+        final=artifact(f"processed/candidate-{index}/final.png", kind="final"),
+        nearest=artifact(f"processed/candidate-{index}/nearest.png", kind="nearest"),
+        tile=artifact(f"processed/candidate-{index}/tile.png", kind="tile"),
+        report=artifact(f"processed/candidate-{index}/report.json", kind="report"),
     )
 
 

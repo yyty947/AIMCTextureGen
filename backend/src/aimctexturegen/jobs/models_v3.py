@@ -117,10 +117,19 @@ class CandidateArtifacts(_StrictModel):
         for kind, artifact in expected.items():
             if artifact is not None and artifact.kind != kind:
                 raise ValueError(f"{kind} artifact kind mismatch")
-            if artifact is not None:
-                root = {"raw": "raw/", "final": "processed/", "nearest": "previews/", "tile": "previews/", "report": "reports/"}[kind]
-                if not artifact.relative_path.startswith(root):
-                    raise ValueError("artifact kind does not match schema-3 layout directory")
+        if self.raw is not None and not self.raw.relative_path.startswith("raw/"):
+            raise ValueError("artifact kind does not match schema-3 layout directory")
+        processed_paths = {
+            "final": self.final,
+            "nearest": self.nearest,
+            "tile": self.tile,
+            "report": self.report,
+        }
+        for name, artifact in processed_paths.items():
+            if artifact is None:
+                continue
+            if not artifact.relative_path.startswith("processed/candidate-"):
+                raise ValueError("artifact kind does not match schema-3 layout directory")
         return self
 
     def is_complete(self) -> bool:

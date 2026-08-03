@@ -112,6 +112,20 @@ def test_seam_scores_in_report_match_final_texture(tmp_path, image_from_rows, pn
     )
 
 
+def test_preview_dimensions_follow_deterministic_scaling_contract(
+    tmp_path, image_from_rows, png_path
+):
+    source, _cells = _cell_canvas(image_from_rows, png_path)
+    output = tmp_path / "out"
+
+    report = process_candidate(source, output, stem="c", resolution=16)
+
+    assert report.output.width == 16
+    assert report.previews.nearest_neighbor.width == 512
+    assert report.previews.tile_3x3.width == 1536
+    assert report.previews.tile_3x3.width == report.previews.nearest_neighbor.width * 3
+
+
 @pytest.mark.parametrize(
     ("resolution", "stem", "expected_code"),
     [

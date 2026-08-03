@@ -47,6 +47,7 @@ from aimctexturegen.projects._directory_guard import (
     matches_directory_identity,
 )
 from aimctexturegen.projects.repository import OpenedProject, ProjectRepository
+from aimctexturegen.core.relative_paths import validate_project_relative_path
 
 
 MAX_JOB_JSON_BYTES = 1024 * 1024
@@ -330,6 +331,32 @@ class JobStore:
                 replacement,
                 expected_revision=expected_revision,
             )
+
+    def resolve_job_file(
+        self,
+        project_id: UUID,
+        job_id: UUID,
+        relative_path: str,
+    ) -> Path:
+        _require_uuid(project_id, "project_id")
+        _require_uuid(job_id, "job_id")
+        validated = validate_project_relative_path(relative_path)
+        loaded = self.load(project_id, job_id)
+        candidate = loaded.root / Path(validated)
+        try:
+            resolved = candidate.resolve(strict=True)
+            root = loaded.root.resolve(strict=True)
+        except OSError as error:
+            raise _job_error("CORRUPT_JOB_RECORD") from error
+        if not resolved.is_relative_to(root):
+            raise _job_error("UNSAFE_JOB_PATH")
+        try:
+            status = os.lstat(resolved)
+        except OSError as error:
+            raise _job_error("CORRUPT_JOB_RECORD") from error
+        if not stat.S_ISREG(status.st_mode) or is_reparse_point(resolved, status):
+            raise _job_error("UNSAFE_JOB_PATH")
+        return resolved
 
     def _create_opened(
         self,

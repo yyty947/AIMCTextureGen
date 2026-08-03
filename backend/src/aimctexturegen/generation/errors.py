@@ -54,6 +54,14 @@ _ERRORS: dict[str, tuple[str, tuple[str, ...]]] = {
         "生成参数无效",
         ("检查高级参数与参考图是否匹配",),
     ),
+    "OUTPUT_CONTRACT_VIOLATION": (
+        "生成输出不符合受控契约",
+        ("重新运行当前原生批次；如果持续失败，请检查模型配置和 workflow 版本",),
+    ),
+    "POSTPROCESSING_FAILED": (
+        "候选后处理失败",
+        ("重新运行该候选后处理；如果持续失败，请检查项目目录权限和磁盘空间",),
+    ),
 }
 
 
@@ -71,4 +79,3 @@ def generation_error(
         technical_details=technical_details,
         current_job=current_job,
     )
-
