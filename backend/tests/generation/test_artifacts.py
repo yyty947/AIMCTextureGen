@@ -480,6 +480,47 @@ def test_reset_identity_verification_failure_removes_temporary_directory_and_pre
     assert not (loaded.root / "raw/.batch-0.tmp").exists()
 
 
+def test_reset_parent_guard_failure_after_creation_removes_temporary_directory_and_preserves_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    loaded = _loaded_generation_job(tmp_path / "projects")
+    store = _artifact_store(tmp_path / "projects")
+    import aimctexturegen.generation.artifacts as artifact_module
+
+    real_require_parent = artifact_module._PublicationGuard.require_parent
+    temporary_parent_checks = 0
+
+    def fail_after_creation(self, path: Path) -> None:
+        nonlocal temporary_parent_checks
+        if path.name == ".batch-0.tmp":
+            temporary_parent_checks += 1
+            if temporary_parent_checks == 3:
+                raise artifact_module.DirectoryGuardError(
+                    "post-create parent guard blocked"
+                )
+        real_require_parent(self, path)
+
+    monkeypatch.setattr(
+        artifact_module._PublicationGuard,
+        "require_parent",
+        fail_after_creation,
+    )
+
+    with pytest.raises(GenerationError) as captured:
+        store.publish_raw_batch(
+            loaded,
+            _batch(0),
+            (_png_bytes(), _png_bytes(color=(4, 5, 6))),
+            canvas_size=1024,
+        )
+
+    assert captured.value.code == "JOB_STORAGE_UNAVAILABLE"
+    assert isinstance(captured.value.__cause__, artifact_module.DirectoryGuardError)
+    assert str(captured.value.__cause__) == "post-create parent guard blocked"
+    assert not (loaded.root / "raw/.batch-0.tmp").exists()
+
+
 def test_raw_batch_rejects_reparse_parent_before_writing_outside_job_root(tmp_path: Path) -> None:
     loaded = _loaded_generation_job(tmp_path / "projects")
     store = _artifact_store(tmp_path / "projects")
