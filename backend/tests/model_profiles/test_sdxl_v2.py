@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pytest
 
+from aimctexturegen.comfy.errors import WorkflowBindingError
+from aimctexturegen.comfy.manifests import ModelProfileManifestV2
 from aimctexturegen.model_profiles.sdxl_v2 import SDXLV2Binding
 from aimctexturegen.model_profiles.workflows import GenericWorkflowInputs
 
@@ -156,6 +158,51 @@ def test_v2_img2img_repeats_the_encoded_structure_latent_by_batch_size() -> None
     )
     assert compiled["15"]["class_type"] == "RepeatLatentBatch"
     assert compiled["15"]["inputs"]["amount"] == 4
+
+
+def test_v2_manifest_required_nodes_cover_compiled_graphs_for_readiness() -> None:
+    manifest = ModelProfileManifestV2.model_validate(
+        json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+    )
+    declared = set(manifest.required_node_classes)
+    cases = [
+        ("text2img-no-style", (), None),
+        ("text2img-style", ("style-a.png", "style-b.png"), None),
+        ("img2img-no-style", (), "structure.png"),
+        (
+            "img2img-style",
+            ("style-a.png", "style-b.png"),
+            "structure.png",
+        ),
+    ]
+    for variant, styles, structure in cases:
+        compiled = _binding(variant).compile(
+            _inputs(
+                style_reference_names=styles,
+                structure_reference_name=structure,
+            )
+        )
+        compiled_classes = {
+            node["class_type"] for node in compiled.values()
+        }
+        assert compiled_classes <= declared
+
+
+def test_v2_text2img_rejects_advanced_denoise() -> None:
+    with pytest.raises(WorkflowBindingError, match="denoise"):
+        _binding("text2img-no-style").compile(
+            _inputs(advanced={"denoise": 0.25})
+        )
+
+
+def test_v2_img2img_preserves_advanced_denoise() -> None:
+    compiled = _binding("img2img-no-style").compile(
+        _inputs(
+            structure_reference_name="structure.png",
+            advanced={"denoise": 0.25},
+        )
+    )
+    assert compiled["12"]["inputs"]["denoise"] == 0.25
 
 
 @pytest.mark.parametrize(

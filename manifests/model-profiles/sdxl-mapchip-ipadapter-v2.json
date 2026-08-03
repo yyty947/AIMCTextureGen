@@ -129,13 +129,18 @@
   "required_node_classes": [
     "CheckpointLoaderSimple",
     "LoraLoader",
+    "CLIPTextEncode",
     "CLIPVisionLoader",
+    "CLIPVisionEncode",
+    "LoadImage",
     "ImageBatch",
     "ImageScale",
     "IPAdapterUnifiedLoader",
     "IPAdapterAdvanced",
     "KSampler",
     "EmptyLatentImage",
+    "VAEEncode",
+    "RepeatLatentBatch",
     "VAEDecode",
     "SaveImage"
   ],

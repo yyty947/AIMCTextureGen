@@ -116,6 +116,10 @@ class SDXLV2Binding(WorkflowBinding):
         working["12"]["inputs"]["seed"] = inputs.seed
 
         advanced = _validate_advanced(inputs.advanced)
+        if "denoise" in advanced and not wants_structure:
+            raise WorkflowBindingError(
+                f"{self.variant} cannot accept denoise without a structure reference"
+            )
         if "denoise" in advanced:
             working["12"]["inputs"]["denoise"] = advanced["denoise"]
 
