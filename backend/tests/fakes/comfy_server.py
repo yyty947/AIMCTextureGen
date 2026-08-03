@@ -8,7 +8,7 @@ import re
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 import websockets
 
@@ -23,7 +23,10 @@ class FakeComfyServer:
         history: dict | None = None,
         history_behavior: str = "ok",
         view_bytes: bytes = b"png-bytes",
+        view_bytes_by_name: dict[str, bytes] | None = None,
         view_behavior: str = "ok",
+        queue_running: list[list[Any]] | None = None,
+        queue_pending: list[list[Any]] | None = None,
         ws_script: list[dict] | None = None,
         ws_disconnect: bool = False,
         ws_hold: bool = False,
@@ -39,7 +42,10 @@ class FakeComfyServer:
         self.history = history
         self.history_behavior = history_behavior
         self.view_bytes = view_bytes
+        self.view_bytes_by_name = view_bytes_by_name or {}
         self.view_behavior = view_behavior
+        self.queue_running = queue_running or []
+        self.queue_pending = queue_pending or []
         self.ws_script = ws_script or []
         self.ws_disconnect = ws_disconnect
         self.ws_hold = ws_hold
@@ -47,6 +53,7 @@ class FakeComfyServer:
         self.last_prompt: dict | None = None
         self.last_upload_name: str | None = None
         self.last_client_id: str | None = None
+        self.last_interrupt_prompt_id: str | None = None
 
         self._httpd = ThreadingHTTPServer(("127.0.0.1", 0), _HttpHandler)
         self._httpd.fake_server = self  # type: ignore[attr-defined]
@@ -79,7 +86,8 @@ class FakeComfyServer:
                 await websocket.close()
                 return
             if self.ws_hold:
-                await asyncio.sleep(30)
+                while not websocket.close_code:
+                    await asyncio.sleep(0.05)
                 await websocket.close()
                 return
             for message in self.ws_script:
@@ -158,13 +166,24 @@ class _HttpHandler(BaseHTTPRequestHandler):
                 return
             self._json(server.history or {})
             return
+        if path == "/queue":
+            self._json(
+                {
+                    "queue_running": server.queue_running,
+                    "queue_pending": server.queue_pending,
+                }
+            )
+            return
         if path == "/view":
             if server.view_behavior == "missing":
                 self.send_response(404)
                 self.send_header("Content-Length", "0")
                 self.end_headers()
                 return
-            self._send_bytes(server.view_bytes)
+            query = parse_qs(parsed.query, keep_blank_values=True)
+            filename = query.get("filename", [""])[0]
+            body = server.view_bytes_by_name.get(filename, server.view_bytes)
+            self._send_bytes(body)
             return
         if path == "/interrupt":
             self._json({})
@@ -223,6 +242,14 @@ class _HttpHandler(BaseHTTPRequestHandler):
             )
             return
         if parsed.path == "/interrupt":
+            length = int(self.headers.get("Content-Length", "0"))
+            payload = {}
+            if length:
+                payload = json.loads(self.rfile.read(length))
+            prompt_id = payload.get("prompt_id")
+            server.last_interrupt_prompt_id = (
+                str(prompt_id) if prompt_id is not None else None
+            )
             self._json({})
             return
         self.send_response(404)

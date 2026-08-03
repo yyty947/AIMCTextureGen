@@ -151,6 +151,10 @@ class ComfyDisconnectedError(ComfyError):
     """The WebSocket or transport disconnected unexpectedly."""
 
 
+class ComfyCanceledError(ComfyError):
+    """The caller requested cancellation before ComfyUI completed."""
+
+
 class ComfyUnsafeInputError(ComfyError):
     """An upload or input violates the safe boundary."""
 

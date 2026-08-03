@@ -2,8 +2,14 @@
 
 from __future__ import annotations
 
+import threading
+import time
+
+import pytest
+
 from aimctexturegen.comfy.client import ComfyClient
 from aimctexturegen.comfy.errors import (
+    ComfyCanceledError,
     ComfyDisconnectedError,
     ComfyExecutionError,
     ComfyProtocolError,
@@ -96,3 +102,18 @@ def test_malformed_websocket_message_is_a_protocol_error() -> None:
             pass
         else:
             raise AssertionError("expected ComfyProtocolError")
+
+
+def test_wait_completion_observes_cancel_requested_promptly() -> None:
+    with FakeComfyServer(ws_hold=True) as server:
+        client = _client(server)
+        cancel = threading.Event()
+        cancel.set()
+        started = time.perf_counter()
+        with pytest.raises(ComfyCanceledError):
+            client.wait_completion(
+                PROMPT_ID,
+                timeout=2.0,
+                cancel_requested=cancel.is_set,
+            )
+        assert time.perf_counter() - started < 1.0

@@ -6,13 +6,15 @@ import json
 import time
 from collections.abc import Callable
 from copy import deepcopy
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Literal
 from urllib.parse import urlsplit
 from uuid import uuid4
 
 import httpx
 
 from aimctexturegen.comfy.errors import (
+    ComfyCanceledError,
     ComfyDisconnectedError,
     ComfyError,
     ComfyExecutionError,
@@ -26,6 +28,19 @@ from aimctexturegen.comfy.errors import (
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 MAX_RESPONSE_BYTES = 8 * 1024 * 1024
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost", "[::1]"})
+
+
+@dataclass(frozen=True)
+class ComfyOutputImage:
+    filename: str
+    subfolder: str
+    type: Literal["output"]
+
+
+@dataclass(frozen=True)
+class QueueSnapshot:
+    running_prompt_ids: tuple[str, ...]
+    pending_prompt_ids: tuple[str, ...]
 
 
 def _default_ws_connect(url: str):
@@ -121,12 +136,58 @@ class ComfyClient:
                 "output file was not declared by prompt history"
             )
         metadata = declared[filename]
+        return self.get_output_image(
+            ComfyOutputImage(
+                filename=filename,
+                subfolder=str(metadata.get("subfolder", "")),
+                type=str(metadata.get("type", "output")),
+            )
+        )
+
+    def declared_output_images(
+        self,
+        history_entry: dict,
+        *,
+        output_node_id: str,
+    ) -> tuple[ComfyOutputImage, ...]:
+        outputs = history_entry.get("outputs")
+        if not isinstance(outputs, dict):
+            raise ComfyUnsafeOutputError("history outputs must be an object")
+        if output_node_id not in outputs:
+            raise ComfyUnsafeOutputError(
+                f"missing declared output node {output_node_id}"
+            )
+        node_output = outputs[output_node_id]
+        if not isinstance(node_output, dict):
+            raise ComfyUnsafeOutputError("declared output node is malformed")
+        images = node_output.get("images")
+        if not isinstance(images, list):
+            raise ComfyUnsafeOutputError("declared output images must be a list")
+        declared: list[ComfyOutputImage] = []
+        seen: set[tuple[str, str, str]] = set()
+        for image in images:
+            descriptor = _parse_output_descriptor(image)
+            key = (descriptor.filename, descriptor.subfolder, descriptor.type)
+            if key in seen:
+                raise ComfyUnsafeOutputError("duplicate declared output image")
+            seen.add(key)
+            declared.append(descriptor)
+        return tuple(declared)
+
+    def get_output_image(self, image: ComfyOutputImage) -> bytes:
+        descriptor = _parse_output_descriptor(
+            {
+                "filename": image.filename,
+                "subfolder": image.subfolder,
+                "type": image.type,
+            }
+        )
         response = self._http.get(
             f"{self._base_url}/view",
             params={
-                "filename": filename,
-                "subfolder": metadata.get("subfolder", ""),
-                "type": metadata.get("type", "output"),
+                "filename": descriptor.filename,
+                "subfolder": descriptor.subfolder,
+                "type": descriptor.type,
             },
         )
         if response.status_code != 200:
@@ -135,8 +196,16 @@ class ComfyClient:
             raise ComfyProtocolError("output exceeds the response limit")
         return response.content
 
-    def interrupt(self) -> None:
-        response = self._http.post(f"{self._base_url}/interrupt")
+    def queue_snapshot(self) -> QueueSnapshot:
+        payload = self._get_json("/queue")
+        return QueueSnapshot(
+            running_prompt_ids=_queue_prompt_ids(payload, "queue_running"),
+            pending_prompt_ids=_queue_prompt_ids(payload, "queue_pending"),
+        )
+
+    def interrupt(self, prompt_id: str | None = None) -> None:
+        payload = {"prompt_id": prompt_id} if prompt_id is not None else None
+        response = self._http.post(f"{self._base_url}/interrupt", json=payload)
         if response.status_code != 200:
             raise ComfyProtocolError("interrupt request failed")
 
@@ -146,6 +215,7 @@ class ComfyClient:
         *,
         timeout: float = 60.0,
         progress: Callable[[int, int], None] | None = None,
+        cancel_requested: Callable[[], bool] | None = None,
     ) -> dict:
         ws_base = self._ws_base_url.replace("http://", "ws://", 1).replace(
             "https://",
@@ -158,17 +228,17 @@ class ComfyClient:
         try:
             with self._ws_connect(url) as websocket:
                 while time.monotonic() < deadline:
+                    if cancel_requested is not None and cancel_requested():
+                        raise ComfyCanceledError("completion wait was canceled")
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
                         raise ComfyTimeoutError(
                             "completion wait exceeded the deadline"
                         )
                     try:
-                        raw = websocket.recv(timeout=remaining)
-                    except TimeoutError as exc:
-                        raise ComfyTimeoutError(
-                            "completion wait exceeded the deadline"
-                        ) from exc
+                        raw = websocket.recv(timeout=min(remaining, 0.25))
+                    except TimeoutError:
+                        continue
                     except Exception as exc:
                         raise ComfyDisconnectedError(
                             "WebSocket disconnected before completion"
@@ -278,3 +348,66 @@ def _declared_outputs(history_entry: dict) -> dict[str, dict]:
             if isinstance(filename, str) and filename:
                 declared[filename] = image
     return declared
+
+
+def _safe_output_subfolder(subfolder: str) -> str:
+    if not isinstance(subfolder, str):
+        raise ComfyUnsafeOutputError("declared output subfolder is unsafe")
+    if subfolder == "":
+        return ""
+    normalized = subfolder.replace("\\", "/")
+    segments = normalized.split("/")
+    if any(segment in {"", ".", ".."} for segment in segments):
+        raise ComfyUnsafeOutputError("declared output subfolder is unsafe")
+    if any(any(ord(character) < 32 for character in segment) for segment in segments):
+        raise ComfyUnsafeOutputError("declared output subfolder is unsafe")
+    return normalized
+
+
+def _safe_output_filename(filename: str) -> str:
+    if not isinstance(filename, str):
+        raise ComfyUnsafeOutputError("declared output filename is unsafe")
+    normalized = filename.replace("\\", "/")
+    segments = normalized.split("/")
+    if any(segment in {"", ".", ".."} for segment in segments):
+        raise ComfyUnsafeOutputError("declared output filename is unsafe")
+    name = segments[-1]
+    if (
+        not name
+        or name.startswith(".")
+        or len(name) > 255
+        or any(ord(character) < 32 for character in name)
+    ):
+        raise ComfyUnsafeOutputError("declared output filename is unsafe")
+    return name
+
+
+def _parse_output_descriptor(image: Any) -> ComfyOutputImage:
+    if not isinstance(image, dict):
+        raise ComfyUnsafeOutputError("declared output image is malformed")
+    filename = image.get("filename")
+    image_type = image.get("type")
+    if not isinstance(filename, str) or not filename:
+        raise ComfyUnsafeOutputError("declared output filename is unsafe")
+    if image_type != "output":
+        raise ComfyUnsafeOutputError("declared output type is unsafe")
+    return ComfyOutputImage(
+        filename=_safe_output_filename(filename),
+        subfolder=_safe_output_subfolder(image.get("subfolder", "")),
+        type="output",
+    )
+
+
+def _queue_prompt_ids(payload: dict, field: str) -> tuple[str, ...]:
+    rows = payload.get(field)
+    if not isinstance(rows, list):
+        raise ComfyProtocolError(f"{field} must be a list")
+    prompt_ids: list[str] = []
+    for row in rows:
+        if not isinstance(row, list) or len(row) < 2:
+            raise ComfyProtocolError(f"{field} row is malformed")
+        prompt_id = row[1]
+        if not isinstance(prompt_id, str):
+            raise ComfyProtocolError("queue prompt ids must be strings")
+        prompt_ids.append(prompt_id)
+    return tuple(prompt_ids)

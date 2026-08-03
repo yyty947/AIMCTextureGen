@@ -7,6 +7,7 @@ import sys
 
 from aimctexturegen.comfy.client import ComfyClient
 from aimctexturegen.comfy.errors import (
+    ComfyCanceledError,
     ComfyDisconnectedError,
     ComfyError,
     ComfyExecutionError,
@@ -27,6 +28,7 @@ def test_all_transport_errors_share_a_base() -> None:
         ComfyQueueError,
         ComfyExecutionError,
         ComfyDisconnectedError,
+        ComfyCanceledError,
         ComfyUnsafeInputError,
         ComfyUnsafeOutputError,
     ):
