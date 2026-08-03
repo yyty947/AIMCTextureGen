@@ -1,15 +1,23 @@
 # AIMCTextureGen 当前交接
 
-最后核对日期：2026-08-02
+最后核对日期：2026-08-03
 
 ## 当前状态
 
 Phase 3 已通过合并提交 `ae424b1` 进入 `master`/`origin/master`。Phase 4
 已通过合并提交 `46c8d0e` 进入 `master`，并随 `54a58b5` 的 Windows 行尾
-稳定性修复推送到 `origin/master`；当前 checkout 位于 `master`。Phase 4 的设计和实施计划已
+稳定性修复推送到 `origin/master`。Phase 4 的设计和实施计划已
 落盘。Task 1–10 的实现与真实 GPU 冒烟已完成；本轮收尾还修正了 Windows
 环境规范化、后台安装执行、端口占用错误映射、重建 manager 的安全停止、
 profile 哈希/receipt 就绪判定，以及取消/完成状态竞态：
+
+当前 checkout 位于 `codex/phase-5-four-candidate-generation`。Phase 5 已完成
+交互式设计确认，书面规格位于
+[`docs/superpowers/specs/2026-08-03-phase-5-four-candidate-generation-design.md`](docs/superpowers/specs/2026-08-03-phase-5-four-candidate-generation-design.md)，
+原生批次 seed、单活动任务协调器和 profile v2 的架构决定位于
+[`docs/adr/0003-native-batch-seeds-and-generation-coordinator.md`](docs/adr/0003-native-batch-seeds-and-generation-coordinator.md)。
+当前只在做文档/计划，没有开始 Phase 5 实现；书面规格经用户复核后才进入
+详细实施计划。
 
 收尾后又修正了一个运行时性能回归：profile 完整性校验改为有界内存的流式
 哈希并按文件元数据缓存；旧版已验证安装记录不会因 WebUI 轮询反复读取多 GB
@@ -193,10 +201,23 @@ git status --short
 
 ## 下一入口
 
-Phase 4 的自动化门禁和用户手工 WebUI 验收均已完成。用户已在 Windows
-桌面浏览器确认受管运行时状态、启停/重启、端口占用保护、400/600/900 px
-布局、控制台以及既有 Phase 3 数据均符合预期。Phase 4 分支已完成合并并
-推送；下一实现入口为 Phase 5。
+先复核 Phase 5 书面设计规格，不开始业务代码。用户确认书面规格后，使用
+`superpowers:writing-plans` 创建唯一的 Phase 5 实施计划，写明测试先行步骤、
+精确文件/接口、真实 GPU 门禁和人工验收。该计划落盘并提交后才选择执行方式。
+
+已确认的 Phase 5 关键边界：
+
+- 固定四候选，持久化原生 batch 1/2/4 及每批一个只读 seed；
+- 0–8 张风格参考，可选一张结构参考；
+- 全应用同时只有一个非终态生成任务，可显式取消并保留完成候选；
+- queued 重启后显式继续，active 重启后失败并保留已完成产物；
+- 已验证 profile v1 不改，新增 v2 四种 workflow 变体并重新真实验证；
+- 五步向导在本阶段做到候选展示，采用、导出和最终 UI polish 留在 Phase 6。
+
+本机三个真实资源包只位于被忽略的
+`runtime/manual-test-packs/phase-5/`。格式 34 的第三方包用于本地正向生成，
+格式 32 的转换包和缺少主 `pack_format` 的原版提取包用于可读拒绝；任何真实
+ZIP、PNG、预览、生成图或含素材截图都不得提交。自动化仍只使用合成资产。
 
 已知的非阻塞 UI 限制：推理环境面板当前优先保证功能和响应式可用性，许可
 checkbox 仍受通用 `input` 尺寸规则影响，视觉尺寸/对齐未做最终 polish。统一
@@ -206,7 +227,7 @@ checkbox 仍受通用 `input` 尺寸规则影响，视觉尺寸/对齐未做最�
 全局 Node v24.13.0 复现；恢复固定运行时后再更新 `docs/TESTING.md` 的
 命令路径。
 
-当前工作树包含本轮收尾代码/文档变更和用户已有的未跟踪 `temp/`；`temp/`
-不属于项目变更，必须保留。接手按 `AGENTS.md` 的必读顺序阅读，以当前代码和
-可重复验证结果为准。Phase 4 不做生产目录、候选采用、导出、移动端或
-Java/Bedrock 转换。
+当前分支只包含 Phase 5 设计/计划文档工作，不含 Phase 5 业务实现；工作树中
+用户已有的未跟踪 `temp/` 不属于项目变更，必须保留。接手按 `AGENTS.md` 的
+必读顺序阅读，以当前代码和可重复验证结果为准。Phase 5 不做候选采用、导出、
+移动端、Java/Bedrock 转换、overlay 合并或格式 32 支持。

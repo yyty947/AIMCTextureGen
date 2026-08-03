@@ -15,7 +15,8 @@
 - Imported packs and `source/` snapshots are immutable; only `pack/` working copies may be changed by explicit adoption.
 - The repository contains independently maintained path metadata and no Mojang/Microsoft original textures, model JSON, or complete game assets.
 - The application does not scan Minecraft installations, client JAR files, existing ComfyUI installations, or unrelated filesystem locations.
-- Candidate count is always four; persisted seeds are stable; user-selected parallelism is exactly 1, 2, or 4.
+- Candidate count is always four; schema-3 jobs persist one read-only base seed per
+  native execution batch; user-selected parallelism is exactly 1, 2, or 4.
 - Failures never silently alter parameters, adopt candidates, or change the working copy.
 - WebUI accesses files and inference only through FastAPI.
 - ComfyUI, nodes, workflows, and models use explicit versions, sources, licenses, and hashes and never silently update.
@@ -107,11 +108,26 @@ for Task 11; Phase 4 is now merged into and pushed from `master`.
 
 ## Phase 5: Four-Candidate Generation Flow
 
+**Approved design:** [`../specs/2026-08-03-phase-5-four-candidate-generation-design.md`](../specs/2026-08-03-phase-5-four-candidate-generation-design.md)
+
 **Planned ownership:** `backend/src/aimctexturegen/generation/`, generation API/WebSocket endpoints, and the reference/configuration/candidate UI steps.
 
-**Deliverable:** Prompt construction from catalog terms and user text, 1–8 IP-Adapter style references, optional img2img structure reference, stable four-seed requests, exact 1/2/4 batch semantics, progress, cancellation, retry, user-facing error translation, raw artifacts, and Phase 2 postprocessing.
+**Deliverable:** Versioned block prompt construction; 0–8 pack/upload style
+references; optional img2img structure reference; immutable schema-3 native
+batch plans for exact 1/2/4 semantics; one application-wide nonterminal job;
+managed-ComfyUI auto-start; persisted progress; confirmed cancellation;
+lineage retry and partial-candidate preservation; user-facing error
+translation; raw artifacts; Phase 2 postprocessing; and the functional five-step
+wizard through candidate presentation. Adoption/export remain Phase 6.
 
-**Exit gate:** A fake ComfyUI proves batching, progress, disconnect, OOM, cancellation, retry and partial-candidate preservation; real profile smoke tests generate all four candidates without automatic parameter changes.
+**Exit gate:** A fake ComfyUI proves all four reference/structure workflow
+variants, native batch 1/2/4, ordered outputs, progress, disconnect, OOM,
+cancellation, restart, retry and partial-candidate preservation. A new immutable
+profile version passes real GPU qualification and generates all four
+postprocessed candidates without automatic parameter changes. Local-only real
+packs verify one format-34 generation flow plus readable rejection of a
+format-32 pack and a pack missing primary `pack_format`; no real asset or output
+is committed.
 
 ## Phase 6: Adoption, Export, Launcher, and MVP Acceptance
 
