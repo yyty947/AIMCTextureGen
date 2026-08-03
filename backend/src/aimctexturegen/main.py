@@ -19,6 +19,9 @@ from aimctexturegen.catalog.registry import CatalogRegistry
 from aimctexturegen.comfy.registry import ManifestRegistry
 from aimctexturegen.core.errors import ApiProblem, problem_response
 from aimctexturegen.core.request_limits import ImportBodyLimitMiddleware
+from aimctexturegen.generation.coordinator import GenerationCoordinator
+from aimctexturegen.generation.events import JobEventBroker
+from aimctexturegen.generation.service import GenerationService
 from aimctexturegen.index.database import ProjectIndex
 from aimctexturegen.index.service import IndexService
 from aimctexturegen.inference.service import ManagedInferenceService
@@ -32,6 +35,8 @@ from aimctexturegen.projects.models import ProjectManifest
 from aimctexturegen.projects.repository import ProjectRepository
 from aimctexturegen.projects.service import ProjectService
 from aimctexturegen.projects.workspace import ProjectWorkspace
+from aimctexturegen.references.service import ReferenceService
+from aimctexturegen.references.store import ProjectReferenceStore
 
 
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
@@ -61,6 +66,8 @@ class JobApplicationService(Protocol):
 class RecoveryRunner(Protocol):
     def run(self) -> RecoveryReport: ...
 
+    def recover(self) -> RecoveryReport: ...
+
 
 @dataclass(frozen=True)
 class AppServices:
@@ -76,6 +83,10 @@ class AppServices:
     recovery_service: RecoveryService | RecoveryRunner | None = None
     manifest_registry: ManifestRegistry | None = None
     inference: object | None = None
+    reference_service: ReferenceService | None = None
+    generation_service: GenerationService | None = None
+    job_events: JobEventBroker | None = None
+    generation_coordinator: object | None = None
     _project_service_injected: bool = field(
         init=False,
         repr=False,
@@ -146,6 +157,33 @@ class AppServices:
             if self.inference is None
             else self.inference
         )
+        reference_service = self.reference_service
+        generation_service = self.generation_service
+        job_events = self.job_events
+        if (
+            reference_service is None
+            and isinstance(self.catalogs, CatalogRegistry)
+        ):
+            reference_service = ReferenceService(
+                repository=repository,
+                catalogs=self.catalogs,
+                store=ProjectReferenceStore(repository),
+            )
+        if (
+            generation_service is None
+            and reference_service is not None
+            and isinstance(self.catalogs, CatalogRegistry)
+            and manifest_registry is not None
+        ):
+            generation_service = GenerationService(
+                repository=repository,
+                catalogs=self.catalogs,
+                references=reference_service,
+                store=store,
+                manifests=manifest_registry,
+            )
+        if job_events is None and generation_service is not None:
+            job_events = JobEventBroker()
         object.__setattr__(self, "repository", repository)
         object.__setattr__(self, "project_service", project_service)
         object.__setattr__(self, "job_store", store)
@@ -155,6 +193,9 @@ class AppServices:
         object.__setattr__(self, "recovery_service", recovery_service)
         object.__setattr__(self, "manifest_registry", manifest_registry)
         object.__setattr__(self, "inference", inference)
+        object.__setattr__(self, "reference_service", reference_service)
+        object.__setattr__(self, "generation_service", generation_service)
+        object.__setattr__(self, "job_events", job_events)
         object.__setattr__(
             self,
             "_project_service_injected",
@@ -191,14 +232,43 @@ def create_app(
     @asynccontextmanager
     async def lifespan(runtime_app: FastAPI):
         _ensure_runtime_project_root(runtime_app.state.services.project_root)
+        index_service = runtime_app.state.services.index_service
+        if index_service is None:
+            raise RuntimeError("index service is unavailable")
         recovery_service = runtime_app.state.services.recovery_service
         if recovery_service is None:
             raise RuntimeError("recovery service is unavailable")
-        runtime_app.state.recovery_report = recovery_service.run()
+        recover = getattr(recovery_service, "recover", None)
+        if callable(recover):
+            runtime_app.state.recovery_report = recover()
+            index_service.rebuild()
+        else:
+            runtime_app.state.recovery_report = recovery_service.run()
+            index_service.rebuild()
+        services = runtime_app.state.services
+        if (
+            services.generation_coordinator is None
+            and services.repository is not None
+            and services.job_store is not None
+            and services.generation_service is not None
+            and services.inference is not None
+        ):
+            coordinator = GenerationCoordinator(
+                repository=services.repository,
+                store=services.job_store,
+                service=services.generation_service,
+                inference=services.inference,
+                events=services.job_events,
+            )
+            object.__setattr__(services, "generation_coordinator", coordinator)
         runtime_app.state.startup_complete = True
         try:
             yield
         finally:
+            coordinator = runtime_app.state.services.generation_coordinator
+            shutdown = getattr(coordinator, "shutdown", None)
+            if callable(shutdown):
+                shutdown()
             inference = runtime_app.state.services.inference
             shutdown = getattr(inference, "shutdown", None)
             if callable(shutdown):

@@ -11,7 +11,9 @@ from uuid import UUID
 from aimctexturegen.index.models import IndexSnapshot
 from aimctexturegen.index.service import IndexService
 from aimctexturegen.jobs.errors import JobError
+from aimctexturegen.jobs.generation_state import recover_generation_interruption
 from aimctexturegen.jobs.models import JobStateRecord
+from aimctexturegen.jobs.models_v3 import GenerationJobState
 from aimctexturegen.jobs.state_machine import recover_interrupted_state
 from aimctexturegen.jobs.store import (
     JobScanResult,
@@ -88,7 +90,14 @@ class RecoveryService:
         self._clock = _utc_now if clock is None else clock
 
     def run(self) -> RecoveryReport:
-        """Migrate projects, recover active jobs, and index final disk state."""
+        """Recover active jobs and rebuild the disposable index."""
+
+        report = self.recover()
+        self._index.rebuild()
+        return report
+
+    def recover(self) -> RecoveryReport:
+        """Migrate projects and recover active jobs without rebuilding the index."""
 
         recovery_time = self._clock()
         latest_recovery_time = recovery_time
@@ -131,7 +140,6 @@ class RecoveryService:
                 if recovered:
                     recovered_job_count += 1
 
-        self._index.rebuild()
         issues.sort(
             key=lambda issue: (
                 str(issue.project_id),
@@ -163,7 +171,7 @@ class RecoveryService:
             )
             if current.state.status not in _ACTIVE_JOB_STATUSES:
                 return False, effective_recovery_time
-            replacement = recover_interrupted_state(
+            replacement = self._recover_state(
                 current.state,
                 now=effective_recovery_time,
             )
@@ -184,6 +192,16 @@ class RecoveryService:
                 continue
             return True, effective_recovery_time
         raise AssertionError("recovery retry loop exhausted")
+
+    @staticmethod
+    def _recover_state(
+        state: JobStateRecord | GenerationJobState,
+        *,
+        now: datetime,
+    ) -> JobStateRecord | GenerationJobState:
+        if isinstance(state, GenerationJobState):
+            return recover_generation_interruption(state, now=now)
+        return recover_interrupted_state(state, now=now)
 
 
 def _utc_now() -> datetime:

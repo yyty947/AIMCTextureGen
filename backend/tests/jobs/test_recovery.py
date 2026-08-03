@@ -1,3 +1,4 @@
+import io
 import json
 from dataclasses import FrozenInstanceError
 from datetime import datetime, timedelta, timezone
@@ -6,17 +7,26 @@ from pathlib import Path
 from uuid import UUID
 
 import pytest
+from PIL import Image
 
 from aimctexturegen.index.database import ProjectIndex
 from aimctexturegen.index.models import IndexSnapshot
 from aimctexturegen.index.service import IndexService
 from aimctexturegen.jobs.errors import JobError
+from aimctexturegen.jobs.generation_state import start_generation
 from aimctexturegen.jobs.models import (
     JobFailure,
     JobRequest,
     JobStateRecord,
     dump_job_state,
 )
+from aimctexturegen.jobs.models_v3 import GenerationBatchRecord, GenerationJobState
+from aimctexturegen.generation.service import CreateGenerationCommand, GenerationService
+from aimctexturegen.catalog.registry import CatalogRegistry
+from aimctexturegen.comfy.registry import ManifestRegistry
+from aimctexturegen.references.models import PackReferenceSelection, ReferenceSelections
+from aimctexturegen.references.service import ReferenceService
+from aimctexturegen.references.store import ProjectReferenceStore
 from aimctexturegen.jobs.recovery import RecoveryService
 from aimctexturegen.jobs.state_machine import (
     cancel_state,
@@ -70,12 +80,21 @@ def _manifest() -> ProjectManifest:
     )
 
 
+def _png_bytes() -> bytes:
+    payload = io.BytesIO()
+    Image.new("RGB", (16, 16), (80, 80, 80)).save(payload, format="PNG")
+    return payload.getvalue()
+
+
 def _write_project(projects_root: Path) -> Path:
     project_root = projects_root / str(PROJECT_ID)
     for relative in ("source", "pack", "uploads", "jobs"):
         (project_root / relative).mkdir(parents=True, exist_ok=True)
     (project_root / "source" / "imported-pack.zip").write_bytes(b"snapshot")
     (project_root / "pack" / "pack.mcmeta").write_bytes(b"working-copy")
+    stone = project_root / "pack" / "assets" / "minecraft" / "textures" / "block" / "stone.png"
+    stone.parent.mkdir(parents=True, exist_ok=True)
+    stone.write_bytes(_png_bytes())
     (project_root / "project.json").write_bytes(
         dump_project_manifest(_manifest())
     )
@@ -302,6 +321,82 @@ def _state_bytes(project_root: Path) -> dict[str, bytes]:
 def _clock(*values: datetime):
     iterator = iter(values)
     return iterator.__next__
+
+
+def _verified_registry() -> ManifestRegistry:
+    root = Path(__file__).resolve().parents[3]
+    loaded = ManifestRegistry.load(root)
+    profile = loaded.profile("sdxl-mapchip-ipadapter", "2").model_copy(
+        update={"support_state": "verified"}
+    )
+    return ManifestRegistry(
+        root=root,
+        runtimes=loaded.runtimes,
+        profiles={(profile.profile_id, profile.profile_version): profile},
+    )
+
+
+def _generation_service(projects_root: Path) -> GenerationService:
+    repository = ProjectRepository(projects_root)
+    catalogs = CatalogRegistry(Path(__file__).parents[3] / "catalogs" / "java")
+    references = ReferenceService(
+        repository=repository,
+        catalogs=catalogs,
+        store=ProjectReferenceStore(repository),
+    )
+    return GenerationService(
+        repository=repository,
+        catalogs=catalogs,
+        references=references,
+        store=JobStore(repository),
+        manifests=_verified_registry(),
+        seed_source=iter((101, 202, 303, 404)).__next__,
+        job_id_source=iter(
+            (
+                UUID("20000000-0000-4000-8000-000000000010"),
+                UUID("20000000-0000-4000-8000-000000000011"),
+            )
+        ).__next__,
+        clock=lambda: CREATED_AT,
+    )
+
+
+def _generation_command() -> CreateGenerationCommand:
+    return CreateGenerationCommand(
+        target_semantic_id="minecraft:deepslate",
+        user_description="cold stone",
+        user_negative_prompt="",
+        resolution=16,
+        parallelism=2,
+        references=ReferenceSelections(
+            style=(
+                PackReferenceSelection(
+                    source="pack",
+                    relative_path="assets/minecraft/textures/block/stone.png",
+                ),
+            ),
+            structure=None,
+        ),
+    )
+
+
+def _generation_prompt_id_state(state: GenerationJobState) -> GenerationJobState:
+    batches = list(state.batches)
+    batch = batches[0]
+    batches[0] = GenerationBatchRecord.model_validate(
+        {
+            **batch.model_dump(),
+            "prompt_id": "prompt-recovery",
+        }
+    )
+    return GenerationJobState.model_validate(
+        {
+            **state.model_dump(),
+            "revision": state.revision + 1,
+            "batches": tuple(item.model_dump() for item in batches),
+            "updated_at": ACTIVE_AT,
+        }
+    )
 
 
 class _RecordingRecoveryIndex:
@@ -630,3 +725,45 @@ def test_report_completion_does_not_move_backward_with_the_wall_clock(
 
     assert report.completed_at == recovery_started_at
     assert index.database_path.is_file()
+
+
+def test_recovery_leaves_generation_jobs_queued_but_fails_active_generation(
+    tmp_path: Path,
+) -> None:
+    projects_root = tmp_path / "projects"
+    projects_root.mkdir()
+    _write_project(projects_root)
+    repository = ProjectRepository(projects_root)
+    store = JobStore(repository)
+    generation = _generation_service(projects_root)
+    queued = generation.create_job(PROJECT_ID, _generation_command())
+    active = generation.create_job(PROJECT_ID, _generation_command())
+    active_started = store.replace_state(
+        PROJECT_ID,
+        active.request.job_id,
+        start_generation(active.state, now=ACTIVE_AT),
+        expected_revision=active.state.revision,
+    )
+    store.replace_state(
+        PROJECT_ID,
+        active.request.job_id,
+        _generation_prompt_id_state(active_started.state),
+        expected_revision=active_started.state.revision,
+    )
+    queued_before = queued.root.joinpath("state.json").read_bytes()
+
+    report = RecoveryService(
+        repository=repository,
+        store=store,
+        index=_RecordingRecoveryIndex(),
+        clock=_clock(RECOVERED_AT, COMPLETED_AT),
+    ).run()
+
+    recovered_queued = store.load(PROJECT_ID, queued.request.job_id)
+    recovered_active = store.load(PROJECT_ID, active.request.job_id)
+    assert report.recovered_job_count == 1
+    assert recovered_queued.state.status == "queued"
+    assert recovered_queued.root.joinpath("state.json").read_bytes() == queued_before
+    assert recovered_active.state.status == "failed"
+    assert recovered_active.state.failure is not None
+    assert recovered_active.state.failure.error_code == "JOB_INTERRUPTED"

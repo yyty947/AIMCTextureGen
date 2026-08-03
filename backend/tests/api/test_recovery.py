@@ -35,6 +35,46 @@ class _RecoveryStub:
         return self.report
 
 
+class _LifecycleRecorder:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def run(self) -> RecoveryReport:
+        self.calls.append("recovery")
+        return RecoveryReport(
+            project_count=0,
+            job_count=0,
+            recovered_job_count=0,
+            issues=(),
+            completed_at=datetime(2026, 8, 3, 10, 0, tzinfo=timezone.utc),
+        )
+
+    def rebuild(self):
+        self.calls.append("index")
+        return None
+
+
+class _CoordinatorStub:
+    def __init__(self, recorder: _LifecycleRecorder) -> None:
+        self.recorder = recorder
+        self.started_jobs: list[tuple[UUID, UUID]] = []
+        self.shutdown_calls = 0
+
+    def shutdown(self) -> None:
+        self.shutdown_calls += 1
+        self.recorder.calls.append("coordinator_shutdown")
+
+
+class _InferenceStub:
+    def __init__(self, recorder: _LifecycleRecorder) -> None:
+        self.recorder = recorder
+        self.shutdown_calls = 0
+
+    def shutdown(self) -> None:
+        self.shutdown_calls += 1
+        self.recorder.calls.append("inference_shutdown")
+
+
 def _request(app, path: str) -> httpx.Response:
     async def send() -> httpx.Response:
         transport = httpx.ASGITransport(
@@ -134,3 +174,35 @@ def test_default_lifespan_wires_real_services_and_closes_index_connections(
     assert report.job_count == 0
     assert report.recovered_job_count == 0
     assert report.issues == ()
+
+
+def test_lifespan_builds_coordinator_after_recovery_and_shuts_it_down_before_inference(
+    tmp_path: Path,
+) -> None:
+    recorder = _LifecycleRecorder()
+    inference = _InferenceStub(recorder)
+    coordinator = _CoordinatorStub(recorder)
+    services = AppServices(
+        workspace=object(),
+        catalogs=CatalogRegistry(CATALOG_ROOT),
+        project_root=tmp_path / "projects",
+        recovery_service=recorder,
+        index_service=recorder,
+        inference=inference,
+        generation_coordinator=coordinator,
+    )
+    app = create_app(services=services)
+
+    async def run_lifespan() -> None:
+        async with app.router.lifespan_context(app):
+            assert app.state.startup_complete is True
+            assert app.state.recovery_report.recovered_job_count == 0
+
+    asyncio.run(run_lifespan())
+
+    assert recorder.calls == [
+        "recovery",
+        "index",
+        "coordinator_shutdown",
+        "inference_shutdown",
+    ]

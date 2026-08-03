@@ -1256,7 +1256,7 @@ git commit -m "feat: execute generation batches"
 - Consumes: `GenerationService`, repository/store canonical scans, managed inference, `ComfyClient.queue_snapshot/interrupt`, and schema-3 transitions.
 - Produces: fixed `GenerationCoordinator`, `JobEventBroker`, correct lifespan ordering, and orphan prompt cleanup.
 
-- [ ] **Step 1: Write application-wide slot RED tests**
+- [x] **Step 1: Write application-wide slot RED tests**
 
 ```python
 first = coordinator.create_job(PROJECT_A, command())
@@ -1268,11 +1268,11 @@ assert captured.value.current_job == (PROJECT_A, first.request.job_id)
 
 Run two threads through a barrier and prove exactly one creates a job. The scan must include queued jobs from all projects and must not trust a stale/empty SQLite index.
 
-- [ ] **Step 2: Write start/continue/background RED tests**
+- [x] **Step 2: Write start/continue/background RED tests**
 
 Assert `create_job` returns queued without GPU work; `start` returns promptly after scheduling one daemon worker; a second `start` is idempotent for the same job; an unrelated job start conflicts; worker commits are published through the broker.
 
-- [ ] **Step 3: Write confirmed-cancel RED tests**
+- [x] **Step 3: Write confirmed-cancel RED tests**
 
 ```python
 requested = coordinator.cancel(PROJECT_ID, JOB_ID)
@@ -1284,7 +1284,7 @@ wait_until(lambda: store.load(PROJECT_ID, JOB_ID).state.status == "canceled")
 
 Prove the slot stays occupied until the prompt disappears from both running and pending queue lists. If confirmation times out, stop only the identity-matching managed child; if safe stop fails, persist `CANCEL_CONFIRMATION_FAILED` and do not report a successful cancellation.
 
-- [ ] **Step 4: Run coordinator tests and verify RED**
+- [x] **Step 4: Run coordinator tests and verify RED**
 
 ```powershell
 .\.venv\Scripts\python -W error -m pytest backend\tests\generation\test_events.py backend\tests\generation\test_coordinator.py backend\tests\jobs\test_recovery.py -q
@@ -1292,7 +1292,7 @@ Prove the slot stays occupied until the prompt disappears from both running and 
 
 Expected: import failures because coordinator/events do not exist.
 
-- [ ] **Step 5: Implement the revision broker**
+- [x] **Step 5: Implement the revision broker**
 
 ```python
 class JobEventBroker:
@@ -1308,7 +1308,7 @@ class JobEventBroker:
 
 Use `threading.Condition`. The broker is only a wake-up hint; subscribers always reload the committed job from `JobStore`.
 
-- [ ] **Step 6: Implement coordinator ownership and cancellation**
+- [x] **Step 6: Implement coordinator ownership and cancellation**
 
 Use one `threading.RLock`, one optional worker thread, one cancellation event, and one active prompt ID. The worker is the only caller of `GenerationService.run_job`. The cancel request persists intent before interrupt. A queued job with no owned prompt may be confirmed canceled immediately. For active work, confirm absence from Comfy queue; after timeout call managed safe stop and recheck. Only then call `confirm_canceled`.
 
@@ -1321,7 +1321,7 @@ release the slot merely because cancellation confirmation failed.
 
 `shutdown()` stops accepting commands and signals the worker, but it does not translate application shutdown into user cancellation. Leave active state nonterminal so startup recovery records `JOB_INTERRUPTED`.
 
-- [ ] **Step 7: Update recovery and lifespan order**
+- [x] **Step 7: Update recovery and lifespan order**
 
 Startup order:
 
@@ -1333,7 +1333,7 @@ Startup order:
 
 Before a new job starts, inspect the recovered job's persisted prompt ID. If it remains in the managed Comfy queue, targeted interrupt and confirmation are required; fall back to safe managed stop. Shutdown coordinator before inference manager and index close.
 
-- [ ] **Step 8: Run coordinator, recovery, and full backend tests**
+- [x] **Step 8: Run coordinator, recovery, and full backend tests**
 
 ```powershell
 .\.venv\Scripts\python -W error -m pytest backend\tests\generation\test_coordinator.py backend\tests\generation\test_events.py backend\tests\jobs\test_recovery.py backend\tests\api\test_recovery.py backend\tests\integration\test_restart_recovery.py -q
@@ -1343,7 +1343,7 @@ git diff --check
 
 Expected: all pass; queued jobs remain queued across app restart; active jobs fail without losing completed artifacts.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```powershell
 git add backend/src/aimctexturegen/generation backend/src/aimctexturegen/jobs/recovery.py backend/src/aimctexturegen/main.py backend/tests/generation backend/tests/jobs/test_recovery.py backend/tests/api/test_recovery.py

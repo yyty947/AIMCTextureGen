@@ -18,7 +18,17 @@ profile 哈希/receipt 就绪判定，以及取消/完成状态竞态：
 [`docs/adr/0003-native-batch-seeds-and-generation-coordinator.md`](docs/adr/0003-native-batch-seeds-and-generation-coordinator.md)。
 详细实施计划位于
 [`docs/superpowers/plans/2026-08-03-phase-5-four-candidate-generation.md`](docs/superpowers/plans/2026-08-03-phase-5-four-candidate-generation.md)。
-当前只完成设计和计划，没有开始 Phase 5 业务实现。
+Phase 5 Task 9 已在共享 checkout 完成：新增应用级 `GenerationCoordinator`
+与 `JobEventBroker`，把全局单活动槽、后台 start/continue、确认式取消、
+`CANCEL_CONFIRMATION_FAILED` 保槽、schema-3 重启恢复、孤立 prompt 清理和
+lifespan 启停顺序接入默认服务图；queued 任务跨重启保持 queued，不会自动启动 GPU。
+本轮聚焦门禁
+`backend/tests/generation/test_coordinator.py`、
+`backend/tests/generation/test_events.py`、
+`backend/tests/jobs/test_recovery.py`、
+`backend/tests/api/test_recovery.py`、
+`backend/tests/integration/test_restart_recovery.py`
+共 19/19 通过；全量后端回归 1067/1067 通过；`git diff --check` 通过。
 
 收尾后又修正了一个运行时性能回归：profile 完整性校验改为有界内存的流式
 哈希并按文件元数据缓存；旧版已验证安装记录不会因 WebUI 轮询反复读取多 GB
@@ -202,14 +212,10 @@ git status --short
 
 ## 下一入口
 
-先由用户选择 Phase 5 的执行方式，不在选择前开始业务代码：
-
-1. `superpowers:subagent-driven-development`（推荐）：当前会话逐任务派发新
-   subagent，每项进行规格和质量两轮复核；
-2. `superpowers:executing-plans`：当前会话按计划批次执行，并在检查点交接。
-
-无论选择哪种方式，都从实施计划 Task 1 开始，测试先行、每项独立提交；不得
-同时执行其他阶段计划。
+继续执行
+[`docs/superpowers/plans/2026-08-03-phase-5-four-candidate-generation.md`](docs/superpowers/plans/2026-08-03-phase-5-four-candidate-generation.md)
+的 Task 10，保持 `superpowers:subagent-driven-development`、测试先行、每项独立提交。
+当前已完成 Task 9；不要回退到“从 Task 1 开始”的旧入口，也不要并行执行其他阶段计划。
 
 已确认的 Phase 5 关键边界：
 
@@ -233,7 +239,9 @@ checkbox 仍受通用 `input` 尺寸规则影响，视觉尺寸/对齐未做最�
 全局 Node v24.13.0 复现；恢复固定运行时后再更新 `docs/TESTING.md` 的
 命令路径。
 
-当前分支只包含 Phase 5 设计/计划文档工作，不含 Phase 5 业务实现；工作树中
-用户已有的未跟踪 `temp/` 不属于项目变更，必须保留。接手按 `AGENTS.md` 的
-必读顺序阅读，以当前代码和可重复验证结果为准。Phase 5 不做候选采用、导出、
-移动端、Java/Bedrock 转换、overlay 合并或格式 32 支持。
+当前分支已包含 Phase 5 Task 9 协调器/恢复实现，但还没有 Task 10 的
+generation/reference API、artifact 路由或 WebSocket 面。工作树中用户已有的
+未跟踪 `temp/`、`.tmp-review-cancel/`、`.tmp-review-prompt-reg/` 不属于本任务
+变更，必须保留。接手按 `AGENTS.md` 的必读顺序阅读，以当前代码和可重复验证
+结果为准。Phase 5 仍不做候选采用、导出、移动端、Java/Bedrock 转换、
+overlay 合并或格式 32 支持。
