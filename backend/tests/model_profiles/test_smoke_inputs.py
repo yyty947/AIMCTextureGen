@@ -11,13 +11,22 @@ import pytest
 from PIL import Image
 from pydantic import ValidationError
 
+from aimctexturegen.comfy.manifests import (
+    ModelProfileManifest,
+    ModelProfileManifestV2,
+    RuntimeManifest,
+)
+from aimctexturegen.comfy.registry import ManifestRegistry
 from aimctexturegen.model_profiles.smoke import (
     SmokeEvidence,
     SmokeMachine,
     SmokeWorkflowResult,
     generate_structure_reference,
+    resolve_smoke_profile,
     generate_style_reference,
 )
+
+from comfy._helpers import make_profile, make_profile_v2, make_runtime
 
 
 def test_style_and_structure_references_are_deterministic_rgb_pngs() -> None:
@@ -120,3 +129,25 @@ def test_smoke_machine_round_trips_safely() -> None:
     dumped = machine.model_dump(mode="json")
     assert dumped["gpu_name"] == "RTX 5080 Laptop GPU"
     assert SmokeMachine.model_validate(dumped) == machine
+
+
+def test_resolve_smoke_profile_uses_explicit_verified_v1_lookup(tmp_path) -> None:
+    runtime = RuntimeManifest.model_validate(make_runtime())
+    verified_v1 = ModelProfileManifest.model_validate(
+        make_profile(support_state="verified")
+    )
+    candidate_v2 = ModelProfileManifestV2.model_validate(make_profile_v2())
+    registry = ManifestRegistry(
+        root=tmp_path,
+        runtimes={runtime.runtime_id: runtime},
+        profiles={
+            (verified_v1.profile_id, verified_v1.profile_version): verified_v1,
+            (candidate_v2.profile_id, candidate_v2.profile_version): candidate_v2,
+        },
+    )
+
+    resolved = resolve_smoke_profile(registry)
+
+    assert resolved.profile_id == "sdxl-mapchip-ipadapter"
+    assert resolved.profile_version == "1"
+    assert resolved.support_state == "verified"

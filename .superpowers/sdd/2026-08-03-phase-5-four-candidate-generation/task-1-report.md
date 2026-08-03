@@ -127,3 +127,70 @@ passed.
 
 - No code-level blocker remains for Task 1.
 - The new v2 manifest is intentionally still `candidate_unverified` with unlocked workflow digests; later Phase 5 tasks must add the real workflow files, generation binding, and qualification before any product path can treat v2 as verified.
+
+---
+
+## Fix round 1
+
+### Issue addressed
+
+- Reviewer Important: `backend/src/aimctexturegen/model_profiles/smoke.py` still used unversioned `registry.profile("sdxl-mapchip-ipadapter")` after the registry contract changed to require explicit version lookup.
+
+### Changed files
+
+- `backend/src/aimctexturegen/model_profiles/smoke.py`
+- `backend/tests/model_profiles/test_smoke_inputs.py`
+
+### RED command/output
+
+Command:
+
+```powershell
+.\.venv\Scripts\python -W error -m pytest backend\tests\model_profiles\test_smoke_inputs.py -q
+```
+
+Observed RED:
+
+```text
+ImportError: cannot import name 'resolve_smoke_profile' from 'aimctexturegen.model_profiles.smoke'
+```
+
+Why this was expected:
+
+- The new regression test was written against a dedicated version-aware smoke profile resolver that did not exist yet, so the failure proved the legacy smoke path still lacked an explicit versioned lookup.
+
+### GREEN commands/output
+
+Focused GREEN:
+
+```powershell
+.\.venv\Scripts\python -W error -m pytest backend\tests\model_profiles\test_smoke_inputs.py -q
+```
+
+```text
+6 passed in 0.54s
+```
+
+Broader relevant regression:
+
+```powershell
+.\.venv\Scripts\python -W error -m pytest backend\tests\model_profiles -q
+```
+
+```text
+35 passed in 1.06s
+```
+
+Formatting check:
+
+```powershell
+git diff --check
+```
+
+passed.
+
+### Fix summary
+
+- Added `resolve_smoke_profile(registry)` to `model_profiles/smoke.py`.
+- The smoke path now resolves the explicit verified legacy profile key `("sdxl-mapchip-ipadapter", "1")`.
+- Added a focused regression test proving smoke resolution selects verified v1 even when v2 is also present in the registry.

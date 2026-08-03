@@ -30,6 +30,8 @@ from aimctexturegen.model_profiles.workflows import GenericWorkflowInputs
 STYLE_REFERENCE_SIZE = 512
 STRUCTURE_REFERENCE_SIZE = 512
 EXPECTED_CANVAS = 1024
+SMOKE_PROFILE_ID = "sdxl-mapchip-ipadapter"
+SMOKE_PROFILE_VERSION = "1"
 
 
 class _StrictModel(BaseModel):
@@ -89,6 +91,15 @@ class SmokeEvidence(_StrictModel):
 
 class SmokeFailedError(RuntimeError):
     """At least one real workflow smoke did not complete."""
+
+
+def resolve_smoke_profile(registry: ManifestRegistry):
+    """Resolve the explicit verified legacy profile for the v1 smoke path."""
+
+    profile = registry.profile(SMOKE_PROFILE_ID, SMOKE_PROFILE_VERSION)
+    if profile.support_state != "verified":
+        raise SmokeFailedError("smoke profile must be verified")
+    return profile
 
 
 def generate_style_reference(size: int = STYLE_REFERENCE_SIZE) -> bytes:
@@ -155,7 +166,7 @@ def run_smoke(
     started_at = datetime.now(UTC)
 
     runtime = registry.runtime("comfyui-windows-nvidia")
-    profile = registry.profile("sdxl-mapchip-ipadapter")
+    profile = resolve_smoke_profile(registry)
     archive = root / "downloads" / "ComfyUI_windows_portable_nvidia.7z"
     runtime_installer = RuntimeInstaller()
     if runtime_installer.status(runtime, root).state != "ready":
