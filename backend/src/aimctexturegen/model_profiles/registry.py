@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from aimctexturegen.comfy.manifests import (
-    ModelProfileManifest,
+    ModelProfileManifestRecord,
     ProfileCapabilities,
+    ProfileKey,
 )
 from aimctexturegen.comfy.registry import ManifestRegistry
 
@@ -12,31 +13,40 @@ from aimctexturegen.comfy.registry import ManifestRegistry
 class ProfileCatalog:
     """Expose generic profile metadata without profile-specific imports."""
 
-    def __init__(self, profiles: dict[str, ModelProfileManifest]) -> None:
+    def __init__(
+        self, profiles: dict[ProfileKey, ModelProfileManifestRecord]
+    ) -> None:
         self._profiles = dict(profiles)
 
     @classmethod
     def from_registry(cls, registry: ManifestRegistry) -> "ProfileCatalog":
         return cls(profiles=registry.profiles)
 
-    def register(self, manifest: ModelProfileManifest) -> None:
-        if manifest.profile_id in self._profiles:
+    def register(self, manifest: ModelProfileManifestRecord) -> None:
+        key = (manifest.profile_id, manifest.profile_version)
+        if key in self._profiles:
             raise ValueError(
-                f"profile {manifest.profile_id!r} is already registered"
+                f"profile {key!r} is already registered"
             )
-        self._profiles[manifest.profile_id] = manifest
+        self._profiles[key] = manifest
 
-    def all(self) -> tuple[ModelProfileManifest, ...]:
+    def all(self) -> tuple[ModelProfileManifestRecord, ...]:
         return tuple(
-            self._profiles[profile_id]
-            for profile_id in sorted(self._profiles)
+            self._profiles[profile_key]
+            for profile_key in sorted(self._profiles)
         )
 
-    def get(self, profile_id: str) -> ModelProfileManifest:
+    def get(
+        self, profile_id: str, profile_version: str
+    ) -> ModelProfileManifestRecord:
         try:
-            return self._profiles[profile_id]
+            return self._profiles[(profile_id, profile_version)]
         except KeyError as exc:
-            raise ValueError(f"unknown model profile {profile_id!r}") from exc
+            raise ValueError(
+                f"unknown model profile {(profile_id, profile_version)!r}"
+            ) from exc
 
-    def capabilities(self, profile_id: str) -> ProfileCapabilities:
-        return self.get(profile_id).capabilities
+    def capabilities(
+        self, profile_id: str, profile_version: str
+    ) -> ProfileCapabilities:
+        return self.get(profile_id, profile_version).capabilities

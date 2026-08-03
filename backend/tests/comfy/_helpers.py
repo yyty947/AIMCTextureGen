@@ -70,6 +70,21 @@ def make_workflow(
     return {"kind": kind, "relative_path": relative_path, "sha256": sha256}
 
 
+def make_workflow_variant(
+    *,
+    variant: str = "text2img-no-style",
+    relative_path: str = "sdxl-mapchip-ipadapter-v2/text2img-no-style.api.json",
+    sha256: str | None = None,
+    output_node_id: str = "19",
+) -> dict[str, Any]:
+    return {
+        "variant": variant,
+        "relative_path": relative_path,
+        "sha256": sha256,
+        "output_node_id": output_node_id,
+    }
+
+
 def make_runtime(**overrides: Any) -> dict[str, Any]:
     manifest: dict[str, Any] = {
         "schema_version": 1,
@@ -153,6 +168,69 @@ def make_profile(**overrides: Any) -> dict[str, Any]:
             make_workflow(
                 kind="img2img",
                 relative_path="sdxl-mapchip-ipadapter-v1/img2img.api.json",
+            ),
+        ],
+        "required_node_classes": ("CheckpointLoaderSimple",),
+        "output_contract": {
+            "format": "png",
+            "color_mode": "rgb",
+            "canvas_size": 1024,
+        },
+        "profile_defaults": {},
+        "user_limitations": "candidate profile",
+        "revision_notes": None,
+    }
+    manifest.update(overrides)
+    return manifest
+
+
+def make_profile_v2(**overrides: Any) -> dict[str, Any]:
+    manifest: dict[str, Any] = {
+        "schema_version": 2,
+        "profile_id": "sdxl-mapchip-ipadapter",
+        "profile_version": "2",
+        "support_state": "candidate_unverified",
+        "compatible_runtime_ids": ("comfyui-windows-nvidia",),
+        "compatible_runtime_versions": ("0.29.2",),
+        "capabilities": make_capabilities(
+            style_reference_min=0,
+            style_reference_max=8,
+            native_multi_reference=True,
+        ),
+        "artifacts": [
+            make_artifact(
+                artifact_id="checkpoint",
+                file_name="model.safetensors",
+                destination="models/checkpoints/model.safetensors",
+            ),
+            make_artifact(
+                artifact_id="custom-node",
+                file_name=f"ComfyUI_IPAdapter_plus-{CUSTOM_NODE_COMMIT}.zip",
+                source_url=(
+                    "https://codeload.github.com/cubiq/ComfyUI_IPAdapter_plus/"
+                    f"zip/{CUSTOM_NODE_COMMIT}"
+                ),
+                revision=CUSTOM_NODE_COMMIT,
+                byte_size=306_422,
+                sha256="c6c49c82aa65cb96b93bdf9f9b547f9c95310a2668a7a9aaa0285cccf4590347",
+                destination="custom_nodes/ComfyUI_IPAdapter_plus.zip",
+                allowed_hosts=("codeload.github.com", "github.com"),
+                license_name="GPL-3.0",
+            ),
+        ],
+        "workflows": [
+            make_workflow_variant(),
+            make_workflow_variant(
+                variant="text2img-style",
+                relative_path="sdxl-mapchip-ipadapter-v2/text2img-style.api.json",
+            ),
+            make_workflow_variant(
+                variant="img2img-no-style",
+                relative_path="sdxl-mapchip-ipadapter-v2/img2img-no-style.api.json",
+            ),
+            make_workflow_variant(
+                variant="img2img-style",
+                relative_path="sdxl-mapchip-ipadapter-v2/img2img-style.api.json",
             ),
         ],
         "required_node_classes": ("CheckpointLoaderSimple",),

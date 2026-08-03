@@ -15,6 +15,9 @@ from aimctexturegen.comfy.errors import (
 )
 from aimctexturegen.comfy.manifests import (
     ModelProfileManifest,
+    ModelProfileManifestRecord,
+    ModelProfileManifestV2,
+    ProfileKey,
     RuntimeManifest,
 )
 from aimctexturegen.core.relative_paths import validate_project_relative_path
@@ -48,10 +51,18 @@ def _load_runtime(path: Path) -> RuntimeManifest:
         ) from exc
 
 
-def _load_profile(path: Path) -> ModelProfileManifest:
+def _load_profile(path: Path) -> ModelProfileManifestRecord:
     data = _read_manifest_data(path)
     try:
-        return ModelProfileManifest.model_validate(data)
+        schema_version = data.get("schema_version")
+        if schema_version == 1:
+            return ModelProfileManifest.model_validate(data)
+        if schema_version == 2:
+            return ModelProfileManifestV2.model_validate(data)
+        raise ManifestValidationError(
+            f"invalid model-profile manifest {path.name}: "
+            f"unsupported schema_version {schema_version!r}"
+        )
     except ValidationError as exc:
         raise ManifestValidationError(
             f"invalid model-profile manifest {path.name}: {exc}"
@@ -66,18 +77,26 @@ class ManifestRegistry:
         *,
         root: Path,
         runtimes: dict[str, RuntimeManifest],
-        profiles: dict[str, ModelProfileManifest],
+        profiles: dict[ProfileKey, ModelProfileManifestRecord]
+        | dict[str, ModelProfileManifestRecord],
     ) -> None:
         self._root = root
         self._runtimes = dict(runtimes)
-        self._profiles = dict(profiles)
+        self._profiles: dict[ProfileKey, ModelProfileManifestRecord] = {}
+        for key, manifest in profiles.items():
+            profile_key = (
+                key
+                if isinstance(key, tuple)
+                else (key, manifest.profile_version)
+            )
+            self._profiles[profile_key] = manifest
 
     @property
     def runtimes(self) -> dict[str, RuntimeManifest]:
         return dict(self._runtimes)
 
     @property
-    def profiles(self) -> dict[str, ModelProfileManifest]:
+    def profiles(self) -> dict[ProfileKey, ModelProfileManifestRecord]:
         return dict(self._profiles)
 
     @classmethod
@@ -101,7 +120,7 @@ class ManifestRegistry:
                 )
             runtimes[runtime.runtime_id] = runtime
 
-        profiles: dict[str, ModelProfileManifest] = {}
+        profiles: dict[ProfileKey, ModelProfileManifestRecord] = {}
         for path in sorted(profiles_dir.glob("*.json")):
             profile = _load_profile(path)
             for workflow in profile.workflows:
@@ -118,12 +137,13 @@ class ManifestRegistry:
                         f"profile {profile.profile_id!r} references unknown "
                         f"compatible runtime {runtime_id!r}"
                     )
-            if profile.profile_id in profiles:
+            profile_key = (profile.profile_id, profile.profile_version)
+            if profile_key in profiles:
                 raise ManifestError(
-                    f"duplicate profile_id {profile.profile_id!r} "
+                    f"duplicate profile_id/profile_version {profile_key!r} "
                     "across manifest files"
                 )
-            profiles[profile.profile_id] = profile
+            profiles[profile_key] = profile
 
         return cls(root=root, runtimes=runtimes, profiles=profiles)
 
@@ -135,17 +155,19 @@ class ManifestRegistry:
                 f"unknown runtime {runtime_id!r}"
             ) from exc
 
-    def profile(self, profile_id: str) -> ModelProfileManifest:
+    def profile(
+        self, profile_id: str, profile_version: str
+    ) -> ModelProfileManifestRecord:
         try:
-            return self._profiles[profile_id]
+            return self._profiles[(profile_id, profile_version)]
         except KeyError as exc:
             raise ManifestNotFoundError(
-                f"unknown model profile {profile_id!r}"
+                f"unknown model profile {(profile_id, profile_version)!r}"
             ) from exc
 
     def profiles_for_runtime(
         self, runtime_id: str
-    ) -> tuple[ModelProfileManifest, ...]:
+    ) -> tuple[ModelProfileManifestRecord, ...]:
         return tuple(
             profile
             for _, profile in sorted(self._profiles.items())

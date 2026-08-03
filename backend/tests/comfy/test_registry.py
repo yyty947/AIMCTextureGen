@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
-from aimctexturegen.comfy.errors import ManifestError
+from aimctexturegen.comfy.errors import ManifestError, ManifestNotFoundError
 from aimctexturegen.comfy.registry import ManifestRegistry
 
-from comfy._helpers import make_profile, make_runtime
+from comfy._helpers import make_profile, make_profile_v2, make_runtime
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -48,11 +49,34 @@ def test_load_exposes_runtimes_profiles_and_runtime_compatibility(
     )
     registry = ManifestRegistry.load(root)
     assert registry.runtime("comfyui-windows-nvidia").runtime_version == "0.29.2"
-    assert registry.profile("sdxl-mapchip-ipadapter").profile_version == "1"
+    assert registry.profile("sdxl-mapchip-ipadapter", "1").profile_version == "1"
     profiles = registry.profiles_for_runtime("comfyui-windows-nvidia")
     assert [profile.profile_id for profile in profiles] == [
         "sdxl-mapchip-ipadapter"
     ]
+
+
+def test_registry_keeps_two_versions_of_one_profile_id(tmp_path: Path) -> None:
+    root = _write_manifest_tree(
+        tmp_path,
+        runtime_files={"comfyui.json": make_runtime()},
+        profile_files={
+            "sdxl-v1.json": make_profile(),
+            "sdxl-v2.json": make_profile_v2(),
+        },
+    )
+    registry = ManifestRegistry.load(root)
+    assert registry.profile("sdxl-mapchip-ipadapter", "1").profile_version == "1"
+    assert registry.profile("sdxl-mapchip-ipadapter", "2").profile_version == "2"
+    with pytest.raises(ManifestNotFoundError):
+        registry.profile("sdxl-mapchip-ipadapter", "3")
+
+
+def test_phase5_never_changes_verified_v1_bytes() -> None:
+    path = REPO_ROOT / "manifests" / "model-profiles" / "sdxl-mapchip-ipadapter-v1.json"
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == (
+        "9b909dc2d3b250f03b9a72996f43b6eaa3fa50f5eef0a38900e301a41678ccdd"
+    )
 
 
 def test_load_order_is_deterministic_by_file_name(tmp_path: Path) -> None:
@@ -151,7 +175,7 @@ def test_real_repo_manifests_are_locked_to_the_candidate_pins() -> None:
     assert archive.destination == "downloads/ComfyUI_windows_portable_nvidia.7z"
     assert archive.license.name == "GPL-3.0"
 
-    profile = registry.profile("sdxl-mapchip-ipadapter")
+    profile = registry.profile("sdxl-mapchip-ipadapter", "1")
     assert profile.profile_version == "1"
     assert profile.support_state == "verified"
     assert profile.compatible_runtime_ids == ("comfyui-windows-nvidia",)

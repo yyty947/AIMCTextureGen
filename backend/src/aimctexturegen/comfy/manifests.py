@@ -21,6 +21,12 @@ _MUTABLE_REVISIONS = frozenset(
 _ALLOWED_PROFILE_ROOTS = ("models/", "custom_nodes/")
 _RUNTIME_ARCHIVE_ROOT = "downloads/"
 _WORKFLOW_KINDS = frozenset({"text2img", "img2img"})
+_WORKFLOW_VARIANTS = (
+    "text2img-no-style",
+    "text2img-style",
+    "img2img-no-style",
+    "img2img-style",
+)
 
 
 class _StrictModel(BaseModel):
@@ -144,6 +150,40 @@ class WorkflowRecord(_StrictModel):
         return _validate_sha256(value)
 
 
+WorkflowVariant = Literal[
+    "text2img-no-style",
+    "text2img-style",
+    "img2img-no-style",
+    "img2img-style",
+]
+
+
+class WorkflowVariantRecord(_StrictModel):
+    variant: WorkflowVariant
+    relative_path: str = Field(min_length=1)
+    sha256: str | None = None
+    output_node_id: str = Field(min_length=1)
+
+    @field_validator("relative_path")
+    @classmethod
+    def validate_relative_path(cls, value: str) -> str:
+        return _validate_relative_path(value)
+
+    @field_validator("sha256")
+    @classmethod
+    def validate_sha256(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return _validate_sha256(value)
+
+    @field_validator("output_node_id")
+    @classmethod
+    def validate_output_node_id(cls, value: str) -> str:
+        if not value.isdecimal():
+            raise ValueError("output_node_id must be a non-empty decimal string")
+        return value
+
+
 class ProfileCapabilities(_StrictModel):
     text_to_image: bool
     structure_reference: bool
@@ -261,8 +301,7 @@ class RuntimeManifest(_StrictModel):
         return self
 
 
-class ModelProfileManifest(_StrictModel):
-    schema_version: Literal[1]
+class _ProfileFields(_StrictModel):
     profile_id: str = Field(min_length=1, pattern=_ID_PATTERN)
     profile_version: str = Field(min_length=1)
     support_state: Literal["candidate_unverified", "verified"]
@@ -375,6 +414,11 @@ class ModelProfileManifest(_StrictModel):
             )
         return self
 
+
+class ModelProfileManifest(_ProfileFields):
+    schema_version: Literal[1]
+    workflows: tuple[WorkflowRecord, ...] = Field(min_length=2)
+
     @model_validator(mode="after")
     def validate_workflows(self) -> Self:
         kinds: set[str] = set()
@@ -387,6 +431,27 @@ class ModelProfileManifest(_StrictModel):
                 "profile must declare exactly text2img and img2img workflows"
             )
         return self
+
+
+class ModelProfileManifestV2(_ProfileFields):
+    schema_version: Literal[2]
+    workflows: tuple[WorkflowVariantRecord, ...] = Field(
+        min_length=4,
+        max_length=4,
+    )
+
+    @model_validator(mode="after")
+    def validate_workflows(self) -> Self:
+        variants = tuple(workflow.variant for workflow in self.workflows)
+        if variants != _WORKFLOW_VARIANTS:
+            raise ValueError(
+                "profile must declare the four phase-5 workflow variants in order"
+            )
+        return self
+
+
+ModelProfileManifestRecord = ModelProfileManifest | ModelProfileManifestV2
+ProfileKey = tuple[str, str]
 
 
 def canonical_manifest_bytes(model: BaseModel) -> bytes:

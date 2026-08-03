@@ -44,8 +44,9 @@ from aimctexturegen.comfy.install_state import (
 )
 from aimctexturegen.comfy.manifests import (
     ArtifactManifest,
-    ModelProfileManifest,
+    ModelProfileManifestRecord,
     RuntimeManifest,
+    ProfileKey,
     manifest_sha256,
 )
 from aimctexturegen.comfy.registry import ManifestRegistry
@@ -62,6 +63,7 @@ class _StrictModel(BaseModel):
 
 
 ComponentState = str
+DEFAULT_SETUP_PROFILE_KEY: ProfileKey = ("sdxl-mapchip-ipadapter", "2")
 
 _PROFILE_HASH_CACHE: dict[tuple[str, int, int], str] = {}
 _PROFILE_HASH_CACHE_LOCK = threading.Lock()
@@ -101,6 +103,7 @@ class InstallConsent(_StrictModel):
     plan_digest: str = Field(min_length=64, max_length=64)
     runtime_id: str
     profile_id: str
+    profile_version: str
     accepted_component_ids: tuple[str, ...]
     created_at: datetime
 
@@ -125,10 +128,11 @@ class Installer:
         self,
         runtime_id: str,
         profile_id: str,
+        profile_version: str,
         runtime_root: Path,
     ) -> InstallPlan:
         runtime = self._registry.runtime(runtime_id)
-        profile = self._registry.profile(profile_id)
+        profile = self._registry.profile(profile_id, profile_version)
         environment = self._inspector.inspect(Path(runtime_root))
 
         artifacts = (runtime.archive, *profile.artifacts)
@@ -245,6 +249,7 @@ class Installer:
             plan_digest=plan.plan_digest,
             runtime_id=plan.runtime_id,
             profile_id=plan.profile_id,
+            profile_version=plan.profile_version,
             accepted_component_ids=tuple(sorted(accepted)),
             created_at=datetime.now(UTC),
         )
@@ -263,6 +268,7 @@ class Installer:
         fresh = self.inspect(
             consent.runtime_id,
             consent.profile_id,
+            consent.profile_version,
             runtime_root,
         )
         if fresh.plan_digest != consent.plan_digest:
@@ -643,7 +649,7 @@ class ProfileInstaller:
 
     def status(
         self,
-        profile: ModelProfileManifest,
+        profile: ModelProfileManifestRecord,
         root: Path,
     ) -> ProfileStatus:
         root = Path(root)
@@ -668,7 +674,7 @@ class ProfileInstaller:
 
     def install(
         self,
-        profile: ModelProfileManifest,
+        profile: ModelProfileManifestRecord,
         root: Path,
         *,
         cancel: Callable[[], bool] | None = None,
@@ -703,7 +709,7 @@ class ProfileInstaller:
 
     def write_extra_model_paths(
         self,
-        profile: ModelProfileManifest,
+        profile: ModelProfileManifestRecord,
         root: Path,
     ) -> Path:
         root = Path(root)

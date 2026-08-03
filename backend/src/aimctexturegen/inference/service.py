@@ -20,6 +20,7 @@ from aimctexturegen.comfy.install_state import (
     InstallOperationStore,
 )
 from aimctexturegen.comfy.installer import (
+    DEFAULT_SETUP_PROFILE_KEY,
     Installer,
     ProfileInstaller,
     RuntimeInstaller,
@@ -60,7 +61,7 @@ class ManagedInferenceService:
         self._installer = Installer(registry, self._inspector)
         self._store = InstallOperationStore(self._root / "state")
         self._runtime = registry.runtime("comfyui-windows-nvidia")
-        self._profile = registry.profile("sdxl-mapchip-ipadapter")
+        self._profile = registry.profile(*DEFAULT_SETUP_PROFILE_KEY)
         self._artifact_downloader = artifact_downloader or ArtifactDownloader()
         self._runtime_installer = runtime_installer or RuntimeInstaller()
         self._profile_installer = profile_installer or ProfileInstaller()
@@ -97,7 +98,8 @@ class ManagedInferenceService:
     def install_plan(self) -> dict:
         return self._installer.inspect(
             "comfyui-windows-nvidia",
-            "sdxl-mapchip-ipadapter",
+            DEFAULT_SETUP_PROFILE_KEY[0],
+            DEFAULT_SETUP_PROFILE_KEY[1],
             self._root,
         ).model_dump(mode="json")
 
@@ -120,7 +122,8 @@ class ManagedInferenceService:
                 )
             plan = self._installer.inspect(
                 "comfyui-windows-nvidia",
-                "sdxl-mapchip-ipadapter",
+                DEFAULT_SETUP_PROFILE_KEY[0],
+                DEFAULT_SETUP_PROFILE_KEY[1],
                 self._root,
             )
             consent = self._installer.consent(plan, accepted_component_ids)

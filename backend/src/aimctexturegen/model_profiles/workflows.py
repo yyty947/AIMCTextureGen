@@ -121,15 +121,26 @@ def build_model_profile_binding(
     registry: ManifestRegistry,
     profile_id: str,
     *,
+    profile_version: str = "1",
     structure_reference_present: bool,
 ) -> ModelProfileBinding:
     try:
-        profile = registry.profile(profile_id)
+        profile = registry.profile(profile_id, profile_version)
     except Exception as exc:
         raise ProfileBindingError(
             "UNKNOWN_PROFILE",
-            f"unknown model profile {profile_id!r}",
+            f"unknown model profile {(profile_id, profile_version)!r}",
         ) from exc
+    if profile.schema_version != 1:
+        raise ProfileBindingError(
+            "PROFILE_CAPABILITY_MISMATCH",
+            "profile version is not compatible with the legacy job binding",
+        )
+    if profile.support_state != "verified":
+        raise ProfileBindingError(
+            "PROFILE_CAPABILITY_MISMATCH",
+            "profile must be verified before it can back product job bindings",
+        )
     kind = "img2img" if structure_reference_present else "text2img"
     capabilities = profile.capabilities
     if kind == "img2img" and not capabilities.structure_reference:

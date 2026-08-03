@@ -12,9 +12,11 @@ from aimctexturegen.comfy.manifests import (
     ArtifactManifest,
     LicenseRecord,
     ModelProfileManifest,
+    ModelProfileManifestV2,
     ProfileCapabilities,
     RuntimeManifest,
     WorkflowRecord,
+    WorkflowVariantRecord,
     canonical_manifest_bytes,
     manifest_sha256,
 )
@@ -27,8 +29,10 @@ from comfy._helpers import (
     make_capabilities,
     make_license,
     make_profile,
+    make_profile_v2,
     make_runtime,
     make_workflow,
+    make_workflow_variant,
     reversed_key_order,
 )
 
@@ -100,6 +104,38 @@ def test_workflow_sha256_is_validated_when_present(sha256: str) -> None:
 def test_workflow_sha256_may_be_none_until_workflow_is_locked() -> None:
     workflow = WorkflowRecord.model_validate(make_workflow())
     assert workflow.sha256 is None
+
+
+@pytest.mark.parametrize(
+    "variant",
+    [
+        "text2img-no-style",
+        "text2img-style",
+        "img2img-no-style",
+        "img2img-style",
+    ],
+)
+def test_workflow_variant_record_accepts_phase5_variants(variant: str) -> None:
+    record = WorkflowVariantRecord.model_validate(
+        make_workflow_variant(variant=variant)
+    )
+    assert record.variant == variant
+
+
+@pytest.mark.parametrize("variant", ["text2img", "bad", "", "IMG2IMG-STYLE"])
+def test_workflow_variant_record_rejects_unknown_variant(variant: str) -> None:
+    with pytest.raises(ValidationError):
+        WorkflowVariantRecord.model_validate(make_workflow_variant(variant=variant))
+
+
+@pytest.mark.parametrize("output_node_id", ["", "node-19", "19a", " 19"])
+def test_workflow_variant_record_requires_decimal_output_node_id(
+    output_node_id: str,
+) -> None:
+    with pytest.raises(ValidationError):
+        WorkflowVariantRecord.model_validate(
+            make_workflow_variant(output_node_id=output_node_id)
+        )
 
 
 @pytest.mark.parametrize("byte_size", [0, -1, -100, 1.5, "1024"])
@@ -228,6 +264,25 @@ def test_workflows_must_cover_text2img_and_img2img() -> None:
     profile["workflows"] = [profile["workflows"][0]]
     with pytest.raises(ValidationError):
         ModelProfileManifest.model_validate(profile)
+
+
+def test_v2_profile_requires_exactly_the_four_phase5_variants() -> None:
+    profile = make_profile_v2()
+    profile["workflows"] = profile["workflows"][:-1]
+    with pytest.raises(ValidationError):
+        ModelProfileManifestV2.model_validate(profile)
+
+
+def test_v2_profile_accepts_candidate_shape() -> None:
+    profile = ModelProfileManifestV2.model_validate(make_profile_v2())
+    assert profile.profile_version == "2"
+    assert profile.capabilities.style_reference_min == 0
+    assert [workflow.variant for workflow in profile.workflows] == [
+        "text2img-no-style",
+        "text2img-style",
+        "img2img-no-style",
+        "img2img-style",
+    ]
 
 
 def test_duplicate_workflow_kinds_are_rejected() -> None:

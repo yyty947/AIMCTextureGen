@@ -59,7 +59,7 @@ def _registry(tmp_path: Path) -> ManifestRegistry:
     return ManifestRegistry(
         root=tmp_path,
         runtimes={runtime.runtime_id: runtime},
-        profiles={profile.profile_id: profile},
+        profiles={(profile.profile_id, profile.profile_version): profile},
     )
 
 
@@ -78,6 +78,7 @@ def test_inspect_builds_plan_with_exact_component_totals(tmp_path: Path) -> None
     plan = _installer(tmp_path).inspect(
         "comfyui-windows-nvidia",
         "sdxl-mapchip-ipadapter",
+        "1",
         _runtime_root(tmp_path),
     )
     assert plan.runtime_id == "comfyui-windows-nvidia"
@@ -132,6 +133,7 @@ def test_ready_runtime_does_not_require_archive_redownload(tmp_path: Path) -> No
     plan = _installer(tmp_path).inspect(
         runtime.runtime_id,
         "sdxl-mapchip-ipadapter",
+        "1",
         tmp_path / "runtime",
     )
     archive = next(
@@ -149,7 +151,7 @@ def test_same_sized_profile_bytes_without_verified_receipt_are_corrupt(
     tmp_path: Path,
 ) -> None:
     registry = _registry(tmp_path)
-    profile_artifact = registry.profile("sdxl-mapchip-ipadapter").artifacts[0]
+    profile_artifact = registry.profile("sdxl-mapchip-ipadapter", "1").artifacts[0]
     target = tmp_path / "runtime" / profile_artifact.destination
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(b"x" * profile_artifact.byte_size)
@@ -157,6 +159,7 @@ def test_same_sized_profile_bytes_without_verified_receipt_are_corrupt(
     plan = _installer(tmp_path).inspect(
         "comfyui-windows-nvidia",
         "sdxl-mapchip-ipadapter",
+        "1",
         tmp_path / "runtime",
     )
 
@@ -176,11 +179,13 @@ def test_plan_digest_is_deterministic(tmp_path: Path) -> None:
     first = installer.inspect(
         "comfyui-windows-nvidia",
         "sdxl-mapchip-ipadapter",
+        "1",
         _runtime_root(tmp_path),
     )
     second = installer.inspect(
         "comfyui-windows-nvidia",
         "sdxl-mapchip-ipadapter",
+        "1",
         _runtime_root(tmp_path),
     )
     assert first.plan_digest == second.plan_digest
@@ -198,6 +203,7 @@ def test_inspect_reports_unsupported_host_as_blocker(tmp_path: Path) -> None:
     plan = installer.inspect(
         "comfyui-windows-nvidia",
         "sdxl-mapchip-ipadapter",
+        "1",
         _runtime_root(tmp_path),
     )
     assert plan.can_install is False
@@ -208,6 +214,7 @@ def test_inspect_reports_insufficient_disk_as_blocker(tmp_path: Path) -> None:
     plan = _installer(tmp_path, disk_free=100).inspect(
         "comfyui-windows-nvidia",
         "sdxl-mapchip-ipadapter",
+        "1",
         _runtime_root(tmp_path),
     )
     assert plan.can_install is False
@@ -219,6 +226,7 @@ def test_inspect_never_creates_the_runtime_root(tmp_path: Path) -> None:
     _installer(tmp_path).inspect(
         "comfyui-windows-nvidia",
         "sdxl-mapchip-ipadapter",
+        "1",
         root,
     )
     assert not root.exists()
@@ -229,6 +237,7 @@ def test_consent_binds_to_plan_digest_and_exact_component_ids(tmp_path: Path) ->
     plan = installer.inspect(
         "comfyui-windows-nvidia",
         "sdxl-mapchip-ipadapter",
+        "1",
         _runtime_root(tmp_path),
     )
     consent = installer.consent(
@@ -249,6 +258,7 @@ def test_consent_rejects_missing_or_unknown_acceptance(tmp_path: Path) -> None:
     plan = installer.inspect(
         "comfyui-windows-nvidia",
         "sdxl-mapchip-ipadapter",
+        "1",
         _runtime_root(tmp_path),
     )
     with pytest.raises(InstallValidationError):
@@ -261,6 +271,7 @@ def test_consent_rejects_a_blocked_plan(tmp_path: Path) -> None:
     plan = _installer(tmp_path, disk_free=100).inspect(
         "comfyui-windows-nvidia",
         "sdxl-mapchip-ipadapter",
+        "1",
         _runtime_root(tmp_path),
     )
     with pytest.raises(InstallBlockedError):
@@ -273,6 +284,7 @@ def test_begin_install_creates_planned_operation(tmp_path: Path) -> None:
     plan = installer.inspect(
         "comfyui-windows-nvidia",
         "sdxl-mapchip-ipadapter",
+        "1",
         root,
     )
     consent = installer.consent(
@@ -294,6 +306,7 @@ def test_begin_install_rejects_a_stale_digest_without_creating_root(
     plan = installer.inspect(
         "comfyui-windows-nvidia",
         "sdxl-mapchip-ipadapter",
+        "1",
         root,
     )
     consent = installer.consent(
@@ -315,6 +328,7 @@ def test_begin_install_rejects_a_now_blocked_plan_without_creating_root(
     plan = installer.inspect(
         "comfyui-windows-nvidia",
         "sdxl-mapchip-ipadapter",
+        "1",
         root,
     )
     consent = installer.consent(

@@ -15,6 +15,7 @@ from aimctexturegen.comfy.errors import (
 )
 from aimctexturegen.comfy.manifests import (
     ModelProfileManifest,
+    ModelProfileManifestV2,
     RuntimeManifest,
 )
 from aimctexturegen.comfy.registry import ManifestRegistry
@@ -25,7 +26,7 @@ from aimctexturegen.model_profiles.workflows import (
     load_workflow_template,
 )
 
-from comfy._helpers import make_capabilities, make_profile, make_runtime
+from comfy._helpers import make_capabilities, make_profile, make_profile_v2, make_runtime
 
 
 def _template(kind: str = "text2img") -> dict:
@@ -180,12 +181,12 @@ def _registry(tmp_path: Path, profile_updates: dict | None = None) -> ManifestRe
     return ManifestRegistry(
         root=tmp_path,
         runtimes={runtime.runtime_id: runtime},
-        profiles={manifest.profile_id: manifest},
+        profiles={(manifest.profile_id, manifest.profile_version): manifest},
     )
 
 
 def _locked_profile(profile_updates: dict | None = None) -> dict:
-    updates = {"workflows": None}
+    updates = {"workflows": None, "support_state": "verified"}
     workflow_values = [
         {
             "kind": "text2img",
@@ -261,3 +262,23 @@ def test_build_model_profile_binding_requires_locked_workflow_digest(
             "sdxl-mapchip-ipadapter",
             structure_reference_present=False,
         )
+
+
+def test_build_model_profile_binding_rejects_phase5_v2_until_generation_binding_exists(
+    tmp_path: Path,
+) -> None:
+    runtime = RuntimeManifest.model_validate(make_runtime())
+    profile = ModelProfileManifestV2.model_validate(make_profile_v2())
+    registry = ManifestRegistry(
+        root=tmp_path,
+        runtimes={runtime.runtime_id: runtime},
+        profiles={(profile.profile_id, profile.profile_version): profile},
+    )
+    with pytest.raises(ProfileBindingError) as excinfo:
+        build_model_profile_binding(
+            registry,
+            "sdxl-mapchip-ipadapter",
+            profile_version="2",
+            structure_reference_present=False,
+        )
+    assert excinfo.value.code == "PROFILE_CAPABILITY_MISMATCH"
