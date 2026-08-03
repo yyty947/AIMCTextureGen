@@ -98,6 +98,49 @@ def test_history_retrieval_and_output_are_bounded_to_declared_names() -> None:
             client.get_output(entry, "not-declared.png")
 
 
+def test_legacy_get_output_forwards_non_output_type_to_view() -> None:
+    history = {
+        "p1": {
+            "outputs": {
+                "9": {
+                    "images": [
+                        {
+                            "filename": "legacy-temp.png",
+                            "subfolder": "",
+                            "type": "temp",
+                        }
+                    ]
+                }
+            }
+        }
+    }
+    with FakeComfyServer(
+        history=history,
+        view_bytes_by_name={"legacy-temp.png": b"temp-bytes"},
+    ) as server:
+        client = _client(server)
+        output = client.get_output(client.get_history("p1"), "legacy-temp.png")
+
+        assert output == b"temp-bytes"
+        assert server.last_view_params == {
+            "filename": "legacy-temp.png",
+            "subfolder": "",
+            "type": "temp",
+        }
+
+
+def test_history_endpoint_returns_only_requested_prompt() -> None:
+    history = {
+        "p1": {"outputs": {"9": {"images": []}}},
+        "p2": {"outputs": {"19": {"images": []}}},
+    }
+    with FakeComfyServer(history=history) as server:
+        payload = _client(server)._get_json("/history/p1")
+
+        assert payload == {"p1": history["p1"]}
+        assert "p2" not in payload
+
+
 def test_declared_output_images_preserve_selected_node_order() -> None:
     history = {
         "p1": {

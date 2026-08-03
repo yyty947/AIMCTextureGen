@@ -53,6 +53,7 @@ class FakeComfyServer:
         self.last_prompt: dict | None = None
         self.last_upload_name: str | None = None
         self.last_client_id: str | None = None
+        self.last_view_params: dict[str, str] | None = None
         self.last_interrupt_prompt_id: str | None = None
 
         self._httpd = ThreadingHTTPServer(("127.0.0.1", 0), _HttpHandler)
@@ -164,7 +165,13 @@ class _HttpHandler(BaseHTTPRequestHandler):
             if server.history_behavior == "malformed":
                 self._send_bytes(b"not json")
                 return
-            self._json(server.history or {})
+            prompt_id = path[len("/history/") :]
+            history_entry = (server.history or {}).get(prompt_id)
+            self._json(
+                {prompt_id: history_entry}
+                if isinstance(history_entry, dict)
+                else {}
+            )
             return
         if path == "/queue":
             self._json(
@@ -181,6 +188,9 @@ class _HttpHandler(BaseHTTPRequestHandler):
                 self.end_headers()
                 return
             query = parse_qs(parsed.query, keep_blank_values=True)
+            server.last_view_params = {
+                key: values[0] for key, values in query.items() if values
+            }
             filename = query.get("filename", [""])[0]
             body = server.view_bytes_by_name.get(filename, server.view_bytes)
             self._send_bytes(body)

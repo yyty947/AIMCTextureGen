@@ -136,13 +136,19 @@ class ComfyClient:
                 "output file was not declared by prompt history"
             )
         metadata = declared[filename]
-        return self.get_output_image(
-            ComfyOutputImage(
-                filename=filename,
-                subfolder=str(metadata.get("subfolder", "")),
-                type=str(metadata.get("type", "output")),
-            )
+        response = self._http.get(
+            f"{self._base_url}/view",
+            params={
+                "filename": filename,
+                "subfolder": metadata.get("subfolder", ""),
+                "type": metadata.get("type", "output"),
+            },
         )
+        if response.status_code != 200:
+            raise ComfyProtocolError("output retrieval failed")
+        if len(response.content) > MAX_RESPONSE_BYTES:
+            raise ComfyProtocolError("output exceeds the response limit")
+        return response.content
 
     def declared_output_images(
         self,

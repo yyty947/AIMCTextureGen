@@ -78,3 +78,52 @@ The isolation test still passes, so `aimctexturegen.comfy.client` continues to a
 ## Concerns
 
 - `ComfyOutputImage.type` is constrained to `"output"` as required by the brief; if a future profile legitimately needs another Comfy `/view` type, that should be introduced as a separate explicit contract rather than widening this Task 6 transport surface silently.
+
+## Round 1 fix report
+
+Date: 2026-08-03
+
+### Findings fixed
+
+- Restored the pre-Task-6 `get_output(history_entry, filename)` request path. It still requires the filename to be declared, but forwards the declared `subfolder` and original `type` directly to `/view`, including legacy values such as `"temp"`. The strict `ComfyOutputImage` parser remains enforced by the new ordered declared-output API and `get_output_image()`.
+- Made the fake `GET /history/{prompt_id}` response prompt-scoped: it now returns only `{prompt_id: history_entry}` for the requested prompt, or `{}` when no dictionary entry exists.
+
+### Changed files
+
+- `backend/src/aimctexturegen/comfy/client.py`
+- `backend/tests/fakes/comfy_server.py`
+- `backend/tests/comfy/test_client_http.py`
+- `.superpowers/sdd/2026-08-03-phase-5-four-candidate-generation/task-6-report.md`
+
+### RED evidence
+
+Added focused tests for both findings and ran:
+
+```powershell
+.\.venv\Scripts\python -W error -m pytest backend\tests\comfy\test_client_http.py -q -k "legacy_get_output_forwards_non_output_type_to_view or history_endpoint_returns_only_requested_prompt"
+```
+
+Expected failures were observed: `2 failed, 20 deselected`. The legacy test failed with `ComfyUnsafeOutputError` for `type="temp"`; the history test showed the response incorrectly contained `p2`.
+
+### GREEN and verification evidence
+
+The focused command then passed with `2 passed, 20 deselected in 1.97s`.
+
+The requested transport regression command passed with `31 passed in 21.93s`:
+
+```powershell
+.\.venv\Scripts\python -W error -m pytest backend\tests\comfy\test_client_http.py backend\tests\comfy\test_client_websocket.py backend\tests\comfy\test_client_errors.py -q
+```
+
+`git diff --check` passed. Its only output was Git's normal LF-to-CRLF working-copy warning. The transport isolation test remains included in the passing error-test set.
+
+### Self-review
+
+- The legacy path is behaviorally separate from strict typed descriptor validation and retains the old response-size and HTTP-status checks.
+- The fake records the exact `/view` query and the regression asserts `type="temp"` was sent; the history regression asserts `p2` is absent from `/history/p1`.
+- Queue snapshots, prompt-scoped interrupts, cancel-aware WebSocket waiting, and the product-agnostic import boundary were not changed by this fix.
+- No generation/coordinator/API/frontend code, real assets, or later task files were touched. The unrelated untracked `temp/` directory was preserved.
+
+### Round 1 concerns
+
+None blocking.
