@@ -621,20 +621,32 @@ def _reset_temporary_directory(
         path.mkdir()
     except OSError as error:
         raise DirectoryGuardError("temporary publication directory cannot be created") from error
-    guard.require_parent(path)
+    temporary_identity: FileIdentity | None = None
     try:
+        guard.require_parent(path)
+        with hold_directory_identity(path) as created_identity:
+            temporary_identity = created_identity
         identity = capture_directory_identity(path)
-    except (DirectoryGuardError, OSError) as error:
+        if identity != temporary_identity:
+            raise DirectoryGuardError("temporary publication directory identity changed")
+        if not matches_directory_identity(path, temporary_identity):
+            raise DirectoryGuardError("temporary publication directory identity changed")
+    except (DirectoryGuardError, OSError):
+        if temporary_identity is None:
+            raise
         try:
-            _remove_owned_directory(path, guard)
+            _remove_owned_directory(
+                path,
+                guard,
+                expected_identity=temporary_identity,
+            )
         except (DirectoryGuardError, OSError) as cleanup_error:
             raise DirectoryGuardError(
                 "temporary publication directory cleanup failed"
             ) from cleanup_error
-        raise DirectoryGuardError("temporary publication directory is unsafe") from error
-    if not matches_directory_identity(path, identity):
-        raise DirectoryGuardError("temporary publication directory identity changed")
-    return identity
+        raise
+    assert temporary_identity is not None
+    return temporary_identity
 
 
 def _cleanup_temporary_directory(

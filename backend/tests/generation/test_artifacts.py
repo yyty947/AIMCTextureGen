@@ -440,6 +440,46 @@ def test_reset_identity_failure_does_not_leave_temporary_directory(
     assert not (loaded.root / "raw/.batch-0.tmp").exists()
 
 
+def test_reset_identity_verification_failure_removes_temporary_directory_and_preserves_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    loaded = _loaded_generation_job(tmp_path / "projects")
+    store = _artifact_store(tmp_path / "projects")
+    import aimctexturegen.generation.artifacts as artifact_module
+
+    real_matches = artifact_module.matches_directory_identity
+    verification_attempts = 0
+
+    def fail_temporary_identity_verification(path: Path, expected) -> bool:
+        nonlocal verification_attempts
+        if path.name == ".batch-0.tmp" and verification_attempts == 0:
+            verification_attempts += 1
+            raise artifact_module.DirectoryGuardError(
+                "identity verification blocked"
+            )
+        return real_matches(path, expected)
+
+    monkeypatch.setattr(
+        artifact_module,
+        "matches_directory_identity",
+        fail_temporary_identity_verification,
+    )
+
+    with pytest.raises(GenerationError) as captured:
+        store.publish_raw_batch(
+            loaded,
+            _batch(0),
+            (_png_bytes(), _png_bytes(color=(4, 5, 6))),
+            canvas_size=1024,
+        )
+
+    assert captured.value.code == "JOB_STORAGE_UNAVAILABLE"
+    assert isinstance(captured.value.__cause__, artifact_module.DirectoryGuardError)
+    assert str(captured.value.__cause__) == "identity verification blocked"
+    assert not (loaded.root / "raw/.batch-0.tmp").exists()
+
+
 def test_raw_batch_rejects_reparse_parent_before_writing_outside_job_root(tmp_path: Path) -> None:
     loaded = _loaded_generation_job(tmp_path / "projects")
     store = _artifact_store(tmp_path / "projects")
