@@ -38,6 +38,16 @@ CandidateStatus = Literal[
     "failed",
     "canceled",
 ]
+JobSummaryCandidateStatus = Literal[
+    "pending",
+    "generating",
+    "raw_ready",
+    "postprocessing",
+    "completed",
+    "failed",
+    "canceled",
+    "inherited",
+]
 _ACTIVE_CANDIDATE_STATUSES = frozenset({"generating", "postprocessing"})
 _TERMINAL_CANDIDATE_STATUSES = frozenset(
     {"completed", "failed", "canceled"}
@@ -309,10 +319,10 @@ class JobSummary(_StrictModel):
     status: JobStatus
     revision: int = Field(ge=0)
     candidate_statuses: tuple[
-        CandidateStatus,
-        CandidateStatus,
-        CandidateStatus,
-        CandidateStatus,
+        JobSummaryCandidateStatus,
+        JobSummaryCandidateStatus,
+        JobSummaryCandidateStatus,
+        JobSummaryCandidateStatus,
     ]
     created_at: AwareDatetime
     updated_at: AwareDatetime

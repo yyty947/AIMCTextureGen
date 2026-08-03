@@ -36,8 +36,8 @@ _UUID_CHECK = """
 _CANDIDATE_STATUS_CHECK = """
     CHECK (
         {column} IN (
-            'pending', 'generating', 'postprocessing',
-            'completed', 'failed', 'canceled'
+            'pending', 'generating', 'raw_ready', 'postprocessing',
+            'completed', 'failed', 'canceled', 'inherited'
         )
     )
 """

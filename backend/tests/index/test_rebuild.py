@@ -20,6 +20,16 @@ from aimctexturegen.jobs.models import (
     JobStateRecord,
     JobSummary,
 )
+from aimctexturegen.jobs.models_v3 import (
+    ExecutionBatch,
+    FrozenReferences,
+    GenerationAdvanced,
+    GenerationCandidateRecord,
+    GenerationJobRequest,
+    GenerationJobState,
+    GenerationModelBinding,
+    GenerationTarget,
+)
 from aimctexturegen.jobs.store import JobScanResult, JobStore, LoadedJob
 from aimctexturegen.projects.models import (
     ProjectManifest,
@@ -103,6 +113,92 @@ def _loaded_job(job_id: UUID = JOB_ID) -> LoadedJob:
         status="queued",
         candidates=candidates,
         failure=None,
+        created_at=NOW,
+        updated_at=NOW,
+        started_at=None,
+        finished_at=None,
+    )
+    return LoadedJob(request=request, state=state, root=Path("not-indexed"))
+
+
+def _loaded_generation_job(job_id: UUID = JOB_ID) -> LoadedJob:
+    request = GenerationJobRequest(
+        schema_version=3,
+        job_id=job_id,
+        project_id=PROJECT_ID,
+        parent_job_id=None,
+        target=GenerationTarget(
+            catalog_id="java-format-34-dev",
+            target_semantic_id="minecraft:deepslate",
+            target_display_name="Deepslate",
+            target_relative_path="assets/minecraft/textures/block/deepslate.png",
+        ),
+        prompt={
+            "prompt_version": "java-block-prompt-v1",
+            "positive_prompt": "pixel art stone",
+            "negative_prompt": "text watermark",
+            "user_prompt": "private prompt must stay in JSON",
+        },
+        resolution=16,
+        parallelism=4,
+        execution_batches=(ExecutionBatch(batch_index=0, candidate_indices=(0, 1, 2, 3), seed=99),),
+        references=FrozenReferences(style=(), structure=()),
+        advanced=GenerationAdvanced(
+            style_strength=None,
+            denoise_strength=None,
+            lora_weight=1.0,
+        ),
+        model_profile=GenerationModelBinding(
+            profile_id="sdxl-mapchip-ipadapter",
+            profile_version="2",
+            profile_manifest_sha256="aa" * 32,
+            runtime_id="comfyui-windows-nvidia",
+            runtime_version="0.29.2",
+            runtime_manifest_sha256="bb" * 32,
+            workflow_variant="text2img-no-style",
+            workflow_sha256="cc" * 32,
+            output_node_id="19",
+        ),
+        created_at=NOW,
+    )
+    state = GenerationJobState(
+        schema_version=2,
+        job_id=job_id,
+        project_id=PROJECT_ID,
+        revision=0,
+        status="queued",
+        batches=(
+            {
+                "batch_index": 0,
+                "candidate_indices": (0, 1, 2, 3),
+                "seed": 99,
+                "status": "pending",
+                "prompt_id": None,
+                "sampling_step": None,
+                "sampling_maximum": None,
+                "raw_artifacts": (),
+                "failure": None,
+                "started_at": None,
+                "finished_at": None,
+            },
+        ),
+        candidates=tuple(
+            GenerationCandidateRecord(
+                candidate_index=index,
+                batch_index=0,
+                position_in_batch=index,
+                batch_seed=99,
+                status="pending",
+                artifacts={},
+                lineage=None,
+                failure=None,
+                started_at=None,
+                finished_at=None,
+            )
+            for index in range(4)
+        ),
+        failure=None,
+        cancel_requested_at=None,
         created_at=NOW,
         updated_at=NOW,
         started_at=None,
@@ -214,6 +310,23 @@ def test_service_rebuilds_summaries_from_canonical_models(tmp_path):
     database_bytes = index.database_path.read_bytes()
     assert b"private prompt" not in database_bytes
     assert b"assets/minecraft" not in database_bytes
+
+
+def test_service_rebuilds_generation_job_summaries_from_schema3_models(tmp_path):
+    projects_root = tmp_path / "projects"
+    projects_root.mkdir()
+    index = ProjectIndex(projects_root)
+    service = IndexService(
+        repository=_Repository((_manifest(),)),
+        store=_Store((_loaded_generation_job(),)),
+        index=index,
+    )
+
+    snapshot = service.rebuild()
+
+    assert tuple(job.job_id for job in snapshot.jobs) == (JOB_ID,)
+    assert snapshot.jobs[0].retry_of_job_id is None
+    assert snapshot.jobs[0].candidate_statuses == ("pending",) * 4
 
 
 def test_semantic_row_corruption_rebuilds_once_then_retries(

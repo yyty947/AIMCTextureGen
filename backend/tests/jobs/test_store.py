@@ -18,8 +18,21 @@ from aimctexturegen.jobs.models import (
     dump_job_request,
     dump_job_state,
 )
+from aimctexturegen.jobs.models_v3 import (
+    ExecutionBatch,
+    FrozenReferences,
+    GenerationAdvanced,
+    GenerationJobRequest,
+    GenerationModelBinding,
+    GenerationTarget,
+)
 from aimctexturegen.jobs.state_machine import transition_job_state
-from aimctexturegen.jobs.store import MAX_JOB_JSON_BYTES, JobStore
+from aimctexturegen.jobs.store import (
+    MAX_JOB_JSON_BYTES,
+    JobInputFile,
+    JobInputSnapshot,
+    JobStore,
+)
 from aimctexturegen.projects.models import ProjectManifest, dump_project_manifest
 from aimctexturegen.projects.repository import ProjectRepository
 
@@ -114,6 +127,67 @@ def _store(projects_root: Path) -> JobStore:
     return JobStore(ProjectRepository(projects_root))
 
 
+def _generation_request() -> GenerationJobRequest:
+    return GenerationJobRequest(
+        schema_version=3,
+        job_id=OTHER_JOB_ID,
+        project_id=PROJECT_ID,
+        parent_job_id=None,
+        target=GenerationTarget(
+            catalog_id="java-dev-format-34",
+            target_semantic_id="minecraft:deepslate",
+            target_display_name="Deepslate",
+            target_relative_path="assets/minecraft/textures/block/deepslate.png",
+        ),
+        prompt={
+            "prompt_version": "java-block-prompt-v1",
+            "positive_prompt": "pixel art stone",
+            "negative_prompt": "text watermark",
+            "user_prompt": "cold stone",
+        },
+        resolution=16,
+        parallelism=4,
+        execution_batches=(ExecutionBatch(batch_index=0, candidate_indices=(0, 1, 2, 3), seed=99),),
+        references=FrozenReferences(style=(), structure=()),
+        advanced=GenerationAdvanced(
+            style_strength=None,
+            denoise_strength=None,
+            lora_weight=1.0,
+        ),
+        model_profile=GenerationModelBinding(
+            profile_id="sdxl-mapchip-ipadapter",
+            profile_version="2",
+            profile_manifest_sha256="aa" * 32,
+            runtime_id="comfyui-windows-nvidia",
+            runtime_version="0.29.2",
+            runtime_manifest_sha256="bb" * 32,
+            workflow_variant="text2img-no-style",
+            workflow_sha256="cc" * 32,
+            output_node_id="19",
+        ),
+        created_at=CREATED_AT,
+    )
+
+
+def _snapshot() -> JobInputSnapshot:
+    payload = b'{"style":[],"structure":[]}\n'
+    return JobInputSnapshot(
+        references_json=payload,
+        files=(
+            JobInputFile(
+                relative_path="style/00.png",
+                payload=b"style-image",
+                sha256=hashlib.sha256(b"style-image").hexdigest(),
+            ),
+            JobInputFile(
+                relative_path="structure.png",
+                payload=b"struct-image",
+                sha256=hashlib.sha256(b"struct-image").hexdigest(),
+            ),
+        ),
+    )
+
+
 def _tree_hashes(root: Path) -> dict[str, str]:
     return {
         path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
@@ -175,6 +249,68 @@ def test_create_publishes_exact_layout_and_canonical_queued_records(
         "source": _tree_hashes(project_root / "source"),
         "pack": _tree_hashes(project_root / "pack"),
     }
+
+
+def test_create_generation_publishes_schema3_layout_and_frozen_inputs(
+    tmp_path: Path,
+) -> None:
+    projects_root = tmp_path / "projects"
+    project_root = _write_project(projects_root)
+
+    loaded = _store(projects_root).create_generation(_generation_request(), _snapshot())
+
+    job_root = project_root / "jobs" / str(OTHER_JOB_ID)
+    assert loaded.root == job_root
+    assert {path.name for path in job_root.iterdir()} == {
+        "request.json",
+        "state.json",
+        "inputs",
+        "raw",
+        "processed",
+        "previews",
+        "reports",
+    }
+    assert (job_root / "inputs" / "references.json").read_bytes() == _snapshot().references_json
+    assert (job_root / "inputs" / "style" / "00.png").read_bytes() == b"style-image"
+    assert (job_root / "inputs" / "structure.png").read_bytes() == b"struct-image"
+
+
+def test_create_generation_rejects_invalid_input_path_or_hash(tmp_path: Path) -> None:
+    projects_root = tmp_path / "projects"
+    _write_project(projects_root)
+    store = _store(projects_root)
+
+    with pytest.raises(JobError) as captured:
+        store.create_generation(
+            _generation_request(),
+            JobInputSnapshot(
+                references_json=b"{}",
+                files=(
+                    JobInputFile(
+                        relative_path="style/../../escape.png",
+                        payload=b"x",
+                        sha256=hashlib.sha256(b"x").hexdigest(),
+                    ),
+                ),
+            ),
+        )
+    assert captured.value.code == "INVALID_JOB_RECORD"
+
+    with pytest.raises(JobError) as captured:
+        store.create_generation(
+            _generation_request(),
+            JobInputSnapshot(
+                references_json=b"{}",
+                files=(
+                    JobInputFile(
+                        relative_path="style/00.png",
+                        payload=b"x",
+                        sha256="00" * 32,
+                    ),
+                ),
+            ),
+        )
+    assert captured.value.code == "INVALID_JOB_RECORD"
 
 
 def test_create_removes_owned_temporary_tree_after_injected_write_failure(

@@ -10,6 +10,7 @@ from uuid import UUID
 
 from aimctexturegen.index.models import IndexSnapshot
 from aimctexturegen.jobs.models import JobSummary
+from aimctexturegen.jobs.models_v3 import GenerationJobRequest
 from aimctexturegen.jobs.store import JobScanResult, JobStore, LoadedJob
 from aimctexturegen.projects.models import (
     ProjectManifest,
@@ -136,12 +137,20 @@ def _project_summary(manifest: ProjectManifest) -> ProjectSummary:
 
 
 def _job_summary(loaded: LoadedJob) -> JobSummary:
+    if isinstance(loaded.request, GenerationJobRequest):
+        retry_of_job_id = loaded.request.parent_job_id
+        target_semantic_id = loaded.request.target.target_semantic_id
+        target_display_name = loaded.request.target.target_display_name
+    else:
+        retry_of_job_id = loaded.request.retry_of_job_id
+        target_semantic_id = loaded.request.target_semantic_id
+        target_display_name = loaded.request.target_display_name
     return JobSummary(
         job_id=loaded.request.job_id,
         project_id=loaded.request.project_id,
-        retry_of_job_id=loaded.request.retry_of_job_id,
-        target_semantic_id=loaded.request.target_semantic_id,
-        target_display_name=loaded.request.target_display_name,
+        retry_of_job_id=retry_of_job_id,
+        target_semantic_id=target_semantic_id,
+        target_display_name=target_display_name,
         resolution=loaded.request.resolution,
         parallelism=loaded.request.parallelism,
         status=loaded.state.status,
