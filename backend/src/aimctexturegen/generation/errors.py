@@ -1,6 +1,16 @@
 from __future__ import annotations
 
+from datetime import datetime
 from uuid import UUID
+
+from aimctexturegen.comfy.errors import (
+    ComfyDisconnectedError,
+    ComfyExecutionError,
+    ComfyQueueError,
+    ComfyTimeoutError,
+)
+from aimctexturegen.jobs.models_v3 import GenerationFailure
+from aimctexturegen.processing.errors import ProcessingError
 
 
 class GenerationError(Exception):
@@ -58,9 +68,37 @@ _ERRORS: dict[str, tuple[str, tuple[str, ...]]] = {
         "生成输出不符合受控契约",
         ("重新运行当前原生批次；如果持续失败，请检查模型配置和 workflow 版本",),
     ),
+    "COMFY_QUEUE_REJECTED": (
+        "ComfyUI 拒绝了当前原生批次",
+        ("稍后重试；如果持续失败，请检查受管 ComfyUI 日志和 workflow 版本",),
+    ),
+    "COMFY_DISCONNECTED": (
+        "与 ComfyUI 的连接意外断开",
+        ("稍后重试；如果持续失败，请检查受管 ComfyUI 进程和日志",),
+    ),
+    "COMFY_TIMEOUT": (
+        "等待 ComfyUI 完成当前原生批次超时",
+        ("稍后重试；如果持续失败，请检查受管 ComfyUI 日志",),
+    ),
+    "GPU_OUT_OF_MEMORY": (
+        "显存不足，当前原生批次未能完成",
+        (
+            "用更低并行度重新创建一个新任务",
+            "关闭其他占用显存的应用程序",
+            "停止其他 ComfyUI 实例",
+        ),
+    ),
+    "COMFY_EXECUTION_FAILED": (
+        "ComfyUI 执行当前原生批次失败",
+        ("稍后重试；如果持续失败，请检查受管 ComfyUI 日志和 workflow 版本",),
+    ),
     "POSTPROCESSING_FAILED": (
         "候选后处理失败",
         ("重新运行该候选后处理；如果持续失败，请检查项目目录权限和磁盘空间",),
+    ),
+    "JOB_STORAGE_UNAVAILABLE": (
+        "无法安全保存生成产物",
+        ("稍后重试；如果持续失败，请检查项目目录权限和磁盘空间",),
     ),
 }
 
@@ -79,3 +117,52 @@ def generation_error(
         technical_details=technical_details,
         current_job=current_job,
     )
+
+
+def translate_execution_error(error: Exception) -> GenerationError:
+    if isinstance(error, GenerationError):
+        return error
+    if isinstance(error, ProcessingError):
+        return generation_error(
+            "POSTPROCESSING_FAILED",
+            technical_details=f"{error.code}: {error.message}",
+        )
+    if isinstance(error, ComfyQueueError):
+        return generation_error("COMFY_QUEUE_REJECTED", technical_details=str(error))
+    if isinstance(error, ComfyDisconnectedError):
+        return generation_error("COMFY_DISCONNECTED", technical_details=str(error))
+    if isinstance(error, ComfyTimeoutError):
+        return generation_error("COMFY_TIMEOUT", technical_details=str(error))
+    if isinstance(error, ComfyExecutionError):
+        if _looks_like_oom(str(error)):
+            return generation_error("GPU_OUT_OF_MEMORY", technical_details=str(error))
+        return generation_error("COMFY_EXECUTION_FAILED", technical_details=str(error))
+    return GenerationError(
+        "COMFY_EXECUTION_FAILED",
+        "ComfyUI 执行当前原生批次失败",
+        recommended_actions=_ERRORS["COMFY_EXECUTION_FAILED"][1],
+        technical_details=str(error) or error.__class__.__name__,
+    )
+
+
+def generation_failure_from_error(
+    error: Exception,
+    *,
+    stage: str,
+    occurred_at: datetime,
+) -> GenerationFailure:
+    mapped = translate_execution_error(error)
+    return GenerationFailure(
+        error_code=mapped.code,
+        stage=stage,
+        user_message=mapped.user_message,
+        recommended_actions=mapped.recommended_actions,
+        technical_details=mapped.technical_details,
+        retryable=True,
+        occurred_at=occurred_at,
+    )
+
+
+def _looks_like_oom(message: str) -> bool:
+    lowered = message.casefold()
+    return "out of memory" in lowered or "cuda oom" in lowered or "cuda out of memory" in lowered

@@ -28,6 +28,8 @@ from aimctexturegen.comfy.installer import (
 from aimctexturegen.comfy.manager import ComfyUIManager, ReadinessProbe
 from aimctexturegen.comfy.process import ProcessLauncher
 from aimctexturegen.comfy.registry import ManifestRegistry
+from aimctexturegen.generation.errors import generation_error
+from aimctexturegen.jobs.models_v3 import GenerationModelBinding
 
 
 class _ClientProbe(ReadinessProbe):
@@ -53,6 +55,8 @@ class ManagedInferenceService:
         artifact_downloader: ArtifactDownloader | None = None,
         runtime_installer: RuntimeInstaller | None = None,
         profile_installer: ProfileInstaller | None = None,
+        manager: ComfyUIManager | None = None,
+        client_factory: callable | None = None,
     ) -> None:
         self._registry = registry
         self._root = Path(runtime_root)
@@ -69,7 +73,7 @@ class ManagedInferenceService:
         self._cancel_events: dict[UUID, threading.Event] = {}
         self._lifecycle_lock = threading.Lock()
         self._closing = False
-        self._manager = ComfyUIManager(
+        self._manager = manager or ComfyUIManager(
             runtime_root=self._root,
             runtime=self._runtime,
             profile=self._profile,
@@ -77,6 +81,7 @@ class ManagedInferenceService:
             probe=_ClientProbe(port),
             port=port,
         )
+        self._client_factory = client_factory or (lambda base_url: ComfyClient(base_url))
         self._store.recover_interrupted()
 
     def status(self) -> dict:
@@ -166,6 +171,53 @@ class ManagedInferenceService:
 
     def stop_comfyui(self) -> dict:
         return self._manager.stop().model_dump(mode="json")
+
+    def ensure_generation_ready(
+        self,
+        binding: GenerationModelBinding,
+    ) -> ComfyClient:
+        runtime = self._registry.runtime(binding.runtime_id)
+        profile = self._registry.profile(binding.profile_id, binding.profile_version)
+        if runtime.runtime_version != binding.runtime_version:
+            raise generation_error("PROFILE_NOT_READY")
+        if profile.profile_version != binding.profile_version:
+            raise generation_error("PROFILE_NOT_READY")
+        if getattr(profile, "support_state", None) != "verified":
+            raise generation_error("PROFILE_NOT_READY")
+        if self._runtime.runtime_id != binding.runtime_id or self._runtime.runtime_version != binding.runtime_version:
+            raise generation_error("PROFILE_NOT_READY")
+        if self._profile.profile_id != binding.profile_id or self._profile.profile_version != binding.profile_version:
+            raise generation_error("PROFILE_NOT_READY")
+        from aimctexturegen.comfy.manifests import manifest_sha256
+
+        if manifest_sha256(runtime) != binding.runtime_manifest_sha256:
+            raise generation_error("PROFILE_NOT_READY")
+        if manifest_sha256(profile) != binding.profile_manifest_sha256:
+            raise generation_error("PROFILE_NOT_READY")
+        workflow = next(
+            (
+                item
+                for item in profile.workflows
+                if getattr(item, "variant", None) == binding.workflow_variant
+            ),
+            None,
+        )
+        if workflow is None or workflow.sha256 != binding.workflow_sha256:
+            raise generation_error("PROFILE_NOT_READY")
+        runtime_status = self._runtime_installer.status(runtime, self._root)
+        profile_status = self._profile_installer.status(profile, self._root)
+        if runtime_status.state != "ready" or not profile_status.ready:
+            raise generation_error("PROFILE_NOT_READY")
+        process = self._manager.status()
+        if process.state == "stopped":
+            process = self._manager.start()
+        if process.state != "ready":
+            raise generation_error("PROFILE_NOT_READY")
+        if process.version != runtime.expected_runtime_identity:
+            raise generation_error("PROFILE_NOT_READY")
+        if process.errors:
+            raise generation_error("PROFILE_NOT_READY")
+        return self._client_factory(f"http://127.0.0.1:{self._port}")
 
     def log_tail(self, max_bytes: int) -> str:
         bounded = max(1, min(int(max_bytes), 64 * 1024))

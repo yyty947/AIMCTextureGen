@@ -507,8 +507,10 @@ class GenerationJobState(_StrictModel):
                 raise ValueError("terminal job requires finished_at")
 
         candidate_statuses = tuple(candidate.status for candidate in self.candidates)
-        if self.status == "queued" and candidate_statuses != ("pending",) * 4:
-            raise ValueError("queued job requires pending candidates")
+        if self.status == "queued" and any(
+            status in {"generating", "postprocessing"} for status in candidate_statuses
+        ):
+            raise ValueError("queued job cannot contain active candidates")
         if self.status == "completed" and any(
             status not in {"completed", "inherited"} for status in candidate_statuses
         ):
