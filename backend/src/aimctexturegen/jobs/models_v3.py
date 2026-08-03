@@ -98,7 +98,6 @@ class StoredArtifact(_StrictModel):
             raise ValueError("width and height must both be present or absent")
         return self
 
-
 class CandidateArtifacts(_StrictModel):
     raw: StoredArtifact | None = None
     final: StoredArtifact | None = None
@@ -118,6 +117,10 @@ class CandidateArtifacts(_StrictModel):
         for kind, artifact in expected.items():
             if artifact is not None and artifact.kind != kind:
                 raise ValueError(f"{kind} artifact kind mismatch")
+            if artifact is not None:
+                root = {"raw": "raw/", "final": "processed/", "nearest": "previews/", "tile": "previews/", "report": "reports/"}[kind]
+                if not artifact.relative_path.startswith(root):
+                    raise ValueError("artifact kind does not match schema-3 layout directory")
         return self
 
     def is_complete(self) -> bool:

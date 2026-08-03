@@ -1,5 +1,6 @@
-import hashlib
 import os
+import json
+import hashlib
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
@@ -148,7 +149,10 @@ def _generation_request() -> GenerationJobRequest:
         resolution=16,
         parallelism=4,
         execution_batches=(ExecutionBatch(batch_index=0, candidate_indices=(0, 1, 2, 3), seed=99),),
-        references=FrozenReferences(style=(), structure=()),
+        references=FrozenReferences(
+            style=({"kind": "raw", "relative_path": "inputs/style/00.png", "sha256": hashlib.sha256(b"style-image").hexdigest(), "byte_size": 11, "media_type": "image/png", "width": 16, "height": 16},),
+            structure=({"kind": "raw", "relative_path": "inputs/structure.png", "sha256": hashlib.sha256(b"struct-image").hexdigest(), "byte_size": 11, "media_type": "image/png", "width": 16, "height": 16},),
+        ),
         advanced=GenerationAdvanced(
             style_strength=None,
             denoise_strength=None,
@@ -161,7 +165,7 @@ def _generation_request() -> GenerationJobRequest:
             runtime_id="comfyui-windows-nvidia",
             runtime_version="0.29.2",
             runtime_manifest_sha256="bb" * 32,
-            workflow_variant="text2img-no-style",
+            workflow_variant="img2img-style",
             workflow_sha256="cc" * 32,
             output_node_id="19",
         ),
@@ -170,7 +174,10 @@ def _generation_request() -> GenerationJobRequest:
 
 
 def _snapshot() -> JobInputSnapshot:
-    payload = b'{"style":[],"structure":[]}\n'
+    payload = (json.dumps({
+        "style": [{"relative_path": "inputs/style/00.png", "sha256": hashlib.sha256(b"style-image").hexdigest()}],
+        "structure": [{"relative_path": "inputs/structure.png", "sha256": hashlib.sha256(b"struct-image").hexdigest()}],
+    }, separators=(",", ":")) + "\n").encode()
     return JobInputSnapshot(
         references_json=payload,
         files=(
@@ -273,6 +280,82 @@ def test_create_generation_publishes_schema3_layout_and_frozen_inputs(
     assert (job_root / "inputs" / "references.json").read_bytes() == _snapshot().references_json
     assert (job_root / "inputs" / "style" / "00.png").read_bytes() == b"style-image"
     assert (job_root / "inputs" / "structure.png").read_bytes() == b"struct-image"
+
+
+def _matching_generation_snapshot(request: GenerationJobRequest) -> JobInputSnapshot:
+    files = [
+        JobInputFile(
+            relative_path="style/00.png",
+            payload=b"style-image",
+            sha256=hashlib.sha256(b"style-image").hexdigest(),
+        )
+    ]
+    if request.references.structure:
+        files.append(JobInputFile(
+            relative_path="structure.png",
+            payload=b"struct-image",
+            sha256=hashlib.sha256(b"struct-image").hexdigest(),
+        ))
+    styles = [{"relative_path": "inputs/style/00.png", "sha256": request.references.style[0].sha256}] if request.references.style else []
+    structures = [{"relative_path": "inputs/structure.png", "sha256": request.references.structure[0].sha256}] if request.references.structure else []
+    return JobInputSnapshot(
+        references_json=(json.dumps({
+            "style": styles,
+            "structure": structures,
+        }, separators=(",", ":")) + "\n").encode(),
+        files=tuple(files),
+    )
+
+
+def test_generation_reload_rejects_reparse_point_input_children(tmp_path: Path):
+    projects_root = tmp_path / "projects"
+    project_root = _write_project(projects_root)
+    request = _generation_request().model_copy(update={
+        "references": FrozenReferences(
+            style=({"kind": "raw", "relative_path": "inputs/style/00.png", "sha256": hashlib.sha256(b"style-image").hexdigest(), "byte_size": 11, "media_type": "image/png", "width": 16, "height": 16},),
+            structure=({"kind": "raw", "relative_path": "inputs/structure.png", "sha256": hashlib.sha256(b"struct-image").hexdigest(), "byte_size": 11, "media_type": "image/png", "width": 16, "height": 16},),
+        ),
+        "model_profile": GenerationModelBinding(
+            **{**_generation_request().model_profile.model_dump(), "workflow_variant": "img2img-style"}
+        ),
+    })
+    store = _store(projects_root)
+    loaded = store.create_generation(request, _matching_generation_snapshot(request))
+    outside = tmp_path / "outside.txt"
+    outside.write_bytes(b"unsafe")
+    for child in ("inputs/style/00.png", "inputs/structure.png", "inputs/references.json"):
+        path = loaded.root / child
+        path.unlink()
+        result = subprocess.run(["cmd.exe", "/d", "/c", "mklink", str(path), str(outside)], capture_output=True, text=True)
+        if result.returncode != 0:
+            pytest.fail(result.stdout + result.stderr)
+        with pytest.raises(JobError) as error:
+            store.load(PROJECT_ID, OTHER_JOB_ID)
+        assert error.value.code in {"UNSAFE_JOB_PATH", "CORRUPT_JOB_RECORD"}
+        path.unlink()
+        path.write_bytes(b'{"style":[],"structure":[]}\n' if child.endswith("references.json") else b"safe")
+
+
+@pytest.mark.parametrize("mutation", ["path", "hash", "count"])
+def test_generation_reload_rejects_frozen_input_metadata_mismatch(tmp_path: Path, mutation: str):
+    projects_root = tmp_path / "projects"
+    project_root = _write_project(projects_root)
+    request = _generation_request().model_copy(update={
+        "references": FrozenReferences(style=({"kind": "raw", "relative_path": "inputs/style/00.png", "sha256": hashlib.sha256(b"style-image").hexdigest(), "byte_size": 11, "media_type": "image/png", "width": 16, "height": 16},), structure=()),
+        "model_profile": GenerationModelBinding(
+            **{**_generation_request().model_profile.model_dump(), "workflow_variant": "text2img-style"}
+        )
+    })
+    store = _store(projects_root)
+    loaded = store.create_generation(request, _matching_generation_snapshot(request))
+    references = {"style": [{"relative_path": "inputs/style/00.png", "sha256": request.references.style[0].sha256}], "structure": []}
+    if mutation == "path": references["style"][0]["relative_path"] = "inputs/style/01.png"
+    if mutation == "hash": references["style"][0]["sha256"] = "de" * 32
+    if mutation == "count": references["style"].append(references["style"][0])
+    (loaded.root / "inputs" / "references.json").write_text(json.dumps(references), encoding="utf-8")
+    with pytest.raises(JobError) as error:
+        store.load(PROJECT_ID, OTHER_JOB_ID)
+    assert error.value.code == "CORRUPT_JOB_RECORD"
 
 
 def test_create_generation_rejects_invalid_input_path_or_hash(tmp_path: Path) -> None:

@@ -249,6 +249,21 @@ def test_stored_artifact_rejects_path_escape():
         artifact("../escape.png")
 
 
+@pytest.mark.parametrize(
+    ("kind", "path"),
+    [
+        ("raw", "processed/0.png"),
+        ("final", "raw/0.png"),
+        ("nearest", "raw/0.png"),
+        ("tile", "reports/0.png"),
+        ("report", "previews/0.json"),
+    ],
+)
+def test_artifact_kind_requires_schema3_layout_directory(kind, path):
+    with pytest.raises(ValidationError):
+        CandidateArtifacts.model_validate({kind: artifact(path, kind=kind)})
+
+
 def test_candidate_record_rejects_wrong_batch_position_without_batch_membership():
     with pytest.raises(ValidationError):
         GenerationCandidateRecord(

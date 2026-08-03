@@ -516,6 +516,8 @@ class JobStore:
             ):
                 raise _job_error("CORRUPT_JOB_RECORD")
             validate_durable_pair(request, state)
+            if layout == "generation":
+                _validate_generation_inputs(job_root / "inputs", request)
         except JobError as error:
             raise _job_error("CORRUPT_JOB_RECORD") from error
         except (ValueError, ValidationError) as error:
@@ -790,6 +792,8 @@ def _require_generation_inputs(inputs_root: Path) -> None:
     names = frozenset(child.name for child in children)
     if "references.json" not in names:
         raise _job_error("CORRUPT_JOB_RECORD")
+    references = inputs_root / "references.json"
+    _require_safe_input_file(references, max_size=MAX_JOB_JSON_BYTES)
     if "style" in names:
         style_root = inputs_root / "style"
         try:
@@ -801,11 +805,58 @@ def _require_generation_inputs(inputs_root: Path) -> None:
         for path in style_root.iterdir():
             if not path.is_file() or _GENERATION_INPUT_FILE.fullmatch(f"style/{path.name}") is None:
                 raise _job_error("CORRUPT_JOB_RECORD")
+            _require_safe_input_file(path)
     for child in children:
         if child.name == "style":
             continue
         if child.name not in {"references.json", "structure.png"}:
             raise _job_error("CORRUPT_JOB_RECORD")
+        if child.name == "structure.png":
+            _require_safe_input_file(inputs_root / child.name)
+
+
+def _require_safe_input_file(path: Path, *, max_size: int | None = None) -> None:
+    try:
+        status = os.lstat(path)
+    except OSError as error:
+        raise _job_error("CORRUPT_JOB_RECORD") from error
+    if not stat.S_ISREG(status.st_mode) or is_reparse_point(path, status):
+        raise _job_error("UNSAFE_JOB_PATH")
+    if max_size is not None and status.st_size > max_size:
+        raise _job_error("CORRUPT_JOB_RECORD")
+
+
+def _validate_generation_inputs(inputs_root: Path, request: GenerationJobRequest) -> None:
+    expected = {}
+    for artifact in (*request.references.style, *request.references.structure):
+        relative = artifact.relative_path.removeprefix("inputs/")
+        expected[relative] = artifact
+    try:
+        metadata = json.loads((inputs_root / "references.json").read_bytes())
+        actual_metadata = {
+            item["relative_path"]: item["sha256"]
+            for group in ("style", "structure")
+            for item in metadata[group]
+        }
+    except (KeyError, TypeError, json.JSONDecodeError, OSError) as error:
+        raise _job_error("CORRUPT_JOB_RECORD") from error
+    if set(actual_metadata) != {artifact.relative_path for artifact in (*request.references.style, *request.references.structure)}:
+        raise _job_error("CORRUPT_JOB_RECORD")
+    if len(metadata.get("style", ())) != len(request.references.style) or len(metadata.get("structure", ())) != len(request.references.structure):
+        raise _job_error("CORRUPT_JOB_RECORD")
+    for relative, artifact in expected.items():
+        path = inputs_root / relative
+        _require_safe_input_file(path)
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        if digest != artifact.sha256 or actual_metadata[artifact.relative_path] != artifact.sha256:
+            raise _job_error("CORRUPT_JOB_RECORD")
+    staged = {
+        path.relative_to(inputs_root).as_posix()
+        for path in inputs_root.rglob("*")
+        if path.is_file() and path.name != "references.json"
+    }
+    if staged != set(expected):
+        raise _job_error("CORRUPT_JOB_RECORD")
 
 
 def _job_error(code: str) -> JobError:
