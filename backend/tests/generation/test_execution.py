@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import io
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID
 
+import pytest
 from PIL import Image
 
 from aimctexturegen.comfy.client import ComfyOutputImage
@@ -72,19 +74,24 @@ def _write_project(projects_root: Path) -> Path:
     return project_root
 
 
-def _verified_registry() -> ManifestRegistry:
+def _verified_registry(root: Path = REPO_ROOT) -> ManifestRegistry:
     loaded = ManifestRegistry.load(REPO_ROOT)
     profile = loaded.profile("sdxl-mapchip-ipadapter", "2").model_copy(
         update={"support_state": "verified"}
     )
     return ManifestRegistry(
-        root=REPO_ROOT,
+        root=root,
         runtimes=loaded.runtimes,
         profiles={(profile.profile_id, profile.profile_version): profile},
     )
 
 
-def _service(projects_root: Path) -> GenerationService:
+def _service(
+    projects_root: Path,
+    *,
+    manifest_root: Path = REPO_ROOT,
+    job_ids: tuple[UUID, ...] = (JOB_ID,),
+) -> GenerationService:
     repository = ProjectRepository(projects_root)
     references = ReferenceService(
         repository=repository,
@@ -100,9 +107,9 @@ def _service(projects_root: Path) -> GenerationService:
         ).CatalogRegistry(CATALOG_ROOT),
         references=references,
         store=JobStore(repository),
-        manifests=_verified_registry(),
+        manifests=_verified_registry(manifest_root),
         seed_source=iter((101, 202)).__next__,
-        job_id_source=lambda: JOB_ID,
+        job_id_source=iter(job_ids).__next__,
         clock=lambda: NOW,
     )
 
@@ -250,3 +257,106 @@ def test_run_job_executes_persisted_batches_in_order_and_commits_candidates(
     )
     assert before_source == _hash_tree(project_root / "source")
     assert before_pack == _hash_tree(project_root / "pack")
+
+
+def test_prompt_registration_precedes_prompt_id_state_write(tmp_path: Path) -> None:
+    projects_root = tmp_path / "projects"
+    _write_project(projects_root)
+    service = _service(projects_root)
+    service.create_job(PROJECT_ID, _command())
+    events: list[str] = []
+
+    class OrderingClient(FakeComfyClient):
+        def submit_prompt(self, workflow: dict) -> str:
+            events.append("submit")
+            return super().submit_prompt(workflow)
+
+    completed = service.run_job(
+        PROJECT_ID,
+        JOB_ID,
+        ExecutionContext(
+            client=OrderingClient(),
+            cancel_requested=lambda: False,
+            prompt_registered=lambda _prompt_id: events.append("registered"),
+            state_committed=lambda _loaded: events.append("state"),
+        ),
+    )
+
+    assert completed.state.status == "completed"
+    submit_index = events.index("submit")
+    assert events[submit_index : submit_index + 3] == [
+        "submit",
+        "registered",
+        "state",
+    ]
+
+
+def test_prompt_is_registered_when_prompt_id_state_write_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    projects_root = tmp_path / "projects"
+    _write_project(projects_root)
+    service = _service(projects_root)
+    service.create_job(PROJECT_ID, _command())
+    original_replace_state = service._store.replace_state
+    registered: list[str] = []
+
+    def fail_prompt_id_write(
+        project_id: UUID,
+        job_id: UUID,
+        replacement,
+        *,
+        expected_revision: int,
+    ):
+        if replacement.batches[0].prompt_id == "prompt-0":
+            raise OSError("prompt id state write failed")
+        return original_replace_state(
+            project_id,
+            job_id,
+            replacement,
+            expected_revision=expected_revision,
+        )
+
+    monkeypatch.setattr(service._store, "replace_state", fail_prompt_id_write)
+    failed = service.run_job(
+        PROJECT_ID,
+        JOB_ID,
+        ExecutionContext(
+            client=FakeComfyClient(),
+            cancel_requested=lambda: False,
+            prompt_registered=registered.append,
+        ),
+    )
+
+    assert registered == ["prompt-0"]
+    assert failed.state.status == "failed"
+
+
+def test_changed_workflow_bytes_fail_before_prompt_submission(tmp_path: Path) -> None:
+    manifest_root = tmp_path / "manifest-root"
+    shutil.copytree(REPO_ROOT / "workflows", manifest_root / "workflows")
+    projects_root = tmp_path / "projects"
+    _write_project(projects_root)
+    service = _service(projects_root, manifest_root=manifest_root)
+    service.create_job(PROJECT_ID, _command())
+
+    workflow_path = (
+        manifest_root
+        / "workflows"
+        / "sdxl-mapchip-ipadapter-v2"
+        / "text2img-style.api.json"
+    )
+    workflow_path.write_bytes(workflow_path.read_bytes() + b"\nmutated")
+    fake_client = FakeComfyClient()
+
+    failed = service.run_job(
+        PROJECT_ID,
+        JOB_ID,
+        ExecutionContext(client=fake_client, cancel_requested=lambda: False),
+    )
+
+    assert failed.state.status == "failed"
+    assert failed.state.failure is not None
+    assert failed.state.failure.error_code == "PROFILE_NOT_READY"
+    assert fake_client.submitted_batch_sizes == []

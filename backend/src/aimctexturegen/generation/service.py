@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from aimctexturegen.catalog.models import CatalogEntry, CatalogProfile
 from aimctexturegen.catalog.registry import CatalogRegistry, UnsupportedPackFormat
 from aimctexturegen.comfy.client import ComfyClient
-from aimctexturegen.comfy.errors import ManifestNotFoundError
+from aimctexturegen.comfy.errors import ComfyCanceledError, ManifestNotFoundError
 from aimctexturegen.comfy.manifests import (
     ModelProfileManifestV2,
     WorkflowVariantRecord,
@@ -246,6 +246,8 @@ class GenerationService:
             return loaded
         except _LoadedExecutionError as error:
             loaded = error.loaded
+            if isinstance(error.cause, ComfyCanceledError):
+                return self._confirm_comfy_cancellation(loaded, context)
             mapped = generation_failure_from_error(
                 error.cause,
                 stage=_require_generation_state(loaded).status,
@@ -390,6 +392,8 @@ class GenerationService:
             uploaded = self._upload_frozen_references(current, context.client)
             workflow = self._compile_batch_workflow(current.request, batch, uploaded)
             prompt_id = context.client.submit_prompt(workflow)
+            if context.prompt_registered is not None:
+                context.prompt_registered(prompt_id)
             current = self._commit_state(
                 current,
                 _state_with_prompt_id(
@@ -399,8 +403,6 @@ class GenerationService:
                 ),
                 context=context,
             )
-            if context.prompt_registered is not None:
-                context.prompt_registered(prompt_id)
             progress = _ProgressRecorder(
                 interval_seconds=context.progress_interval_seconds,
                 monotonic=self._monotonic,
@@ -544,11 +546,25 @@ class GenerationService:
         )
         if workflow is None or workflow.sha256 != request.model_profile.workflow_sha256:
             raise generation_error("PROFILE_NOT_READY")
+        workflow_path = (
+            Path(getattr(self._manifests, "_root"))
+            / "workflows"
+            / workflow.relative_path
+        )
+        try:
+            actual_workflow_sha256 = hashlib.sha256(
+                workflow_path.read_bytes()
+            ).hexdigest()
+        except OSError as error:
+            raise generation_error(
+                "PROFILE_NOT_READY",
+                technical_details=str(error),
+            ) from error
+        if actual_workflow_sha256 != request.model_profile.workflow_sha256:
+            raise generation_error("PROFILE_NOT_READY")
         binding = SDXLV2Binding(
             variant=request.model_profile.workflow_variant,
-            workflow_path=getattr(self._manifests, "_root")
-            / "workflows"
-            / workflow.relative_path,
+            workflow_path=workflow_path,
         )
         return binding.compile(
             GenericWorkflowInputs(
@@ -616,6 +632,30 @@ class GenerationService:
                 context=context,
             )
         return loaded
+
+    def _confirm_comfy_cancellation(
+        self,
+        loaded: LoadedJob,
+        context: ExecutionContext,
+    ) -> LoadedJob:
+        current = loaded
+        state = _require_generation_state(current)
+        if state.status in {"canceled", "completed", "failed"}:
+            return current
+        if state.cancel_requested_at is None:
+            current = self._commit_state(
+                current,
+                request_cancel(state, now=self._clock()),
+                context=context,
+            )
+            state = _require_generation_state(current)
+        if state.status != "canceled":
+            current = self._commit_state(
+                current,
+                confirm_canceled(state, now=self._clock()),
+                context=context,
+            )
+        return current
 
     def _batch_raw_is_complete(
         self,

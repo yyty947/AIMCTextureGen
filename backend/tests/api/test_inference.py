@@ -16,8 +16,11 @@ from aimctexturegen.comfy.errors import (
     InstallNotFoundError,
     InstallValidationError,
 )
+from aimctexturegen.comfy.manifests import manifest_sha256
 from aimctexturegen.comfy.install_state import InstallOperation
 from aimctexturegen.main import AppServices, create_app
+from aimctexturegen.generation.errors import GenerationError
+from aimctexturegen.jobs.models_v3 import GenerationModelBinding
 from aimctexturegen.inference.service import ManagedInferenceService
 
 
@@ -271,6 +274,38 @@ def test_default_service_recovery_marks_interrupted_operations(
     recovered = store.get(operation.operation_id)
     assert recovered.state == "failed"
     assert recovered.error.code == "INSTALL_INTERRUPTED"
+
+
+def test_generation_readiness_maps_unknown_binding_identity_to_profile_not_ready(
+    tmp_path: Path,
+) -> None:
+    from aimctexturegen.comfy.registry import ManifestRegistry
+
+    root = Path(__file__).resolve().parents[3]
+    registry = ManifestRegistry.load(root)
+    runtime = registry.runtime("comfyui-windows-nvidia")
+    profile = registry.profile("sdxl-mapchip-ipadapter", "2")
+    workflow = profile.workflows[0]
+    binding = GenerationModelBinding(
+        profile_id=profile.profile_id,
+        profile_version=profile.profile_version,
+        profile_manifest_sha256=manifest_sha256(profile),
+        runtime_id="missing-runtime",
+        runtime_version=runtime.runtime_version,
+        runtime_manifest_sha256=manifest_sha256(runtime),
+        workflow_variant=workflow.variant,
+        workflow_sha256=workflow.sha256,
+        output_node_id=workflow.output_node_id,
+    )
+    service = ManagedInferenceService(
+        registry=registry,
+        runtime_root=tmp_path / "runtime",
+    )
+
+    with pytest.raises(GenerationError) as raised:
+        service.ensure_generation_ready(binding)
+
+    assert raised.value.code == "PROFILE_NOT_READY"
 
 
 def test_managed_install_executes_created_operation_in_background(

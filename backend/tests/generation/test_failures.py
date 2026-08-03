@@ -11,6 +11,7 @@ from PIL import Image
 
 from aimctexturegen.comfy.client import ComfyOutputImage
 from aimctexturegen.comfy.errors import (
+    ComfyCanceledError,
     ComfyDisconnectedError,
     ComfyExecutionError,
     ComfyQueueError,
@@ -33,6 +34,7 @@ from aimctexturegen.references.store import ProjectReferenceStore
 
 PROJECT_ID = UUID("30303030-3030-4030-8030-303030303030")
 JOB_ID = UUID("40404040-4040-4040-8040-404040404040")
+CHILD_JOB_ID = UUID("41414141-4141-4041-8041-414141414141")
 NOW = datetime(2026, 8, 3, 17, 0, tzinfo=timezone.utc)
 CATALOG_ROOT = Path(__file__).parents[3] / "catalogs" / "java"
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -92,7 +94,11 @@ def _verified_registry() -> ManifestRegistry:
     )
 
 
-def _service(projects_root: Path) -> GenerationService:
+def _service(
+    projects_root: Path,
+    *,
+    job_ids: tuple[UUID, ...] = (JOB_ID,),
+) -> GenerationService:
     repository = ProjectRepository(projects_root)
     references = ReferenceService(
         repository=repository,
@@ -110,7 +116,7 @@ def _service(projects_root: Path) -> GenerationService:
         store=JobStore(repository),
         manifests=_verified_registry(),
         seed_source=iter((111, 222, 333, 444)).__next__,
-        job_id_source=lambda: JOB_ID,
+        job_id_source=iter(job_ids).__next__,
         clock=lambda: NOW,
     )
 
@@ -273,3 +279,43 @@ def test_processing_failure_is_persisted_without_mutating_request_or_pack(
     assert failed.request == created.request
     assert before_source == _hash_tree(project_root / "source")
     assert before_pack == _hash_tree(project_root / "pack")
+
+
+def test_cancel_during_wait_persists_canceled_state_and_can_be_retried(
+    tmp_path: Path,
+) -> None:
+    projects_root = tmp_path / "projects"
+    _write_project(projects_root)
+    service = _service(projects_root, job_ids=(JOB_ID, CHILD_JOB_ID))
+    service.create_job(PROJECT_ID, _command())
+    cancel_requested = False
+
+    class CancelDuringWaitClient(FailingClient):
+        def __init__(self) -> None:
+            super().__init__(ComfyCanceledError("wait canceled"), during="wait")
+
+        def wait_completion(self, prompt_id: str, **kwargs) -> dict:
+            nonlocal cancel_requested
+            cancel_requested = True
+            raise self._error
+
+    canceled = service.run_job(
+        PROJECT_ID,
+        JOB_ID,
+        ExecutionContext(
+            client=CancelDuringWaitClient(),
+            cancel_requested=lambda: cancel_requested,
+        ),
+    )
+
+    assert canceled.state.status == "canceled"
+    assert canceled.state.failure is None
+    assert canceled.state.cancel_requested_at is not None
+    assert all(
+        candidate.status == "canceled" for candidate in canceled.state.candidates
+    )
+    assert all(batch.status == "canceled" for batch in canceled.state.batches)
+
+    retried = service.retry_job(PROJECT_ID, JOB_ID)
+    assert retried.request.parent_job_id == JOB_ID
+    assert retried.state.status == "queued"

@@ -26,9 +26,10 @@ from aimctexturegen.comfy.installer import (
     RuntimeInstaller,
 )
 from aimctexturegen.comfy.manager import ComfyUIManager, ReadinessProbe
+from aimctexturegen.comfy.manifests import manifest_sha256
 from aimctexturegen.comfy.process import ProcessLauncher
 from aimctexturegen.comfy.registry import ManifestRegistry
-from aimctexturegen.generation.errors import generation_error
+from aimctexturegen.generation.errors import GenerationError, generation_error
 from aimctexturegen.jobs.models_v3 import GenerationModelBinding
 
 
@@ -176,6 +177,20 @@ class ManagedInferenceService:
         self,
         binding: GenerationModelBinding,
     ) -> ComfyClient:
+        try:
+            return self._ensure_generation_ready(binding)
+        except GenerationError:
+            raise
+        except Exception as error:
+            raise generation_error(
+                "PROFILE_NOT_READY",
+                technical_details=str(error),
+            ) from error
+
+    def _ensure_generation_ready(
+        self,
+        binding: GenerationModelBinding,
+    ) -> ComfyClient:
         runtime = self._registry.runtime(binding.runtime_id)
         profile = self._registry.profile(binding.profile_id, binding.profile_version)
         if runtime.runtime_version != binding.runtime_version:
@@ -188,8 +203,6 @@ class ManagedInferenceService:
             raise generation_error("PROFILE_NOT_READY")
         if self._profile.profile_id != binding.profile_id or self._profile.profile_version != binding.profile_version:
             raise generation_error("PROFILE_NOT_READY")
-        from aimctexturegen.comfy.manifests import manifest_sha256
-
         if manifest_sha256(runtime) != binding.runtime_manifest_sha256:
             raise generation_error("PROFILE_NOT_READY")
         if manifest_sha256(profile) != binding.profile_manifest_sha256:
