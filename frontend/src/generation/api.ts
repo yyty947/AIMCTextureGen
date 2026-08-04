@@ -78,6 +78,7 @@ export async function deleteUploadedReference(
   await requestJson(
     `/api/projects/${encodeURIComponent(projectId)}/references/${encodeURIComponent(kind)}/${encodeURIComponent(referenceId)}`,
     { method: "DELETE" },
+    { allowEmptyResponse: true },
   );
 }
 

@@ -330,6 +330,125 @@ describe("guided generation wizard", () => {
     expect(screen.getByRole("option", { name: addedStructure.referenceId })).toBeInTheDocument();
   });
 
+  it("resets project-scoped wizard state before submitting the newly loaded project", async () => {
+    const nextProjectId = "7fda5078-1246-4cac-91e8-541808da14f5";
+    const nextManifest = {
+      ...manifest,
+      projectId: nextProjectId,
+      projectName: "新项目",
+    } satisfies ProjectManifest;
+    const nextCoverage = {
+      ...coverage,
+      catalogId: "java-dev-format-35",
+    } satisfies CoverageReport;
+    const nextGenerationOptions = {
+      ...generationOptions,
+      defaults: { resolution: 32 as const, parallelism: 2 as const },
+      targets: [
+        {
+          semanticId: "minecraft:granite",
+          displayName: "Granite",
+          relativePath: "assets/minecraft/textures/block/granite.png",
+        },
+      ],
+    };
+    const generationApi = await import("./api");
+    vi.spyOn(generationApi, "getGenerationOptions").mockImplementation(
+      async (requestedProjectId) =>
+        requestedProjectId === nextProjectId
+          ? nextGenerationOptions
+          : generationOptions,
+    );
+    vi.spyOn(generationApi, "listPackReferences").mockImplementation(
+      async (requestedProjectId) =>
+        requestedProjectId === nextProjectId ? [] : packReferences,
+    );
+    vi.spyOn(generationApi, "listUploadedReferences").mockImplementation(
+      async (requestedProjectId, kind) => {
+        if (requestedProjectId === nextProjectId) {
+          return [];
+        }
+        return kind === "style" ? uploadedStyleReferences : uploadedStructureReferences;
+      },
+    );
+    const createdJob = {
+      request: { jobId: "12345678-1234-4abc-8def-123456789abc" },
+      state: { status: "queued" },
+    } as never;
+    vi.spyOn(generationApi, "createGenerationJob").mockResolvedValue(createdJob);
+    vi.spyOn(generationApi, "startGenerationJob").mockResolvedValue(createdJob);
+
+    const refreshJobs = vi.fn().mockResolvedValue(undefined);
+    const onCurrentJobChange = vi.fn();
+    const view = render(
+      <GenerationWizard
+        projectId={projectId}
+        manifest={manifest}
+        coverage={coverage}
+        onJobsChanged={refreshJobs}
+        onCurrentJobChange={onCurrentJobChange}
+      />,
+    );
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("radio", { name: /Deepslate/ }));
+    await user.click(screen.getByRole("button", { name: "下一步：参考图与描述" }));
+    await user.click(screen.getByRole("checkbox", { name: /^Stone$/ }));
+    await user.selectOptions(screen.getByRole("combobox", { name: "结构参考" }), [
+      "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+    ]);
+    await user.type(screen.getByRole("textbox", { name: "补充描述" }), "旧描述");
+    await user.click(screen.getByRole("button", { name: "下一步：生成配置" }));
+    await user.click(screen.getByText("高级设置"));
+    await user.selectOptions(screen.getByLabelText("分辨率"), "64");
+    await user.selectOptions(screen.getByLabelText("并行方式"), "4");
+    await user.type(screen.getByLabelText("负面提示词"), "旧负面提示");
+    await user.type(screen.getByLabelText("结构保持强度"), "0.4");
+    await user.type(screen.getByLabelText("风格强度"), "0.8");
+
+    view.rerender(
+      <GenerationWizard
+        projectId={nextProjectId}
+        manifest={nextManifest}
+        coverage={nextCoverage}
+        onJobsChanged={refreshJobs}
+        onCurrentJobChange={onCurrentJobChange}
+      />,
+    );
+
+    expect(await screen.findByRole("radio", { name: /Granite/ })).not.toBeChecked();
+    await user.click(screen.getByRole("radio", { name: /Granite/ }));
+    await user.click(screen.getByRole("button", { name: "下一步：参考图与描述" }));
+    expect(screen.getByRole("combobox", { name: "结构参考" })).toHaveValue("");
+    expect(screen.getByRole("textbox", { name: "补充描述" })).toHaveValue("");
+    await user.click(screen.getByRole("button", { name: "下一步：生成配置" }));
+
+    expect(screen.getByLabelText("分辨率")).toHaveValue("32");
+    expect(screen.getByLabelText("并行方式")).toHaveValue("2");
+    await user.click(screen.getByText("高级设置"));
+    expect(screen.getByLabelText("负面提示词")).toHaveValue("");
+    expect(screen.queryByLabelText("结构保持强度")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("风格强度")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "创建并开始生成" }));
+
+    const createJob = generationApi.createGenerationJob as unknown as {
+      mock: { calls: readonly [string, Record<string, unknown>][] };
+    };
+    await waitFor(() => expect(createJob.mock.calls).toHaveLength(1));
+    expect(createJob.mock.calls[0]?.[0]).toBe(nextProjectId);
+    expect(createJob.mock.calls[0]?.[1]).toMatchObject({
+      targetSemanticId: "minecraft:granite",
+      styleReferences: [],
+      structureReference: null,
+      userDescription: "",
+      userNegativePrompt: "",
+      resolution: 32,
+      parallelism: 2,
+      denoise: null,
+      styleWeight: null,
+    });
+  });
+
   it("creates then starts one schema-3 job and skips start when create fails", async () => {
     const generationApi = await import("./api");
     vi.spyOn(generationApi, "getGenerationOptions").mockResolvedValue(generationOptions);
@@ -378,5 +497,46 @@ describe("guided generation wizard", () => {
 
     await waitFor(() => expect(createJob).toHaveBeenCalledOnce());
     expect(startJob).not.toHaveBeenCalled();
+  });
+
+  it("keeps a queued job visible and reports a stable error when start fails", async () => {
+    const generationApi = await import("./api");
+    vi.spyOn(generationApi, "getGenerationOptions").mockResolvedValue(generationOptions);
+    vi.spyOn(generationApi, "listPackReferences").mockResolvedValue(packReferences);
+    vi.spyOn(generationApi, "listUploadedReferences")
+      .mockResolvedValueOnce(uploadedStyleReferences)
+      .mockResolvedValueOnce(uploadedStructureReferences);
+    const queuedJob = {
+      request: { jobId: "12345678-1234-4abc-8def-123456789abc" },
+      state: { status: "queued" },
+    } as never;
+    const createJob = vi
+      .spyOn(generationApi, "createGenerationJob")
+      .mockResolvedValue(queuedJob);
+    const startJob = vi.spyOn(generationApi, "startGenerationJob").mockRejectedValue(
+      new ApiRequestError({
+        code: "GPU_UNAVAILABLE",
+        stage: "starting",
+        userMessage: "backend detail",
+        recommendedActions: [],
+        technicalDetails: null,
+      }),
+    );
+
+    const { onCurrentJobChange, refreshJobs } = renderWizard();
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("radio", { name: /Deepslate/ }));
+    await user.click(screen.getByRole("button", { name: "下一步：参考图与描述" }));
+    await user.click(screen.getByRole("button", { name: "下一步：生成配置" }));
+    await user.click(await screen.findByRole("button", { name: "创建并开始生成" }));
+
+    await waitFor(() => expect(createJob).toHaveBeenCalledOnce());
+    await waitFor(() => expect(startJob).toHaveBeenCalledOnce());
+    expect(onCurrentJobChange).toHaveBeenCalledWith(queuedJob);
+    await waitFor(() => expect(refreshJobs).toHaveBeenCalledOnce());
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "生成任务已创建，但启动失败，请稍后重试。",
+    );
   });
 });

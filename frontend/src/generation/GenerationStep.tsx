@@ -9,6 +9,7 @@ export default function GenerationStep({
   hasStructureReference,
   denoise,
   styleWeight,
+  error,
   creating,
   onResolutionChange,
   onParallelismChange,
@@ -26,6 +27,7 @@ export default function GenerationStep({
   readonly hasStructureReference: boolean;
   readonly denoise: number | null;
   readonly styleWeight: number | null;
+  readonly error: string | null;
   readonly creating: boolean;
   readonly onResolutionChange: (value: 16 | 32 | 64) => void;
   readonly onParallelismChange: (value: 1 | 2 | 4) => void;
@@ -91,6 +93,10 @@ export default function GenerationStep({
       </ul>
 
       <p>已验证模型配置：{options.profile.profileId} v{options.profile.profileVersion}</p>
+
+      {error !== null && (
+        <p className="validation-error" role="alert">{error}</p>
+      )}
 
       <details>
         <summary>高级设置</summary>

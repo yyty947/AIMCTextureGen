@@ -657,6 +657,7 @@ function requireStringLiteral<T extends string>(
 export async function requestJson(
   url: string,
   init?: RequestInit,
+  options?: { readonly allowEmptyResponse?: boolean },
 ): Promise<unknown> {
   let response: Response;
   try {
@@ -671,9 +672,23 @@ export async function requestJson(
     });
   }
 
+  let responseBody: string;
+  try {
+    responseBody = await response.text();
+  } catch (cause) {
+    throw invalidResponseError(cause);
+  }
+
+  if (responseBody.trim().length === 0) {
+    if (response.ok && options?.allowEmptyResponse === true) {
+      return undefined;
+    }
+    throw invalidResponseError(new SyntaxError("Expected a JSON response body"));
+  }
+
   let payload: unknown;
   try {
-    payload = await response.json();
+    payload = JSON.parse(responseBody);
   } catch (cause) {
     throw invalidResponseError(cause);
   }

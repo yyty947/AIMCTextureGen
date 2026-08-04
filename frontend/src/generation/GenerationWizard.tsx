@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { CoverageReport, ProjectManifest } from "../api";
 import type { JobDetail } from "../api";
@@ -18,6 +18,9 @@ import type {
   GenerationOptions,
   ReferenceSelection,
 } from "./types";
+
+const CREATE_FAILURE_MESSAGE = "生成任务创建失败，请检查配置后重试。";
+const START_FAILURE_MESSAGE = "生成任务已创建，但启动失败，请稍后重试。";
 
 export default function GenerationWizard({
   projectId,
@@ -60,11 +63,49 @@ export default function GenerationWizard({
   const [denoise, setDenoise] = useState<number | null>(null);
   const [styleWeight, setStyleWeight] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
+  const [generationError, setGenerationError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [uploadingKind, setUploadingKind] = useState<"style" | "structure" | null>(
     null,
   );
   const [referenceError, setReferenceError] = useState<string | null>(null);
+  const previousInputs = useRef({ projectId, manifest, coverage });
+  const projectEpoch = useRef(0);
+
+  useEffect(() => {
+    const previous = previousInputs.current;
+    const changed =
+      previous.projectId !== projectId ||
+      previous.manifest !== manifest ||
+      previous.coverage !== coverage;
+    previousInputs.current = { projectId, manifest, coverage };
+    if (!changed) {
+      return;
+    }
+
+    projectEpoch.current += 1;
+    setStep(2);
+    setOptions(null);
+    setPackReferences([]);
+    setStyleUploads([]);
+    setStructureUploads([]);
+    setSearch("");
+    setSelectedTargetSemanticId(null);
+    setStyleReferences([]);
+    setStructureReference(null);
+    setUserDescription("");
+    setUserNegativePrompt("");
+    setResolution(16);
+    setParallelism(1);
+    setDenoise(null);
+    setStyleWeight(null);
+    setCreating(false);
+    setGenerationError(null);
+    setLoadError(null);
+    setUploadingKind(null);
+    setReferenceError(null);
+    onCurrentJobChange(null);
+  }, [coverage, manifest, onCurrentJobChange, projectId]);
 
   useEffect(() => {
     let active = true;
@@ -215,7 +256,9 @@ export default function GenerationWizard({
     if (selectedTargetSemanticId === null) {
       return;
     }
+    const requestEpoch = projectEpoch.current;
     setCreating(true);
+    setGenerationError(null);
     try {
       const created = await createGenerationJob(projectId, {
         targetSemanticId: selectedTargetSemanticId,
@@ -228,13 +271,36 @@ export default function GenerationWizard({
         denoise: structureReference === null ? null : denoise,
         styleWeight: styleReferences.length === 0 ? null : styleWeight,
       });
-      const started = await startGenerationJob(projectId, created.request.jobId);
-      onCurrentJobChange(started as unknown as JobDetail);
-      await onJobsChanged();
+      if (requestEpoch !== projectEpoch.current) {
+        return;
+      }
+      onCurrentJobChange(created as unknown as JobDetail);
+      try {
+        const started = await startGenerationJob(projectId, created.request.jobId);
+        if (requestEpoch !== projectEpoch.current) {
+          return;
+        }
+        onCurrentJobChange(started as unknown as JobDetail);
+        await onJobsChanged();
+      } catch {
+        if (requestEpoch !== projectEpoch.current) {
+          return;
+        }
+        try {
+          await onJobsChanged();
+        } catch {
+          // Keep the stable start error visible even if refreshing history fails.
+        }
+        setGenerationError(START_FAILURE_MESSAGE);
+      }
     } catch {
-      // The app-level caller owns error presentation in later tasks.
+      if (requestEpoch === projectEpoch.current) {
+        setGenerationError(CREATE_FAILURE_MESSAGE);
+      }
     } finally {
-      setCreating(false);
+      if (requestEpoch === projectEpoch.current) {
+        setCreating(false);
+      }
     }
   }
 
@@ -287,6 +353,7 @@ export default function GenerationWizard({
     <GenerationStep
       creating={creating}
       denoise={denoise}
+      error={generationError}
       hasStructureReference={structureReference !== null}
       hasStyleReference={styleReferences.length > 0}
       options={options}

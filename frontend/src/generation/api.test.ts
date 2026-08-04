@@ -7,6 +7,7 @@ import {
 } from "../api";
 import {
   createGenerationJob,
+  deleteUploadedReference,
   getGenerationJob,
   getGenerationOptions,
   listPackReferences,
@@ -351,6 +352,29 @@ async function expectInvalidResponse(operation: () => Promise<unknown>) {
 }
 
 describe("strict generation API parsing", () => {
+  it("accepts a successful 204 response when deleting an uploaded reference", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      deleteUploadedReference(projectId, "style", "11111111-2222-4333-8444-555555555555"),
+    ).resolves.toBeUndefined();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/projects/${projectId}/references/style/11111111-2222-4333-8444-555555555555`,
+      { method: "DELETE" },
+    );
+  });
+
+  it("still rejects an empty successful body for JSON endpoints", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response(null, { status: 204 })),
+    );
+
+    await expectInvalidResponse(() => getGenerationOptions(projectId, manifest, coverage));
+  });
+
   it("parses schema-3 batches and candidate-to-batch positions", async () => {
     respondWith(jobDetailResponse);
 
