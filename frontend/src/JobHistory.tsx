@@ -22,10 +22,12 @@ const jobStatusLabels: Record<JobStatus, string> = {
 const candidateStatusLabels: Record<CandidateStatus, string> = {
   pending: "待处理",
   generating: "生成中",
+  raw_ready: "原始结果",
   postprocessing: "后处理中",
   completed: "完成",
   failed: "失败",
   canceled: "已取消",
+  inherited: "沿用",
 };
 
 export default function JobHistory({

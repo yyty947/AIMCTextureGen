@@ -7,6 +7,7 @@ import {
 } from "react";
 
 import InferenceSetup from "./InferenceSetup";
+import GenerationWizard from "./generation/GenerationWizard";
 
 import {
   ApiRequestError,
@@ -504,6 +505,13 @@ export default function App() {
           ) : manifest !== null && coverage !== null ? (
             <>
               <CoverageSummary manifest={manifest} coverage={coverage} />
+              <GenerationWizard
+                projectId={selectedProjectId}
+                manifest={manifest}
+                coverage={coverage}
+                onJobsChanged={() => loadProjectDashboard(selectedProjectId)}
+                onCurrentJobChange={() => undefined}
+              />
               <JobHistory jobs={jobs} />
             </>
           ) : (
@@ -599,12 +607,20 @@ function reconcileJobHistory(
   detail: JobDetail,
 ): JobHistoryEntry {
   const { request, state } = detail;
+  const matchesImmutableSummary =
+    request.schemaVersion === 1 && state.schemaVersion === 1
+      ? summary.retryOfJobId === request.retryOfJobId &&
+        summary.targetSemanticId === request.targetSemanticId &&
+        summary.targetDisplayName === request.targetDisplayName
+      : request.schemaVersion === 3 && state.schemaVersion === 2
+        ? summary.retryOfJobId === request.parentJobId &&
+          summary.targetSemanticId === request.target.semanticId &&
+          summary.targetDisplayName === request.target.displayName
+        : false;
   if (
+    !matchesImmutableSummary ||
     summary.jobId !== request.jobId ||
     summary.projectId !== request.projectId ||
-    summary.retryOfJobId !== request.retryOfJobId ||
-    summary.targetSemanticId !== request.targetSemanticId ||
-    summary.targetDisplayName !== request.targetDisplayName ||
     summary.resolution !== request.resolution ||
     summary.parallelism !== request.parallelism ||
     summary.createdAt !== request.createdAt

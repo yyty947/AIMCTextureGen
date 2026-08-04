@@ -261,6 +261,9 @@ describe("strict project and durable-job API parsing", () => {
 
     const detail = await getJob(projectId, jobId);
 
+    if (detail.request.schemaVersion !== 1) {
+      throw new Error("Expected the legacy job request fixture");
+    }
     expect(detail.request.seeds).toEqual([11, 22, 33, 44]);
     expect(detail.state.candidates.map((candidate) => candidate.candidateIndex)).toEqual([
       0, 1, 2, 3,

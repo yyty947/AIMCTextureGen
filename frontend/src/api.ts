@@ -35,10 +35,12 @@ export type JobStatus =
 export type CandidateStatus =
   | "pending"
   | "generating"
+  | "raw_ready"
   | "postprocessing"
   | "completed"
   | "failed"
-  | "canceled";
+  | "canceled"
+  | "inherited";
 
 export interface JobFailure {
   code: string;
@@ -115,9 +117,13 @@ export interface JobStateRecord {
   finishedAt: string | null;
 }
 
+export type DurableJobRequest = JobRequest | GenerationJobRequest;
+
+export type DurableJobState = JobStateRecord | GenerationJobState;
+
 export interface JobDetail {
-  request: JobRequest;
-  state: JobStateRecord;
+  request: DurableJobRequest;
+  state: DurableJobState;
 }
 
 export interface RecoveryIssue {
@@ -648,7 +654,10 @@ function requireStringLiteral<T extends string>(
   return value as T;
 }
 
-async function requestJson(url: string, init?: RequestInit): Promise<unknown> {
+export async function requestJson(
+  url: string,
+  init?: RequestInit,
+): Promise<unknown> {
   let response: Response;
   try {
     response = await fetch(url, init);
@@ -705,7 +714,7 @@ export function invalidResponseError(cause: unknown): ApiRequestError {
   });
 }
 
-function parseSuccessfulResponse<T>(
+export function parseSuccessfulResponse<T>(
   payload: unknown,
   parse: (data: Record<string, unknown>) => T,
 ): T {
@@ -719,7 +728,7 @@ function parseSuccessfulResponse<T>(
   }
 }
 
-function parseSuccessfulValue<T>(
+export function parseSuccessfulValue<T>(
   payload: unknown,
   parse: (value: unknown) => T,
 ): T {
@@ -815,8 +824,16 @@ function parseJobDetail(
   expectedProjectId: string,
   expectedJobId: string,
 ): JobDetail {
-  const request = parseJobRequest(data.request);
-  const state = parseJobState(data.state);
+  const requestValue = requireRecord(data.request);
+  const request =
+    requestValue.schema_version === 3
+      ? parseGenerationJobRequest(requestValue)
+      : parseJobRequest(requestValue);
+  const stateValue = requireRecord(data.state);
+  const state =
+    request.schemaVersion === 3
+      ? parseGenerationJobState(stateValue, request)
+      : parseJobState(stateValue);
   if (
     request.projectId !== expectedProjectId ||
     state.projectId !== expectedProjectId ||
@@ -825,13 +842,15 @@ function parseJobDetail(
   ) {
     throw new TypeError("Job detail identity does not match the request");
   }
-  for (let index = 0; index < 4; index += 1) {
-    const candidate = state.candidates[index];
-    if (
-      candidate.candidateIndex !== index ||
-      candidate.seed !== request.seeds[index]
-    ) {
-      throw new TypeError("Job candidates do not match the persisted seeds");
+  if (request.schemaVersion === 1 && state.schemaVersion === 1) {
+    for (let index = 0; index < 4; index += 1) {
+      const candidate = state.candidates[index];
+      if (
+        candidate.candidateIndex !== index ||
+        candidate.seed !== request.seeds[index]
+      ) {
+        throw new TypeError("Job candidates do not match the persisted seeds");
+      }
     }
   }
   return { request, state };
@@ -892,6 +911,361 @@ function parseJobState(value: unknown): JobStateRecord {
   };
   validateJobLifecycle(state);
   return state;
+}
+
+function parseGenerationJobRequest(
+  data: Record<string, unknown>,
+): GenerationJobRequest {
+  const target = requireRecord(data.target);
+  const prompt = requireRecord(data.prompt);
+  const references = requireRecord(data.references);
+  const advanced = requireRecord(data.advanced);
+  const modelProfile = requireRecord(data.model_profile);
+  const executionBatches = parseExecutionBatches(data.execution_batches);
+  const parallelism = requireParallelism(data.parallelism);
+  validateGenerationRequestBatches(executionBatches, parallelism);
+  const styleReferences = requireArray(references.style).map(parseFrozenReference);
+  const structureReferences = requireArray(references.structure).map(
+    parseFrozenReference,
+  );
+  if (styleReferences.length > 8 || structureReferences.length > 1) {
+    throw new TypeError("Frozen reference count exceeds its contract");
+  }
+  return {
+    schemaVersion: requireLiteralValue(data.schema_version, 3),
+    jobId: requireCanonicalUuid(data.job_id),
+    projectId: requireCanonicalUuid(data.project_id),
+    parentJobId: requireNullableUuid(data.parent_job_id),
+    target: {
+      semanticId: requireNonemptyString(target.target_semantic_id),
+      displayName: requireNonemptyString(target.target_display_name),
+      relativePath: requireProjectRelativePath(target.target_relative_path),
+      catalogId: requireNonemptyString(target.catalog_id),
+    },
+    prompt: {
+      promptVersion: requireNonemptyString(prompt.prompt_version),
+      positivePrompt: requireNonemptyString(prompt.positive_prompt),
+      negativePrompt: requireNonemptyString(prompt.negative_prompt),
+      userPrompt: requireString(prompt.user_prompt),
+    },
+    resolution: requireResolution(data.resolution),
+    parallelism,
+    executionBatches: executionBatches.map((batch) => ({
+      batchIndex: batch.batchIndex,
+      candidateIndices: [...batch.candidateIndices],
+      seed: batch.seed,
+    })),
+    references: {
+      style: styleReferences,
+      structure: structureReferences,
+    },
+    advanced: {
+      styleWeight: requireNullableFiniteNumber(advanced.style_strength),
+      denoise: requireNullableFiniteNumber(advanced.denoise_strength),
+      loraWeight: requireNullableFiniteNumber(advanced.lora_weight),
+    },
+    modelProfile: {
+      profileId: requireNonemptyString(modelProfile.profile_id),
+      profileVersion: requireNonemptyString(modelProfile.profile_version),
+      profileManifestSha256: requireSha256(
+        modelProfile.profile_manifest_sha256,
+      ),
+      runtimeId: requireNonemptyString(modelProfile.runtime_id),
+      runtimeVersion: requireNonemptyString(modelProfile.runtime_version),
+      runtimeManifestSha256: requireSha256(
+        modelProfile.runtime_manifest_sha256,
+      ),
+      workflowVariant: requireStringLiteral(
+        modelProfile.workflow_variant,
+        "text2img-no-style",
+        "text2img-style",
+        "img2img-no-style",
+        "img2img-style",
+      ),
+      workflowSha256: requireSha256(modelProfile.workflow_sha256),
+      outputNodeId: requireNonemptyString(modelProfile.output_node_id),
+    },
+    createdAt: requireTimestamp(data.created_at),
+  };
+}
+
+function parseGenerationJobState(
+  data: Record<string, unknown>,
+  request: GenerationJobRequest,
+): GenerationJobState {
+  const status = requireJobStatus(data.status);
+  const failure = parseNullableGenerationFailure(data.failure);
+  const batches = requireArray(data.batches).map(parseGenerationBatchState);
+  const candidates = parseGenerationCandidates(data.candidates);
+  validateGenerationRequestBatches(request.executionBatches, request.parallelism);
+  if (batches.length !== request.executionBatches.length) {
+    throw new TypeError("State batch count does not match the request plan");
+  }
+  for (const [index, batch] of batches.entries()) {
+    const expected = request.executionBatches[index];
+    if (
+      expected === undefined ||
+      batch.batchIndex !== expected.batchIndex ||
+      batch.seed !== expected.seed ||
+      batch.candidateIndices.join(",") !== expected.candidateIndices.join(",")
+    ) {
+      throw new TypeError("State batch does not match the request plan");
+    }
+  }
+  validateGenerationStateAgainstRequest(request, batches, candidates);
+  return {
+    schemaVersion: requireLiteral(data.schema_version, 2),
+    jobId: requireCanonicalUuid(data.job_id),
+    projectId: requireCanonicalUuid(data.project_id),
+    revision: requireNonnegativeInteger(data.revision),
+    status,
+    cancelRequestedAt: requireNullableTimestamp(data.cancel_requested_at),
+    failure,
+    batches,
+    candidates,
+    createdAt: requireTimestamp(data.created_at),
+    updatedAt: requireTimestamp(data.updated_at),
+    startedAt: requireNullableTimestamp(data.started_at),
+    finishedAt: requireNullableTimestamp(data.finished_at),
+  };
+}
+
+function parseExecutionBatches(
+  value: unknown,
+): readonly { batchIndex: number; candidateIndices: readonly (0 | 1 | 2 | 3)[]; seed: number }[] {
+  return requireArray(value).map((item) => {
+    const data = requireRecord(item);
+    return {
+      batchIndex: requireNonnegativeInteger(data.batch_index),
+      candidateIndices: requireArray(data.candidate_indices).map(
+        requireCandidateIndex,
+      ),
+      seed: requireNonnegativeInteger(data.seed),
+    };
+  });
+}
+
+function parseFrozenReference(value: unknown) {
+  const data = requireRecord(value);
+  const width = requireNullablePositiveInteger(data.width);
+  const height = requireNullablePositiveInteger(data.height);
+  if ((width === null) !== (height === null)) {
+    throw new TypeError("Reference dimensions must be paired");
+  }
+  return {
+    kind: requireStringLiteral(data.kind, "raw"),
+    relativePath: requireProjectRelativePath(data.relative_path),
+    sha256: requireSha256(data.sha256),
+    byteSize: requireNonnegativeInteger(data.byte_size),
+    mediaType: requireNonemptyString(data.media_type),
+    width,
+    height,
+  };
+}
+
+function parseGenerationBatchState(value: unknown) {
+  const data = requireRecord(value);
+  return {
+    batchIndex: requireNonnegativeInteger(data.batch_index),
+    candidateIndices: requireArray(data.candidate_indices).map(
+      requireCandidateIndex,
+    ),
+    seed: requireNonnegativeInteger(data.seed),
+    status: requireStringLiteral(
+      data.status,
+      "pending",
+      "generating",
+      "raw_ready",
+      "completed",
+      "failed",
+      "canceled",
+    ),
+    promptId: requireNullableString(data.prompt_id),
+    rawArtifacts: requireArray(data.raw_artifacts).map(parseGenerationArtifact),
+    startedAt: requireNullableTimestamp(data.started_at),
+    finishedAt: requireNullableTimestamp(data.finished_at),
+    failure: parseNullableGenerationFailure(data.failure),
+  };
+}
+
+function parseGenerationCandidates(value: unknown): GenerationJobState["candidates"] {
+  const items = requireArray(value);
+  if (items.length !== 4) {
+    throw new TypeError("Expected exactly four candidate records");
+  }
+  return [
+    parseGenerationCandidateState(items[0]),
+    parseGenerationCandidateState(items[1]),
+    parseGenerationCandidateState(items[2]),
+    parseGenerationCandidateState(items[3]),
+  ];
+}
+
+function parseGenerationCandidateState(value: unknown) {
+  const data = requireRecord(value);
+  return {
+    candidateIndex: requireCandidateIndex(data.candidate_index),
+    batchIndex: requireNonnegativeInteger(data.batch_index),
+    positionInBatch: requireNonnegativeInteger(data.position_in_batch),
+    batchSeed: requireNonnegativeInteger(data.batch_seed),
+    status: requireCandidateStatus(data.status),
+    artifacts: parseGenerationArtifacts(data.artifacts),
+    failure: parseNullableGenerationFailure(data.failure),
+    lineage: parseNullableGenerationLineage(data.lineage),
+    startedAt: requireNullableTimestamp(data.started_at),
+    finishedAt: requireNullableTimestamp(data.finished_at),
+  };
+}
+
+function parseGenerationArtifacts(value: unknown) {
+  const data = requireRecord(value);
+  return {
+    raw: parseNullableGenerationArtifact(data.raw),
+    final: parseNullableGenerationArtifact(data.final),
+    nearest: parseNullableGenerationArtifact(data.nearest),
+    tile: parseNullableGenerationArtifact(data.tile),
+    report: parseNullableGenerationArtifact(data.report),
+  };
+}
+
+function parseNullableGenerationLineage(value: unknown) {
+  if (value === null) {
+    return null;
+  }
+  const data = requireRecord(value);
+  return {
+    parentJobId: requireCanonicalUuid(data.parent_job_id),
+    parentCandidateIndex: requireCandidateIndex(data.parent_candidate_index),
+  };
+}
+
+function parseNullableGenerationArtifact(value: unknown) {
+  if (value === null) {
+    return null;
+  }
+  return parseGenerationArtifact(value);
+}
+
+function parseGenerationArtifact(value: unknown) {
+  const data = requireRecord(value);
+  const width = requireNullablePositiveInteger(data.width);
+  const height = requireNullablePositiveInteger(data.height);
+  if ((width === null) !== (height === null)) {
+    throw new TypeError("Artifact dimensions must be paired");
+  }
+  return {
+    kind: requireStringLiteral(
+      data.kind,
+      "raw",
+      "final",
+      "nearest",
+      "tile",
+      "report",
+    ),
+    relativePath: requireProjectRelativePath(data.relative_path),
+    sha256: requireSha256(data.sha256),
+    byteSize: requireSafeByteSize(data.byte_size),
+    mediaType: requireNonemptyString(data.media_type),
+    width,
+    height,
+  };
+}
+
+function parseNullableGenerationFailure(
+  value: unknown,
+): GenerationJobFailure | null {
+  if (value === null) {
+    return null;
+  }
+  const data = requireRecord(value);
+  return {
+    code: requireNonemptyString(data.error_code),
+    stage: requireNonemptyString(data.stage),
+    userMessage: requireNonemptyString(data.user_message),
+    recommendedActions: requireBoundedStringArray(
+      data.recommended_actions,
+      0,
+      Number.MAX_SAFE_INTEGER,
+    ),
+    technicalDetails: requireNullableString(data.technical_details),
+    retryable: requireBoolean(data.retryable),
+    occurredAt: requireTimestamp(data.occurred_at),
+  };
+}
+
+function validateGenerationRequestBatches(
+  batches: readonly {
+    batchIndex: number;
+    candidateIndices: readonly (0 | 1 | 2 | 3)[];
+    seed: number;
+  }[],
+  parallelism: 1 | 2 | 4,
+): void {
+  const expected = {
+    1: [[0], [1], [2], [3]],
+    2: [[0, 1], [2, 3]],
+    4: [[0, 1, 2, 3]],
+  }[parallelism];
+  if (
+    batches.length !== expected.length ||
+    batches.some(
+      (batch, index) =>
+        batch.batchIndex !== index ||
+        batch.candidateIndices.join(",") !== expected[index]!.join(","),
+    )
+  ) {
+    throw new TypeError("Execution batches must match the native partition");
+  }
+}
+
+function validateGenerationStateAgainstRequest(
+  request: GenerationJobRequest,
+  batches: readonly {
+    batchIndex: number;
+    candidateIndices: readonly (0 | 1 | 2 | 3)[];
+    seed: number;
+  }[],
+  candidates: GenerationJobState["candidates"],
+): void {
+  const requestByBatch = new Map(
+    request.executionBatches.map((batch) => [batch.batchIndex, batch] as const),
+  );
+  for (const batch of batches) {
+    const requestBatch = requestByBatch.get(batch.batchIndex);
+    if (requestBatch === undefined) {
+      throw new TypeError("State batch does not exist in request");
+    }
+    if (
+      requestBatch.seed !== batch.seed ||
+      requestBatch.candidateIndices.join(",") !== batch.candidateIndices.join(",")
+    ) {
+      throw new TypeError("State batch does not match request batch plan");
+    }
+  }
+  for (let index = 0; index < 4; index += 1) {
+    const candidate = candidates[index];
+    if (candidate.candidateIndex !== index) {
+      throw new TypeError("Candidates must stay in stable index order");
+    }
+    const requestBatch = request.executionBatches.find((batch) =>
+      batch.candidateIndices.includes(candidate.candidateIndex),
+    );
+    if (requestBatch === undefined) {
+      throw new TypeError("Candidate is not covered by request batches");
+    }
+    if (candidate.batchIndex !== requestBatch.batchIndex) {
+      throw new TypeError("Candidate batch assignment differs from request");
+    }
+    const expectedPosition = requestBatch.candidateIndices.indexOf(
+      candidate.candidateIndex,
+    );
+    if (
+      candidate.positionInBatch !== expectedPosition ||
+      candidate.batchSeed !== requestBatch.seed
+    ) {
+      throw new TypeError("Candidate batch position differs from request");
+    }
+  }
 }
 
 function parseFourCandidates(
@@ -1280,6 +1654,16 @@ function requireNullableTimestamp(value: unknown): string | null {
   return value === null ? null : requireTimestamp(value);
 }
 
+function requireNullablePositiveInteger(value: unknown): number | null {
+  if (value === null) {
+    return null;
+  }
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1) {
+    throw new TypeError("Expected a positive safe integer response field");
+  }
+  return value;
+}
+
 function requireBoolean(value: unknown): boolean {
   if (typeof value !== "boolean") {
     throw new TypeError("Expected a boolean response field");
@@ -1288,6 +1672,13 @@ function requireBoolean(value: unknown): boolean {
 }
 
 function requireLiteral<T extends 1 | 2>(value: unknown, literal: T): T {
+  if (value !== literal) {
+    throw new TypeError("Unsupported schema version");
+  }
+  return literal;
+}
+
+function requireLiteralValue<T extends 3>(value: unknown, literal: T): T {
   if (value !== literal) {
     throw new TypeError("Unsupported schema version");
   }
@@ -1331,6 +1722,16 @@ function requireParallelism(value: unknown): 1 | 2 | 4 {
   return value;
 }
 
+function requireNullableFiniteNumber(value: unknown): number | null {
+  if (value === null) {
+    return null;
+  }
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new TypeError("Expected a finite numeric response field");
+  }
+  return value;
+}
+
 function requireJobStatus(value: unknown): JobStatus {
   if (
     value !== "queued" &&
@@ -1349,10 +1750,12 @@ function requireCandidateStatus(value: unknown): CandidateStatus {
   if (
     value !== "pending" &&
     value !== "generating" &&
+    value !== "raw_ready" &&
     value !== "postprocessing" &&
     value !== "completed" &&
     value !== "failed" &&
-    value !== "canceled"
+    value !== "canceled" &&
+    value !== "inherited"
   ) {
     throw new TypeError("Unsupported candidate status");
   }
@@ -1429,3 +1832,9 @@ function parseSupportedFormats(
     requireNonnegativeInteger(formats[1]),
   ];
 }
+import type {
+  GenerationJobDetail,
+  GenerationJobFailure,
+  GenerationJobRequest,
+  GenerationJobState,
+} from "./generation/types";

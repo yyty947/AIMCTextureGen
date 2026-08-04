@@ -84,6 +84,31 @@ const recoveryReport = {
   completed_at: "2026-07-29T12:00:00Z",
 };
 
+const generationOptions = {
+  candidate_count: 4,
+  allowed_parallelism: [1, 2, 4],
+  defaults: { resolution: 16, parallelism: 1 },
+  profile: {
+    profile_id: "sdxl-mapchip-ipadapter",
+    profile_version: "2",
+    support_state: "verified",
+  },
+  resource_hints: [1, 2, 4].map((parallelism) => ({
+    parallelism,
+    peak_vram_mib: 4096,
+    peak_process_ram_mib: 6144,
+    peak_system_ram_mib: 8192,
+    elapsed_seconds: 12.5,
+  })),
+  targets: [
+    {
+      semantic_id: "minecraft:deepslate",
+      display_name: "Deepslate",
+      relative_path: "assets/minecraft/textures/block/deepslate.png",
+    },
+  ],
+};
+
 function renderImportApp() {
   const operationFetch = globalThis.fetch;
   vi.stubGlobal(
@@ -95,6 +120,15 @@ function renderImportApp() {
       }
       if (url === "/api/system/recovery") {
         return Promise.resolve(jsonResponse(recoveryReport));
+      }
+      if (url.endsWith("/generation-options")) {
+        return Promise.resolve(jsonResponse(generationOptions));
+      }
+      if (url.endsWith("/references/pack")) {
+        return Promise.resolve(jsonResponse([]));
+      }
+      if (url.includes("/references?kind=")) {
+        return Promise.resolve(jsonResponse([]));
       }
       return operationFetch.call(globalThis, input, init);
     }),
@@ -146,7 +180,7 @@ describe("资源包导入与覆盖摘要", () => {
     );
     expect(screen.getByText("已覆盖 1")).toBeInTheDocument();
     expect(screen.getByText("未覆盖 1")).toBeInTheDocument();
-    expect(screen.getByText("Deepslate")).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: /Deepslate/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /测试项目/ })).toHaveAttribute(
       "aria-current",
       "true",
@@ -163,9 +197,7 @@ describe("资源包导入与覆盖摘要", () => {
     expect(
       await screen.findByText(/开发测试目录/),
     ).toBeInTheDocument();
-    expect(
-      screen.getByText("assets/minecraft/textures/block/deepslate.png"),
-    ).toBeInTheDocument();
+    expect(screen.getAllByText("assets/minecraft/textures/block/deepslate.png").length).toBeGreaterThan(0);
     expect(screen.getByText("未知\/自定义 1")).toBeInTheDocument();
   });
 
@@ -453,7 +485,7 @@ describe("资源包导入与覆盖摘要", () => {
       "不安全的资源包路径",
     );
     expect(screen.getByLabelText("覆盖统计")).toHaveTextContent("资源格式 34");
-    expect(screen.getByText("Deepslate")).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: /Deepslate/ })).toBeInTheDocument();
   });
 });
 
@@ -573,6 +605,15 @@ describe("项目恢复与只读任务历史", () => {
       }
       if (url === `/api/projects/${projectId}/jobs/${jobId}`) {
         return Promise.resolve(jsonResponse(detailedJob));
+      }
+      if (url.endsWith("/generation-options")) {
+        return Promise.resolve(jsonResponse(generationOptions));
+      }
+      if (url.endsWith("/references/pack")) {
+        return Promise.resolve(jsonResponse([]));
+      }
+      if (url.includes("/references?kind=")) {
+        return Promise.resolve(jsonResponse([]));
       }
       throw new Error(`Unexpected request: ${url}`);
     });
