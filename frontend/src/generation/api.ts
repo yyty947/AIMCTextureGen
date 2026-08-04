@@ -1,4 +1,6 @@
 import {
+  ApiRequestError,
+  type ApiError,
   invalidResponseError,
   parseSuccessfulResponse,
   requestJson,
@@ -15,6 +17,29 @@ import type {
 } from "./types";
 
 export type { CreateGenerationInput } from "./types";
+export interface CurrentGenerationJob {
+  readonly projectId: string;
+  readonly jobId: string;
+  readonly status: GenerationJobDetail["state"]["status"];
+}
+
+export interface CandidateReport {
+  readonly schemaVersion: 1;
+  readonly resolution: 16 | 32 | 64;
+  readonly seamScore: {
+    readonly horizontal: number;
+    readonly vertical: number;
+    readonly average: number;
+  };
+}
+
+export type GenerationEventMessage =
+  | { readonly type: "heartbeat" }
+  | {
+      readonly type: "snapshot";
+      readonly revision: number;
+      readonly job: GenerationJobDetail;
+    };
 
 export async function getGenerationOptions(
   projectId: string,
@@ -115,13 +140,119 @@ export async function startGenerationJob(
 export async function getGenerationJob(
   projectId: string,
   jobId: string,
+  signal?: AbortSignal,
 ): Promise<GenerationJobDetail> {
   const payload = await requestJson(
     `/api/projects/${encodeURIComponent(projectId)}/jobs/${encodeURIComponent(jobId)}`,
+    { signal },
   );
   return parseSuccessfulResponse(payload, (data) =>
     parseGenerationJobDetail(data, projectId, jobId),
   );
+}
+
+export async function cancelGenerationJob(
+  projectId: string,
+  jobId: string,
+): Promise<GenerationJobDetail> {
+  const payload = await requestJson(
+    `/api/projects/${encodeURIComponent(projectId)}/jobs/${encodeURIComponent(jobId)}/cancel`,
+    { method: "POST" },
+  );
+  return parseSuccessfulResponse(payload, (data) =>
+    parseGenerationJobDetail(data, projectId, jobId),
+  );
+}
+
+export async function retryGenerationJob(
+  projectId: string,
+  jobId: string,
+): Promise<GenerationJobDetail> {
+  const payload = await requestJson(
+    `/api/projects/${encodeURIComponent(projectId)}/jobs/${encodeURIComponent(jobId)}/retry`,
+    { method: "POST" },
+  );
+  return parseSuccessfulResponse(payload, (data) =>
+    parseGenerationJobDetail(data, projectId),
+  );
+}
+
+export async function getCurrentGenerationJob(
+  signal?: AbortSignal,
+): Promise<CurrentGenerationJob | null> {
+  const payload = await requestJson("/api/generation/current", { signal });
+  try {
+    if (payload === null) {
+      return null;
+    }
+    const data = requireRecord(payload);
+    return {
+      projectId: requireCanonicalUuid(data.project_id),
+      jobId: requireCanonicalUuid(data.job_id),
+      status: requireStringLiteral(
+        data.status,
+        "queued",
+        "generating",
+        "postprocessing",
+        "completed",
+        "failed",
+        "canceled",
+      ),
+    };
+  } catch (cause) {
+    throw invalidResponseError(cause);
+  }
+}
+
+export async function getCandidateReport(
+  projectId: string,
+  jobId: string,
+  candidateIndex: 0 | 1 | 2 | 3,
+  signal?: AbortSignal,
+): Promise<CandidateReport> {
+  const payload = await requestJson(
+    readCandidateArtifactUrl(projectId, jobId, candidateIndex, "report"),
+    { signal },
+  );
+  try {
+    return parseCandidateReport(requireRecord(payload));
+  } catch (cause) {
+    throw invalidResponseError(cause);
+  }
+}
+
+export function parseGenerationEventMessage(
+  payload: unknown,
+  expectedProjectId: string,
+  expectedJobId: string,
+): GenerationEventMessage {
+  const data = requireRecord(payload);
+  const type = requireStringLiteral(data.type, "heartbeat", "snapshot");
+  if (type === "heartbeat") {
+    return { type };
+  }
+  return {
+    type,
+    revision: requireNonnegativeInteger(data.revision),
+    job: parseGenerationJobDetail(
+      requireRecord(data.job),
+      expectedProjectId,
+      expectedJobId,
+    ),
+  };
+}
+
+export function toApiError(cause: unknown): ApiError {
+  if (cause instanceof ApiRequestError) {
+    return cause;
+  }
+  return {
+    code: "INVALID_API_RESPONSE",
+    stage: "parsing_generation_response",
+    userMessage: "生成服务返回了无效数据",
+    recommendedActions: ["刷新当前任务后重试；若问题持续，请重启应用"],
+    technicalDetails: cause instanceof Error ? cause.message : null,
+  };
 }
 
 export function readCandidateArtifactUrl(
@@ -259,6 +390,19 @@ function parseGenerationJobDetail(
     throw new TypeError("Generation job identity does not match");
   }
   return { request, state };
+}
+
+function parseCandidateReport(data: Record<string, unknown>): CandidateReport {
+  const seamScore = requireRecord(data.seam_score);
+  return {
+    schemaVersion: requireLiteral1(data.schema_version),
+    resolution: requireResolution(data.resolution),
+    seamScore: {
+      horizontal: requireFiniteScore(seamScore.horizontal),
+      vertical: requireFiniteScore(seamScore.vertical),
+      average: requireFiniteScore(seamScore.average),
+    },
+  };
 }
 
 function parseGenerationJobRequest(
@@ -750,4 +894,19 @@ function requireLiteral2(value: unknown): 2 {
     throw new TypeError("Unsupported schema version");
   }
   return 2;
+}
+
+function requireLiteral1(value: unknown): 1 {
+  if (value !== 1) {
+    throw new TypeError("Unsupported schema version");
+  }
+  return 1;
+}
+
+function requireFiniteScore(value: unknown): number {
+  const parsed = requireFiniteNumber(value);
+  if (parsed < 0 || parsed > 1) {
+    throw new TypeError("Expected a normalized score field");
+  }
+  return parsed;
 }

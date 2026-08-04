@@ -1,20 +1,28 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { CoverageReport, ProjectManifest } from "../api";
-import type { JobDetail } from "../api";
+import type { ApiError, JobDetail } from "../api";
 import {
+  cancelGenerationJob,
   createGenerationJob,
+  getCurrentGenerationJob,
+  getGenerationJob,
   getGenerationOptions,
   listPackReferences,
   listUploadedReferences,
+  retryGenerationJob,
   uploadReference,
   deleteUploadedReference,
   startGenerationJob,
+  toApiError,
 } from "./api";
 import ReferenceStep from "./ReferenceStep";
 import TargetStep from "./TargetStep";
 import GenerationStep from "./GenerationStep";
+import CandidateStep from "./CandidateStep";
+import useJobEvents from "./useJobEvents";
 import type {
+  GenerationJobDetail,
   GenerationOptions,
   ReferenceSelection,
 } from "./types";
@@ -35,7 +43,7 @@ export default function GenerationWizard({
   readonly onJobsChanged: () => Promise<void>;
   readonly onCurrentJobChange: (job: JobDetail | null) => void;
 }) {
-  const [step, setStep] = useState<2 | 3 | 4>(2);
+  const [step, setStep] = useState<2 | 3 | 4 | 5>(2);
   const [options, setOptions] = useState<GenerationOptions | null>(null);
   const [packReferences, setPackReferences] = useState<Awaited<
     ReturnType<typeof listPackReferences>
@@ -64,6 +72,7 @@ export default function GenerationWizard({
   const [styleWeight, setStyleWeight] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
   const [generationError, setGenerationError] = useState<string | null>(null);
+  const [liveError, setLiveError] = useState<ApiError | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [uploadingKind, setUploadingKind] = useState<"style" | "structure" | null>(
     null,
@@ -72,7 +81,17 @@ export default function GenerationWizard({
   const previousInputs = useRef({ projectId, manifest, coverage });
   const projectEpoch = useRef(0);
   const currentProjectId = useRef(projectId);
+  const [currentJob, setCurrentJob] = useState<GenerationJobDetail | null>(null);
   currentProjectId.current = projectId;
+  const subscribedJobId =
+    currentJob !== null &&
+    (currentJob.state.status === "queued" ||
+      currentJob.state.status === "generating" ||
+      currentJob.state.status === "postprocessing")
+      ? currentJob.request.jobId
+      : null;
+  const liveJob = useJobEvents(projectId, subscribedJobId);
+  const visibleJob = liveJob.job ?? currentJob;
 
   useEffect(() => {
     const previous = previousInputs.current;
@@ -103,9 +122,11 @@ export default function GenerationWizard({
     setStyleWeight(null);
     setCreating(false);
     setGenerationError(null);
+    setLiveError(null);
     setLoadError(null);
     setUploadingKind(null);
     setReferenceError(null);
+    setCurrentJob(null);
     onCurrentJobChange(null);
   }, [coverage, manifest, onCurrentJobChange, projectId]);
 
@@ -138,6 +159,16 @@ export default function GenerationWizard({
       active = false;
     };
   }, [coverage, manifest, projectId]);
+
+  useEffect(() => {
+    if (liveJob.job !== null) {
+      setCurrentJob(liveJob.job);
+      onCurrentJobChange(liveJob.job as unknown as JobDetail);
+    }
+    if (liveJob.error !== null) {
+      setLiveError(liveJob.error);
+    }
+  }, [liveJob.error, liveJob.job, onCurrentJobChange]);
 
   const filteredTargets = useMemo(() => {
     if (options === null) {
@@ -285,6 +316,7 @@ export default function GenerationWizard({
     const requestEpoch = projectEpoch.current;
     setCreating(true);
     setGenerationError(null);
+    setLiveError(null);
     try {
       const created = await createGenerationJob(projectId, {
         targetSemanticId: selectedTargetSemanticId,
@@ -300,11 +332,19 @@ export default function GenerationWizard({
       if (requestEpoch !== projectEpoch.current) {
         return;
       }
+      if (isRenderableGenerationJob(created)) {
+        setCurrentJob(created);
+        setStep(5);
+      }
       onCurrentJobChange(created as unknown as JobDetail);
       try {
         const started = await startGenerationJob(projectId, created.request.jobId);
         if (requestEpoch !== projectEpoch.current) {
           return;
+        }
+        if (isRenderableGenerationJob(started)) {
+          setCurrentJob(started);
+          setStep(5);
         }
         onCurrentJobChange(started as unknown as JobDetail);
         await onJobsChanged();
@@ -319,15 +359,84 @@ export default function GenerationWizard({
         }
         setGenerationError(START_FAILURE_MESSAGE);
       }
-    } catch {
+    } catch (cause) {
       if (requestEpoch === projectEpoch.current) {
-        setGenerationError(CREATE_FAILURE_MESSAGE);
+        const error = toApiError(cause);
+        if (error.code === "GENERATION_JOB_CONFLICT") {
+          setGenerationError(error.userMessage);
+          setLiveError(error);
+          try {
+            const current = await getCurrentGenerationJob();
+            if (
+              current !== null &&
+              current.projectId === projectId &&
+              requestEpoch === projectEpoch.current
+            ) {
+              const loaded = await getGenerationJob(projectId, current.jobId);
+              if (requestEpoch === projectEpoch.current) {
+                if (isRenderableGenerationJob(loaded)) {
+                  setCurrentJob(loaded);
+                  setStep(5);
+                }
+                onCurrentJobChange(loaded as unknown as JobDetail);
+              }
+            }
+          } catch {
+            // Preserve the user-facing conflict message even if the lookup fails.
+          }
+        } else {
+          setGenerationError(error.userMessage || CREATE_FAILURE_MESSAGE);
+        }
       }
     } finally {
       if (requestEpoch === projectEpoch.current) {
         setCreating(false);
       }
     }
+  }
+
+  async function handleContinue() {
+    if (visibleJob === null) {
+      return;
+    }
+    setLiveError(null);
+    try {
+      const started = await startGenerationJob(projectId, visibleJob.request.jobId);
+      setCurrentJob(started);
+      onCurrentJobChange(started as unknown as JobDetail);
+      await onJobsChanged();
+    } catch (cause) {
+      setLiveError(toApiError(cause));
+    }
+  }
+
+  async function handleCancel() {
+    if (visibleJob === null) {
+      return;
+    }
+    setLiveError(null);
+    try {
+      const canceled = await cancelGenerationJob(projectId, visibleJob.request.jobId);
+      setCurrentJob(canceled);
+      onCurrentJobChange(canceled as unknown as JobDetail);
+      await onJobsChanged();
+    } catch (cause) {
+      setLiveError(toApiError(cause));
+    }
+  }
+
+  async function handleRetry() {
+    if (visibleJob === null) {
+      return;
+    }
+    setLiveError(null);
+    const retried = await retryGenerationJob(projectId, visibleJob.request.jobId);
+    if (isRenderableGenerationJob(retried)) {
+      setCurrentJob(retried);
+      setStep(5);
+    }
+    onCurrentJobChange(retried as unknown as JobDetail);
+    await onJobsChanged();
   }
 
   if (options === null) {
@@ -375,6 +484,21 @@ export default function GenerationWizard({
     );
   }
 
+  if (step === 5) {
+    return (
+      <CandidateStep
+        connected={liveJob.connected}
+        error={liveError}
+        job={visibleJob}
+        projectId={projectId}
+        onCancel={handleCancel}
+        onContinue={handleContinue}
+        onRefresh={liveJob.refresh}
+        onRetry={handleRetry}
+      />
+    );
+  }
+
   return (
     <GenerationStep
       creating={creating}
@@ -395,5 +519,21 @@ export default function GenerationWizard({
       onResolutionChange={setResolution}
       onStyleWeightChange={setStyleWeight}
     />
+  );
+}
+
+function isRenderableGenerationJob(value: unknown): value is GenerationJobDetail {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const maybe = value as {
+    readonly request?: { readonly jobId?: unknown };
+    readonly state?: { readonly candidates?: unknown; readonly status?: unknown };
+  };
+  return (
+    typeof maybe.request?.jobId === "string" &&
+    Array.isArray(maybe.state?.candidates) &&
+    maybe.state.candidates.length === 4 &&
+    typeof maybe.state?.status === "string"
   );
 }

@@ -98,6 +98,12 @@ export default function JobHistory({
                 )}
               </p>
 
+              <p className="lineage legacy-note">
+                {detail.request.schemaVersion === 3
+                  ? "历史快照（只读）"
+                  : "Legacy 兼容记录（只读）"}
+              </p>
+
               {detail.state.failure?.code === "JOB_INTERRUPTED" && (
                 <p className="interrupted-note">
                   应用重启时此任务仍在运行，已安全标记为失败。已完成候选仍会保留。

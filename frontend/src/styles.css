@@ -30,7 +30,9 @@ body {
 }
 
 button,
-input {
+input,
+select,
+textarea {
   font: inherit;
 }
 
@@ -162,7 +164,9 @@ label {
   font-weight: 700;
 }
 
-input {
+input,
+select,
+textarea {
   width: 100%;
   min-height: 48px;
   border: 2px solid #64748b;
@@ -174,6 +178,11 @@ input {
 
 input::placeholder {
   color: #94a3b8;
+}
+
+textarea {
+  min-height: 120px;
+  resize: vertical;
 }
 
 input[aria-invalid="true"] {
@@ -545,6 +554,102 @@ details code {
   margin-top: 10px;
 }
 
+.generation-panel {
+  display: grid;
+  gap: 18px;
+  margin-top: 32px;
+  padding: clamp(18px, 3vw, 30px);
+}
+
+.wizard-actions,
+.compact-actions,
+.candidate-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.wizard-actions button,
+.compact-actions button,
+.candidate-tabs button {
+  width: auto;
+}
+
+.hint-list {
+  margin: 0;
+  padding-left: 20px;
+  color: #cbd5e1;
+}
+
+.candidate-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.connection-note {
+  margin: 0;
+  color: #cbd5e1;
+}
+
+.connection-note.connected {
+  color: #86efac;
+}
+
+.candidate-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.candidate-card {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  border: 2px solid #475569;
+  padding: 16px;
+  background: #0f172a;
+}
+
+.candidate-preview {
+  width: min(100%, 280px);
+  image-rendering: pixelated;
+  border: 2px solid #475569;
+  background: #020617;
+}
+
+.candidate-report {
+  display: grid;
+  gap: 8px;
+}
+
+.candidate-report p {
+  margin: 0;
+}
+
+.tab-button,
+.tab-selected {
+  min-height: 40px;
+  padding: 8px 14px;
+}
+
+.tab-button {
+  border-color: #64748b;
+  color: #f8fafc;
+  background: #334155;
+  box-shadow: 4px 4px 0 #020617;
+}
+
+.tab-selected {
+  border-color: #86efac;
+}
+
+.legacy-note {
+  color: #cbd5e1;
+}
+
 @media (max-width: 900px) {
   .dashboard-layout {
     grid-template-columns: minmax(0, 1fr);
@@ -563,6 +668,10 @@ details code {
   }
 
   .summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .candidate-grid {
     grid-template-columns: 1fr;
   }
 

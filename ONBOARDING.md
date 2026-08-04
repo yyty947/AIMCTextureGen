@@ -214,8 +214,8 @@ git status --short
 
 继续执行
 [`docs/superpowers/plans/2026-08-03-phase-5-four-candidate-generation.md`](docs/superpowers/plans/2026-08-03-phase-5-four-candidate-generation.md)
-的 Task 10，保持 `superpowers:subagent-driven-development`、测试先行、每项独立提交。
-当前已完成 Task 9；不要回退到“从 Task 1 开始”的旧入口，也不要并行执行其他阶段计划。
+的 Task 13，保持 `superpowers:subagent-driven-development`、测试先行、每项独立提交。
+当前已完成 Task 12；不要回退到“从 Task 1 开始”的旧入口，也不要并行执行其他阶段计划。
 
 已确认的 Phase 5 关键边界：
 

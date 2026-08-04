@@ -129,6 +129,14 @@ it("explains JOB_INTERRUPTED without adding mutation controls", () => {
   expect(screen.queryByRole("button")).not.toBeInTheDocument();
 });
 
+it("labels legacy jobs as read-only and never offers continue or start controls", () => {
+  render(<JobHistory jobs={[{ summary, detail }]} />);
+
+  expect(screen.getByText("只读记录")).toBeInTheDocument();
+  expect(screen.getAllByText(/legacy|只读/i).length).toBeGreaterThan(0);
+  expect(screen.queryByRole("button", { name: /继续任务|开始生成/ })).not.toBeInTheDocument();
+});
+
 it("clearly states that an empty project has no generation jobs", () => {
   render(<JobHistory jobs={[]} />);
 

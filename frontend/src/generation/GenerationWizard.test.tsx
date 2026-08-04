@@ -820,4 +820,34 @@ describe("guided generation wizard", () => {
       "生成任务已创建，但启动失败，请稍后重试。",
     );
   });
+
+  it("keeps conflict visible and does not call start when create returns GENERATION_JOB_CONFLICT", async () => {
+    const generationApi = await import("./api");
+    vi.spyOn(generationApi, "getGenerationOptions").mockResolvedValue(generationOptions);
+    vi.spyOn(generationApi, "listPackReferences").mockResolvedValue(packReferences);
+    vi.spyOn(generationApi, "listUploadedReferences")
+      .mockResolvedValueOnce(uploadedStyleReferences)
+      .mockResolvedValueOnce(uploadedStructureReferences);
+    vi.spyOn(generationApi, "createGenerationJob").mockRejectedValue(
+      new ApiRequestError({
+        code: "GENERATION_JOB_CONFLICT",
+        stage: "creating_generation_job",
+        userMessage: "当前已有一个未完成任务",
+        recommendedActions: ["查看当前任务或取消后再创建新任务"],
+        technicalDetails: null,
+      }),
+    );
+    const startJob = vi.spyOn(generationApi, "startGenerationJob");
+
+    renderWizard();
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("radio", { name: /Deepslate/ }));
+    await user.click(screen.getByRole("button", { name: "下一步：参考图与描述" }));
+    await user.click(screen.getByRole("button", { name: "下一步：生成配置" }));
+    await user.click(await screen.findByRole("button", { name: "创建并开始生成" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("当前已有一个未完成任务");
+    expect(startJob).not.toHaveBeenCalled();
+  });
 });

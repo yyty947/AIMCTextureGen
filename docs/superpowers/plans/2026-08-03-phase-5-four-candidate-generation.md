@@ -1612,7 +1612,7 @@ git commit -m "feat: add generation configuration wizard"
 - Consumes: generation client from Task 11 and HTTP/WebSocket surface from Task 10.
 - Produces: monotonic snapshot subscription, four incremental candidate cards, artifact previews/reports, and user commands.
 
-- [ ] **Step 1: Write WebSocket reconnection/revision RED tests**
+- [x] **Step 1: Write WebSocket reconnection/revision RED tests**
 
 ```typescript
 it("accepts only higher revisions and falls back to HTTP after a gap", async () => {
@@ -1627,7 +1627,7 @@ it("accepts only higher revisions and falls back to HTTP after a gap", async () 
 
 Test first snapshot, heartbeat ignore, higher revisions only, malformed message, disconnect/reconnect backoff, component unmount cleanup, and browser disconnect not calling cancel.
 
-- [ ] **Step 2: Write candidate/action RED tests**
+- [x] **Step 2: Write candidate/action RED tests**
 
 Cover:
 
@@ -1641,7 +1641,7 @@ Cover:
 - legacy schema-1/2 history is labeled read-only and has no start command;
 - no adoption/export control exists.
 
-- [ ] **Step 3: Run candidate tests and verify RED**
+- [x] **Step 3: Run candidate tests and verify RED**
 
 ```powershell
 Push-Location frontend
@@ -1655,7 +1655,7 @@ finally {
 
 Expected: import/render failures because live components do not exist.
 
-- [ ] **Step 4: Implement monotonic subscription**
+- [x] **Step 4: Implement monotonic subscription**
 
 ```typescript
 export function useJobEvents(
@@ -1671,15 +1671,15 @@ export function useJobEvents(
 
 Create the WebSocket only for a schema-3 current job. Parse every message through the strict parser. On invalid data, gap suspicion, or disconnect, HTTP-refresh the durable job before reconnecting with bounded exponential backoff. Abort timers/socket/fetch on project/job change and unmount.
 
-- [ ] **Step 5: Implement four stable candidate cards**
+- [x] **Step 5: Implement four stable candidate cards**
 
 Render four cards keyed by candidate index from job creation onward. For available artifacts, use controlled API URLs. Fetch report JSON through the strict client, not by embedding a local path. Preserve a completed/inherited card during cancellation or later failure.
 
-- [ ] **Step 6: Wire user actions and conflict recovery**
+- [x] **Step 6: Wire user actions and conflict recovery**
 
 Create then start; if start fails, keep the queued/failed job visible. `continue` calls only start. `cancel` shows durable request state until terminal confirmation. `retry` creates a new lineage job and switches the wizard to it. On `GENERATION_JOB_CONFLICT`, load the current job reference returned by the API and offer view/cancel, never submit a second hidden job.
 
-- [ ] **Step 7: Run full frontend gate**
+- [x] **Step 7: Run full frontend gate**
 
 ```powershell
 Push-Location frontend
@@ -1696,7 +1696,7 @@ git diff --check
 
 Expected: all pass. Do one targeted normal-desktop screenshot inspection only; do not run the full Phase 6 size/polish matrix.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```powershell
 git add frontend/src/generation frontend/src/JobHistory.tsx frontend/src/JobHistory.test.tsx frontend/src/styles.css
