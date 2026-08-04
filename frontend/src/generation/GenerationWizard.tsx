@@ -71,6 +71,8 @@ export default function GenerationWizard({
   const [referenceError, setReferenceError] = useState<string | null>(null);
   const previousInputs = useRef({ projectId, manifest, coverage });
   const projectEpoch = useRef(0);
+  const currentProjectId = useRef(projectId);
+  currentProjectId.current = projectId;
 
   useEffect(() => {
     const previous = previousInputs.current;
@@ -181,10 +183,18 @@ export default function GenerationWizard({
   }
 
   async function handleUpload(kind: "style" | "structure", file: File) {
+    const operationEpoch = projectEpoch.current;
+    const operationProjectId = projectId;
+    const isCurrentOperation = () =>
+      projectEpoch.current === operationEpoch &&
+      currentProjectId.current === operationProjectId;
     setUploadingKind(kind);
     setReferenceError(null);
     try {
       const uploaded = await uploadReference(projectId, kind, file);
+      if (!isCurrentOperation()) {
+        return;
+      }
       if (kind === "style") {
         setStyleUploads((current) =>
           current.some((item) => item.referenceId === uploaded.referenceId)
@@ -213,18 +223,31 @@ export default function GenerationWizard({
         });
       }
     } catch (cause) {
+      if (!isCurrentOperation()) {
+        return;
+      }
       setReferenceError(
         cause instanceof Error ? cause.message : "参考图上传失败",
       );
     } finally {
-      setUploadingKind(null);
+      if (isCurrentOperation()) {
+        setUploadingKind(null);
+      }
     }
   }
 
   async function handleDelete(kind: "style" | "structure", referenceId: string) {
+    const operationEpoch = projectEpoch.current;
+    const operationProjectId = projectId;
+    const isCurrentOperation = () =>
+      projectEpoch.current === operationEpoch &&
+      currentProjectId.current === operationProjectId;
     setReferenceError(null);
     try {
       await deleteUploadedReference(projectId, kind, referenceId);
+      if (!isCurrentOperation()) {
+        return;
+      }
       if (kind === "style") {
         setStyleUploads((current) =>
           current.filter((item) => item.referenceId !== referenceId),
@@ -246,6 +269,9 @@ export default function GenerationWizard({
         );
       }
     } catch (cause) {
+      if (!isCurrentOperation()) {
+        return;
+      }
       setReferenceError(
         cause instanceof Error ? cause.message : "参考图删除失败",
       );

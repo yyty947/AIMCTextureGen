@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import type { CoverageReport, ProjectManifest } from "../api";
@@ -162,6 +162,16 @@ const uploadedStructureReferences = [
     createdAt: "2026-08-03T10:02:00Z",
   },
 ] satisfies readonly UploadedReferenceRecord[];
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
 
 afterEach(() => {
   cleanup();
@@ -328,6 +338,277 @@ describe("guided generation wizard", () => {
       structureFile,
     );
     expect(screen.getByRole("option", { name: addedStructure.referenceId })).toBeInTheDocument();
+  });
+
+  it("ignores a stale upload completion after switching projects", async () => {
+    const nextProjectId = "7fda5078-1246-4cac-91e8-541808da14f5";
+    const nextManifest = {
+      ...manifest,
+      projectId: nextProjectId,
+      projectName: "新项目",
+    } satisfies ProjectManifest;
+    const nextCoverage = {
+      ...coverage,
+      catalogId: "java-dev-format-35",
+    } satisfies CoverageReport;
+    const nextGenerationOptions = {
+      ...generationOptions,
+      targets: [
+        {
+          semanticId: "minecraft:granite",
+          displayName: "Granite",
+          relativePath: "assets/minecraft/textures/block/granite.png",
+        },
+      ],
+    };
+    const nextStyleReference = {
+      ...uploadedStyleReferences[0],
+      referenceId: "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff",
+    } satisfies UploadedReferenceRecord;
+    const staleStyleReference = {
+      ...uploadedStyleReferences[0],
+      referenceId: "cccccccc-dddd-4eee-8fff-000000000000",
+    } satisfies UploadedReferenceRecord;
+    const pendingUpload = deferred<UploadedReferenceRecord>();
+    const generationApi = await import("./api");
+    vi.spyOn(generationApi, "getGenerationOptions").mockImplementation(
+      async (requestedProjectId) =>
+        requestedProjectId === nextProjectId
+          ? nextGenerationOptions
+          : generationOptions,
+    );
+    vi.spyOn(generationApi, "listPackReferences").mockResolvedValue([]);
+    vi.spyOn(generationApi, "listUploadedReferences").mockImplementation(
+      async (requestedProjectId, kind) => {
+        if (requestedProjectId === nextProjectId) {
+          return kind === "style" ? [nextStyleReference] : [];
+        }
+        return kind === "style" ? uploadedStyleReferences : uploadedStructureReferences;
+      },
+    );
+    const uploadReference = vi
+      .spyOn(generationApi, "uploadReference")
+      .mockReturnValue(pendingUpload.promise);
+
+    const refreshJobs = vi.fn().mockResolvedValue(undefined);
+    const onCurrentJobChange = vi.fn();
+    const view = render(
+      <GenerationWizard
+        projectId={projectId}
+        manifest={manifest}
+        coverage={coverage}
+        onJobsChanged={refreshJobs}
+        onCurrentJobChange={onCurrentJobChange}
+      />,
+    );
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("radio", { name: /Deepslate/ }));
+    await user.click(screen.getByRole("button", { name: "下一步：参考图与描述" }));
+    const file = new File(["old project"], "old.png", { type: "image/png" });
+    await user.upload(screen.getByLabelText("上传风格参考"), file);
+    expect(uploadReference).toHaveBeenCalledWith(projectId, "style", file);
+
+    view.rerender(
+      <GenerationWizard
+        projectId={nextProjectId}
+        manifest={nextManifest}
+        coverage={nextCoverage}
+        onJobsChanged={refreshJobs}
+        onCurrentJobChange={onCurrentJobChange}
+      />,
+    );
+    await screen.findByRole("radio", { name: /Granite/ });
+    pendingUpload.resolve(staleStyleReference);
+    await act(async () => {
+      await pendingUpload.promise;
+    });
+
+    await user.click(screen.getByRole("radio", { name: /Granite/ }));
+    await user.click(screen.getByRole("button", { name: "下一步：参考图与描述" }));
+    expect(
+      screen.getByRole("button", { name: `删除风格参考 ${nextStyleReference.referenceId}` }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: `删除风格参考 ${staleStyleReference.referenceId}` }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("ignores a stale delete success after switching projects", async () => {
+    const nextProjectId = "7fda5078-1246-4cac-91e8-541808da14f5";
+    const nextManifest = {
+      ...manifest,
+      projectId: nextProjectId,
+      projectName: "新项目",
+    } satisfies ProjectManifest;
+    const nextCoverage = {
+      ...coverage,
+      catalogId: "java-dev-format-35",
+    } satisfies CoverageReport;
+    const nextGenerationOptions = {
+      ...generationOptions,
+      targets: [
+        {
+          semanticId: "minecraft:granite",
+          displayName: "Granite",
+          relativePath: "assets/minecraft/textures/block/granite.png",
+        },
+      ],
+    };
+    const sharedReference = uploadedStyleReferences[0];
+    const pendingDelete = deferred<void>();
+    const generationApi = await import("./api");
+    vi.spyOn(generationApi, "getGenerationOptions").mockImplementation(
+      async (requestedProjectId) =>
+        requestedProjectId === nextProjectId
+          ? nextGenerationOptions
+          : generationOptions,
+    );
+    vi.spyOn(generationApi, "listPackReferences").mockResolvedValue([]);
+    vi.spyOn(generationApi, "listUploadedReferences").mockImplementation(
+      async (requestedProjectId, kind) => {
+        if (requestedProjectId === nextProjectId) {
+          return kind === "style" ? [sharedReference] : [];
+        }
+        return kind === "style" ? uploadedStyleReferences : uploadedStructureReferences;
+      },
+    );
+    const deleteReference = vi
+      .spyOn(generationApi, "deleteUploadedReference")
+      .mockReturnValue(pendingDelete.promise);
+
+    const refreshJobs = vi.fn().mockResolvedValue(undefined);
+    const onCurrentJobChange = vi.fn();
+    const view = render(
+      <GenerationWizard
+        projectId={projectId}
+        manifest={manifest}
+        coverage={coverage}
+        onJobsChanged={refreshJobs}
+        onCurrentJobChange={onCurrentJobChange}
+      />,
+    );
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("radio", { name: /Deepslate/ }));
+    await user.click(screen.getByRole("button", { name: "下一步：参考图与描述" }));
+    await user.click(screen.getByRole("button", { name: `删除风格参考 ${sharedReference.referenceId}` }));
+    expect(deleteReference).toHaveBeenCalledWith(
+      projectId,
+      "style",
+      sharedReference.referenceId,
+    );
+
+    view.rerender(
+      <GenerationWizard
+        projectId={nextProjectId}
+        manifest={nextManifest}
+        coverage={nextCoverage}
+        onJobsChanged={refreshJobs}
+        onCurrentJobChange={onCurrentJobChange}
+      />,
+    );
+    await screen.findByRole("radio", { name: /Granite/ });
+    await user.click(screen.getByRole("radio", { name: /Granite/ }));
+    await user.click(screen.getByRole("button", { name: "下一步：参考图与描述" }));
+    await user.click(screen.getByRole("checkbox", { name: sharedReference.referenceId }));
+
+    pendingDelete.resolve();
+    await act(async () => {
+      await pendingDelete.promise;
+    });
+
+    expect(
+      screen.getByRole("button", { name: `删除风格参考 ${sharedReference.referenceId}` }),
+    ).toBeVisible();
+    expect(screen.getByRole("checkbox", { name: sharedReference.referenceId })).toBeChecked();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("ignores a stale delete failure after switching projects", async () => {
+    const nextProjectId = "7fda5078-1246-4cac-91e8-541808da14f5";
+    const nextManifest = {
+      ...manifest,
+      projectId: nextProjectId,
+      projectName: "新项目",
+    } satisfies ProjectManifest;
+    const nextCoverage = {
+      ...coverage,
+      catalogId: "java-dev-format-35",
+    } satisfies CoverageReport;
+    const nextGenerationOptions = {
+      ...generationOptions,
+      targets: [
+        {
+          semanticId: "minecraft:granite",
+          displayName: "Granite",
+          relativePath: "assets/minecraft/textures/block/granite.png",
+        },
+      ],
+    };
+    const sharedReference = uploadedStyleReferences[0];
+    const pendingDelete = deferred<void>();
+    const generationApi = await import("./api");
+    vi.spyOn(generationApi, "getGenerationOptions").mockImplementation(
+      async (requestedProjectId) =>
+        requestedProjectId === nextProjectId
+          ? nextGenerationOptions
+          : generationOptions,
+    );
+    vi.spyOn(generationApi, "listPackReferences").mockResolvedValue([]);
+    vi.spyOn(generationApi, "listUploadedReferences").mockImplementation(
+      async (requestedProjectId, kind) => {
+        if (requestedProjectId === nextProjectId) {
+          return kind === "style" ? [sharedReference] : [];
+        }
+        return kind === "style" ? uploadedStyleReferences : uploadedStructureReferences;
+      },
+    );
+    vi.spyOn(generationApi, "deleteUploadedReference").mockReturnValue(
+      pendingDelete.promise,
+    );
+
+    const refreshJobs = vi.fn().mockResolvedValue(undefined);
+    const onCurrentJobChange = vi.fn();
+    const view = render(
+      <GenerationWizard
+        projectId={projectId}
+        manifest={manifest}
+        coverage={coverage}
+        onJobsChanged={refreshJobs}
+        onCurrentJobChange={onCurrentJobChange}
+      />,
+    );
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("radio", { name: /Deepslate/ }));
+    await user.click(screen.getByRole("button", { name: "下一步：参考图与描述" }));
+    await user.click(screen.getByRole("button", { name: `删除风格参考 ${sharedReference.referenceId}` }));
+
+    view.rerender(
+      <GenerationWizard
+        projectId={nextProjectId}
+        manifest={nextManifest}
+        coverage={nextCoverage}
+        onJobsChanged={refreshJobs}
+        onCurrentJobChange={onCurrentJobChange}
+      />,
+    );
+    await screen.findByRole("radio", { name: /Granite/ });
+    await user.click(screen.getByRole("radio", { name: /Granite/ }));
+    await user.click(screen.getByRole("button", { name: "下一步：参考图与描述" }));
+
+    const rejection = pendingDelete.promise.catch(() => undefined);
+    pendingDelete.reject(new Error("old project delete failed"));
+    await act(async () => {
+      await rejection;
+    });
+
+    expect(
+      screen.getByRole("button", { name: `删除风格参考 ${sharedReference.referenceId}` }),
+    ).toBeVisible();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("resets project-scoped wizard state before submitting the newly loaded project", async () => {
