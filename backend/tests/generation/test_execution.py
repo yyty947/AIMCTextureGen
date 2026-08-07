@@ -260,6 +260,63 @@ def test_run_job_executes_persisted_batches_in_order_and_commits_candidates(
     assert before_pack == _hash_tree(project_root / "pack")
 
 
+def test_run_job_refreshes_revision_after_progress_callback(
+    tmp_path: Path,
+) -> None:
+    projects_root = tmp_path / "projects"
+    _write_project(projects_root)
+    service = _service(projects_root)
+    service.create_job(PROJECT_ID, _command())
+
+    class ProgressClient(FakeComfyClient):
+        def wait_completion(self, prompt_id: str, **kwargs) -> dict:
+            kwargs["progress"](1, 1)
+            return super().wait_completion(prompt_id, **kwargs)
+
+    completed = service.run_job(
+        PROJECT_ID,
+        JOB_ID,
+        ExecutionContext(
+            client=ProgressClient(),
+            cancel_requested=lambda: False,
+        ),
+    )
+
+    assert completed.state.status == "completed"
+    assert all(
+        candidate.status == "completed"
+        for candidate in completed.state.candidates
+    )
+
+
+def test_run_job_settles_failure_after_progress_callback(
+    tmp_path: Path,
+) -> None:
+    projects_root = tmp_path / "projects"
+    _write_project(projects_root)
+    service = _service(projects_root)
+    service.create_job(PROJECT_ID, _command())
+
+    class FailingProgressClient(FakeComfyClient):
+        def wait_completion(self, prompt_id: str, **kwargs) -> dict:
+            kwargs["progress"](1, 1)
+            history = super().wait_completion(prompt_id, **kwargs)
+            history["outputs"] = {}
+            return history
+
+    failed = service.run_job(
+        PROJECT_ID,
+        JOB_ID,
+        ExecutionContext(
+            client=FailingProgressClient(),
+            cancel_requested=lambda: False,
+        ),
+    )
+
+    assert failed.state.status == "failed"
+    assert service._store.load(PROJECT_ID, JOB_ID).state.status == "failed"
+
+
 def test_run_job_leaves_active_state_nonterminal_on_shutdown_request(
     tmp_path: Path,
 ) -> None:

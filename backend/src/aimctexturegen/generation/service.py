@@ -546,17 +546,22 @@ class GenerationService:
                 ),
                 context=context,
             )
-            progress = _ProgressRecorder(
-                interval_seconds=context.progress_interval_seconds,
-                monotonic=self._monotonic,
-                commit=lambda value, maximum: self._commit_progress(
+
+            def commit_progress(value: int, maximum: int) -> None:
+                nonlocal current
+                current = self._commit_progress(
                     project_id=current.request.project_id,
                     job_id=current.request.job_id,
                     batch_index=batch.batch_index,
                     value=value,
                     maximum=maximum,
                     context=context,
-                ),
+                )
+
+            progress = _ProgressRecorder(
+                interval_seconds=context.progress_interval_seconds,
+                monotonic=self._monotonic,
+                commit=commit_progress,
             )
             history = context.client.wait_completion(
                 prompt_id,
@@ -645,10 +650,10 @@ class GenerationService:
         value: int,
         maximum: int,
         context: ExecutionContext,
-    ) -> None:
+    ) -> LoadedJob:
         current = self._store.load(project_id, job_id)
         if current.state.status not in {"generating", "postprocessing"}:
-            return
+            return current
         replacement = record_progress(
             _require_generation_state(current),
             batch_index,
@@ -656,7 +661,7 @@ class GenerationService:
             maximum,
             now=self._clock(),
         )
-        self._commit_state(current, replacement, context=context)
+        return self._commit_state(current, replacement, context=context)
 
     def _upload_frozen_references(
         self,
