@@ -292,7 +292,8 @@ Phase 6：
 
 当前分支已包含 Phase 5 Tasks 9–14 的协调器/恢复、generation/reference API、
 artifact 路由、WebSocket 和合成全链路测试实现。工作树中用户已有的
-未跟踪 `temp/`、`.tmp-review-cancel/`、`.tmp-review-prompt-reg/` 不属于本任务
-变更，必须保留。接手按 `AGENTS.md` 的必读顺序阅读，以当前代码和可重复验证
+未跟踪 `temp/`、`.tmp-review-cancel-repro/`、`.tmp-review-cancel/`、
+`.tmp-review-prompt-reg/` 不属于本任务变更，必须保留。接手按 `AGENTS.md` 的
+必读顺序阅读，以当前代码和可重复验证
 结果为准。Phase 5 仍不做候选采用、导出、移动端、Java/Bedrock 转换、
 overlay 合并或格式 32 支持。

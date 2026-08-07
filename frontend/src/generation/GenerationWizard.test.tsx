@@ -43,6 +43,10 @@ class WizardWebSocket {
     );
   }
 
+  emitRaw(data: string) {
+    this.onmessage?.(new MessageEvent("message", { data }));
+  }
+
   close() {
     this.readyState = 3;
   }
@@ -1028,6 +1032,44 @@ describe("guided generation wizard", () => {
     expect(screen.queryByRole("button", { name: "继续任务" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "取消任务" })).not.toBeInTheDocument();
     view.unmount();
+  });
+
+  it("clears a transient live error after a healthy durable refresh", async () => {
+    const generationApi = await import("./api");
+    vi.spyOn(generationApi, "getGenerationOptions").mockResolvedValue(generationOptions);
+    vi.spyOn(generationApi, "listPackReferences").mockResolvedValue(packReferences);
+    vi.spyOn(generationApi, "listUploadedReferences").mockResolvedValue([]);
+    const queuedJob = makeLiveJob("queued", 1);
+    const getJob = vi
+      .spyOn(generationApi, "getGenerationJob")
+      .mockResolvedValue(makeLiveJob("generating", 2));
+    vi.spyOn(generationApi, "createGenerationJob").mockResolvedValue(queuedJob);
+    vi.spyOn(generationApi, "startGenerationJob").mockResolvedValue(queuedJob);
+
+    render(
+      <GenerationWizard
+        projectId={projectId}
+        manifest={manifest}
+        coverage={coverage}
+        onJobsChanged={vi.fn().mockResolvedValue(undefined)}
+        onCurrentJobChange={vi.fn()}
+      />,
+    );
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("radio", { name: /Deepslate/ }));
+    await user.click(screen.getByRole("button", { name: "下一步：参考图与描述" }));
+    await user.click(screen.getByRole("button", { name: "下一步：生成配置" }));
+    await user.click(await screen.findByRole("button", { name: "创建并开始生成" }));
+    await waitFor(() => expect(WizardWebSocket.instances).toHaveLength(1));
+
+    act(() => WizardWebSocket.instances[0]!.emitRaw("{not valid json"));
+    expect(await screen.findByRole("alert")).toHaveTextContent("生成服务返回了无效数据");
+    await waitFor(() => expect(getJob).toHaveBeenCalledWith(
+      projectId,
+      generationJobId,
+      expect.any(AbortSignal),
+    ));
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
   });
 
   it("keeps a newer HTTP command response when an older live snapshot arrives", async () => {

@@ -203,9 +203,7 @@ export default function GenerationWizard({
         void onJobsChangedRef.current();
       }
     }
-    if (liveJob.error !== null) {
-      setLiveError(liveJob.error);
-    }
+    setLiveError(liveJob.error);
   }, [liveJob.error, liveJob.job]);
 
   const filteredTargets = useMemo(() => {
