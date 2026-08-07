@@ -243,6 +243,29 @@
   "profile_version": "2",
   "qualification": "phase-5-profile-v2",
   "qualification_status": "passed",
+  "resource_hints": [
+    {
+      "elapsed_seconds": 26.46799999999712,
+      "parallelism": 1,
+      "peak_process_ram_mib": 3644,
+      "peak_system_ram_mib": 16271,
+      "peak_vram_mib": 8516
+    },
+    {
+      "elapsed_seconds": 22.985000000000582,
+      "parallelism": 2,
+      "peak_process_ram_mib": 3644,
+      "peak_system_ram_mib": 16355,
+      "peak_vram_mib": 8535
+    },
+    {
+      "elapsed_seconds": 24.281000000002678,
+      "parallelism": 4,
+      "peak_process_ram_mib": 3661,
+      "peak_system_ram_mib": 16356,
+      "peak_vram_mib": 8491
+    }
+  ],
   "restart_audit": "passed",
   "runtime_commit": "322122449c9d2ba8b8df1bb517364527dd0615f1",
   "runtime_id": "comfyui-windows-nvidia",

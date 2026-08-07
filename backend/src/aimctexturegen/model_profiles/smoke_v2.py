@@ -74,6 +74,18 @@ _PRIVATE_FAILURE_DETAIL = re.compile(
     r"(?i)(?:prompt|reference|filename|model|path|token|header|cookie|"
     r"[A-Za-z0-9_.-]+\.(?:png|jpe?g|safetensors|json))"
 )
+_SENSITIVE_KEY = re.compile(
+    r"(?i)(?:api[_-]?key|access[_-]?token|token|prompt|reference|path|"
+    r"model|image|filename|header|cookie|secret)"
+)
+_SENSITIVE_TEXT = re.compile(
+    r"(?i)(?:authorization|bearer\s+|access[_-]?token|api[_-]?key|"
+    r"cookie|\b(?:prompt|reference|path|model|image|filename|header|"
+    r"secret|token)\b|\b[A-Za-z0-9_.-]+\.(?:png|jpe?g|safetensors|json)\b)"
+)
+_ALLOWED_RUNTIME_STATS = frozenset(
+    {"comfyui_version", "python_version", "pytorch_version", "cuda_version"}
+)
 
 
 class _StrictModel(BaseModel):
@@ -175,8 +187,8 @@ def _validate_digest(value: str, *, length: int) -> str:
 def _validate_safe_text(value: str, *, field_name: str) -> str:
     if "\x00" in value or _ABSOLUTE_PATH.search(value):
         raise ValueError(f"{field_name} must not contain an absolute path")
-    if _SECRET_TEXT.search(value):
-        raise ValueError(f"{field_name} must not contain credentials")
+    if _SENSITIVE_TEXT.search(value):
+        raise ValueError(f"{field_name} contains private text")
     return value
 
 
@@ -186,7 +198,9 @@ def _validate_nested_privacy(value: object) -> None:
     if isinstance(value, str):
         _validate_safe_text(value, field_name="evidence text")
     elif isinstance(value, dict):
-        for nested in value.values():
+        for key, nested in value.items():
+            if not isinstance(key, str) or _SENSITIVE_KEY.search(key):
+                raise ValueError("evidence contains a sensitive key")
             _validate_nested_privacy(nested)
     elif isinstance(value, (list, tuple)):
         for nested in value:
@@ -261,6 +275,58 @@ class SmokeCellEvidenceV2(_StrictModel):
         return self
 
 
+class SmokeResourceHintV2(_StrictModel):
+    parallelism: Literal[1, 2, 4]
+    peak_vram_mib: int = Field(gt=0)
+    peak_process_ram_mib: int = Field(gt=0)
+    peak_system_ram_mib: int = Field(gt=0)
+    elapsed_seconds: float = Field(ge=0)
+
+
+def _aggregate_resource_hints(
+    cells: tuple[SmokeCellEvidenceV2, ...],
+) -> tuple[SmokeResourceHintV2, ...]:
+    """Aggregate complete qualification cells into product resource hints."""
+
+    hints: list[SmokeResourceHintV2] = []
+    expected_variants = set(VARIANTS)
+    for parallelism in BATCH_SIZES:
+        matching = [cell for cell in cells if cell.batch_size == parallelism]
+        if (
+            len(matching) != len(VARIANTS)
+            or {cell.variant for cell in matching} != expected_variants
+            or any(
+                cell.status != "completed"
+                or cell.postprocess_status != "completed"
+                or cell.peak_vram_mib is None
+                or cell.peak_process_ram_mib is None
+                or cell.peak_system_ram_mib is None
+                for cell in matching
+            )
+        ):
+            return ()
+        hints.append(
+            SmokeResourceHintV2(
+                parallelism=parallelism,
+                peak_vram_mib=max(
+                    cell.peak_vram_mib for cell in matching if cell.peak_vram_mib is not None
+                ),
+                peak_process_ram_mib=max(
+                    cell.peak_process_ram_mib
+                    for cell in matching
+                    if cell.peak_process_ram_mib is not None
+                ),
+                peak_system_ram_mib=max(
+                    cell.peak_system_ram_mib
+                    for cell in matching
+                    if cell.peak_system_ram_mib is not None
+                ),
+                elapsed_seconds=max(cell.elapsed_seconds for cell in matching),
+            )
+        )
+    return tuple(hints)
+
+
 class SmokeEvidenceV2(_StrictModel):
     qualification: Literal["phase-5-profile-v2"]
     qualification_status: Literal["passed", "failed"] = "failed"
@@ -274,6 +340,7 @@ class SmokeEvidenceV2(_StrictModel):
     profile_manifest_sha256: str = Field(min_length=64, max_length=64)
     support_state: Literal["candidate_unverified", "verified"]
     workflow_digests: dict[WorkflowVariant, str]
+    resource_hints: tuple[SmokeResourceHintV2, ...] = ()
     runtime_stats: dict[str, str] = Field(default_factory=dict)
     started_at: datetime
     completed_at: datetime
@@ -285,6 +352,18 @@ class SmokeEvidenceV2(_StrictModel):
     @classmethod
     def coerce_cells(cls, value: object) -> object:
         return tuple(value) if isinstance(value, list) else value
+
+    @field_validator("resource_hints", mode="before")
+    @classmethod
+    def coerce_resource_hints(cls, value: object) -> object:
+        return tuple(value) if isinstance(value, list) else value
+
+    @field_validator("runtime_stats")
+    @classmethod
+    def validate_runtime_stats(cls, value: dict[str, str]) -> dict[str, str]:
+        if any(key not in _ALLOWED_RUNTIME_STATS for key in value):
+            raise ValueError("runtime_stats contains an unsupported key")
+        return value
 
     @field_validator("runtime_commit")
     @classmethod
@@ -306,6 +385,17 @@ class SmokeEvidenceV2(_StrictModel):
         for digest in value.values():
             _validate_digest(digest, length=64)
         return value
+
+    @model_validator(mode="after")
+    def populate_resource_hints(self) -> SmokeEvidenceV2:
+        derived = _aggregate_resource_hints(self.cells)
+        if self.resource_hints:
+            if derived and self.resource_hints != derived:
+                raise ValueError("resource_hints do not match qualification cells")
+            return self
+        if derived:
+            return self.model_copy(update={"resource_hints": derived})
+        return self
 
     @model_validator(mode="after")
     def reject_private_data(self) -> SmokeEvidenceV2:
@@ -506,6 +596,7 @@ def run_smoke(
         profile_manifest_sha256=manifest_sha256(profile),
         support_state=profile.support_state,
         workflow_digests=workflow_digests,
+        resource_hints=_aggregate_resource_hints(tuple(cells)),
         runtime_stats=runtime_stats,
         started_at=started_at,
         completed_at=datetime.now(UTC),
@@ -542,10 +633,17 @@ def write_evidence(path: Path, evidence: SmokeEvidenceV2) -> None:
         indent=2,
         sort_keys=True,
     ).encode("utf-8")
+    SmokeEvidenceV2.model_validate_json(payload)
     temporary = path.with_name(f".{path.name}.tmp")
-    temporary.write_bytes(payload)
-    os.replace(temporary, path)
-    SmokeEvidenceV2.model_validate_json(path.read_bytes())
+    try:
+        temporary.write_bytes(payload)
+        SmokeEvidenceV2.model_validate_json(temporary.read_bytes())
+        os.replace(temporary, path)
+    finally:
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
 
 
 def _preflight_failure(

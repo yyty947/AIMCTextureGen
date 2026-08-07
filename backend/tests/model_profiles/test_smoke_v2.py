@@ -12,7 +12,10 @@ from pydantic import ValidationError
 
 from aimctexturegen.comfy.errors import WorkflowBindingError
 from aimctexturegen.comfy.registry import ManifestRegistry
-from aimctexturegen.generation.service import build_generation_profile_binding
+from aimctexturegen.generation.service import (
+    _verified_resource_hints,
+    build_generation_profile_binding,
+)
 from aimctexturegen.model_profiles.smoke_v2 import (
     SmokeEvidenceV2,
     _process_memory_mib,
@@ -162,6 +165,43 @@ def test_evidence_contains_digests_metrics_order_hashes_and_postprocess_status()
     assert cell.peak_vram_mib == 12000
 
 
+def test_tracked_evidence_aggregates_cells_into_generation_resource_hints() -> None:
+    registry = ManifestRegistry.load(REPO_ROOT)
+    profile = registry.profile("sdxl-mapchip-ipadapter", "2")
+    evidence = SmokeEvidenceV2.model_validate_json(
+        (REPO_ROOT / "docs/evidence/phase-5/evidence.json").read_bytes()
+    )
+
+    expected = [
+        {
+            "parallelism": 1,
+            "peak_vram_mib": 8516,
+            "peak_process_ram_mib": 3644,
+            "peak_system_ram_mib": 16271,
+            "elapsed_seconds": 26.46799999999712,
+        },
+        {
+            "parallelism": 2,
+            "peak_vram_mib": 8535,
+            "peak_process_ram_mib": 3644,
+            "peak_system_ram_mib": 16355,
+            "elapsed_seconds": 22.985000000000582,
+        },
+        {
+            "parallelism": 4,
+            "peak_vram_mib": 8491,
+            "peak_process_ram_mib": 3661,
+            "peak_system_ram_mib": 16356,
+            "elapsed_seconds": 24.281000000002678,
+        },
+    ]
+
+    assert [
+        hint.model_dump(mode="json") for hint in evidence.resource_hints
+    ] == expected
+    assert _verified_resource_hints(profile, evidence) == tuple(expected)
+
+
 def test_evidence_rejects_absolute_paths_and_image_bytes() -> None:
     payload = _valid_evidence_dict()
     payload["machine"]["gpu_name"] = "C:/private/model"
@@ -196,6 +236,45 @@ def test_evidence_writer_validates_json_datetime_round_trip(tmp_path) -> None:
 
     loaded = SmokeEvidenceV2.model_validate_json(evidence_path.read_bytes())
     assert loaded.started_at == evidence.started_at
+
+
+def test_evidence_writer_validates_privacy_before_replacing_existing_file(
+    tmp_path: Path,
+) -> None:
+    evidence = SmokeEvidenceV2.model_validate(_valid_evidence_dict())
+    evidence_path = tmp_path / "evidence.json"
+    previous = b'{"sentinel":"keep"}'
+    evidence_path.write_bytes(previous)
+
+    cells = list(evidence.cells)
+    cells[0] = cells[0].model_copy(
+        update={
+            "status": "failed",
+            "output_count": 0,
+            "output_hashes": (),
+            "postprocess_status": "not_run",
+            "failure": "reference.png",
+        }
+    )
+    invalid_evidence = (
+        evidence.model_copy(update={"runtime_stats": {"api_key": "secret"}}),
+        evidence.model_copy(update={"runtime_stats": {"prompt": "private"}}),
+        evidence.model_copy(
+            update={
+                "machine": evidence.machine.model_copy(
+                    update={"gpu_name": "C:/private/model"}
+                )
+            }
+        ),
+        evidence.model_copy(update={"cells": tuple(cells)}),
+    )
+
+    for invalid in invalid_evidence:
+        evidence_path.write_bytes(previous)
+        with pytest.raises(ValidationError):
+            write_evidence(evidence_path, invalid)
+        assert evidence_path.read_bytes() == previous
+        assert not (tmp_path / ".evidence.json.tmp").exists()
 
 
 def test_workflow_failure_detail_is_redacted_without_private_inputs() -> None:

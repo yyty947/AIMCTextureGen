@@ -40,6 +40,7 @@ from aimctexturegen.references.store import ProjectReferenceStore
 
 
 CATALOG_ROOT = Path(__file__).parents[3] / "catalogs" / "java"
+REPO_ROOT = Path(__file__).resolve().parents[3]
 PROJECT_ID = UUID("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee")
 OTHER_PROJECT_ID = UUID("ffffffff-1111-4222-8333-444444444444")
 JOB_ID = UUID("12345678-1234-4abc-8def-123456789abc")
@@ -577,6 +578,57 @@ def test_generation_options_and_current_job_surface_verified_defaults_and_slot_s
         "job_id": str(created.request.job_id),
         "status": "queued",
     }
+
+
+def test_generation_options_consumes_tracked_phase5_evidence(
+    tmp_path: Path,
+) -> None:
+    projects_root = tmp_path / "projects"
+    _write_project(projects_root)
+    repository = ProjectRepository(projects_root)
+    catalogs = CatalogRegistry(CATALOG_ROOT)
+    store = JobStore(repository)
+    references = ReferenceService(
+        repository=repository,
+        catalogs=catalogs,
+        store=ProjectReferenceStore(repository),
+    )
+    generation = GenerationService(
+        repository=repository,
+        catalogs=catalogs,
+        references=references,
+        store=store,
+        manifests=ManifestRegistry.load(REPO_ROOT),
+        seed_source=iter((101, 102, 103, 104)).__next__,
+        job_id_source=iter((JOB_ID, RETRY_JOB_ID)).__next__,
+        clock=lambda: NOW,
+    )
+
+    options = generation.generation_options(PROJECT_ID)
+
+    assert options["resource_hints"] == (
+        {
+            "parallelism": 1,
+            "peak_vram_mib": 8516,
+            "peak_process_ram_mib": 3644,
+            "peak_system_ram_mib": 16271,
+            "elapsed_seconds": 26.46799999999712,
+        },
+        {
+            "parallelism": 2,
+            "peak_vram_mib": 8535,
+            "peak_process_ram_mib": 3644,
+            "peak_system_ram_mib": 16355,
+            "elapsed_seconds": 22.985000000000582,
+        },
+        {
+            "parallelism": 4,
+            "peak_vram_mib": 8491,
+            "peak_process_ram_mib": 3661,
+            "peak_system_ram_mib": 16356,
+            "elapsed_seconds": 24.281000000002678,
+        },
+    )
 
 
 @pytest.mark.parametrize(
