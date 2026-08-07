@@ -621,6 +621,107 @@ describe("项目恢复与只读任务历史", () => {
     return fetchMock;
   }
 
+  it("keeps candidate results visible through the App job-history refresh", async () => {
+    const generationApi = await import("./generation/api");
+    const completedJob = {
+      request: { jobId: "12345678-1234-4abc-8def-123456789abc" },
+      state: {
+        status: "completed",
+        candidates: [0, 1, 2, 3].map((candidateIndex) => ({
+          candidateIndex,
+          batchIndex: 0,
+          batchSeed: 101,
+          positionInBatch: candidateIndex,
+          status: "completed",
+          artifacts: {
+            raw: null,
+            final: {
+              relativePath: `candidates/${candidateIndex}.png`,
+              sha256: "a".repeat(64),
+              byteSize: 96,
+              mediaType: "image/png",
+              width: 16,
+              height: 16,
+            },
+            nearest: null,
+            tile: null,
+            report: null,
+          },
+          lineage: null,
+          failure: null,
+        })),
+      },
+    } as never;
+    vi.spyOn(generationApi, "createGenerationJob").mockResolvedValue(completedJob);
+    vi.spyOn(generationApi, "startGenerationJob").mockResolvedValue(completedJob);
+
+    const refreshGate = deferred<void>();
+    let dashboardLoadCount = 0;
+    let jobHistoryLoadCount = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === "/api/projects") {
+          return Promise.resolve(jsonResponse([projectSummary]));
+        }
+        if (url === "/api/system/recovery") {
+          return Promise.resolve(jsonResponse(recoveryReport));
+        }
+        if (url === `/api/projects/${projectId}`) {
+          dashboardLoadCount += 1;
+          const response = jsonResponse({ ...manifest });
+          return dashboardLoadCount === 1
+            ? Promise.resolve(response)
+            : refreshGate.promise.then(() => jsonResponse({ ...manifest }));
+        }
+        if (url === `/api/projects/${projectId}/coverage`) {
+          return Promise.resolve(jsonResponse(coverage));
+        }
+        if (url === `/api/projects/${projectId}/jobs`) {
+          jobHistoryLoadCount += 1;
+          return jobHistoryLoadCount === 1
+            ? Promise.resolve(jsonResponse([jobSummary]))
+            : refreshGate.promise.then(() => jsonResponse([jobSummary]));
+        }
+        if (url === `/api/projects/${projectId}/jobs/${jobId}`) {
+          return jobHistoryLoadCount === 1
+            ? Promise.resolve(jsonResponse(jobDetail))
+            : refreshGate.promise.then(() => jsonResponse(jobDetail));
+        }
+        if (url.endsWith("/generation-options")) {
+          return Promise.resolve(jsonResponse(generationOptions));
+        }
+        if (url.endsWith("/references/pack")) {
+          return Promise.resolve(jsonResponse([]));
+        }
+        if (url.includes("/references?kind=")) {
+          return Promise.resolve(jsonResponse([]));
+        }
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+    render(<App />);
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: /恢复项目/ }));
+    await screen.findByLabelText("覆盖统计");
+    await user.click(await screen.findByRole("radio", { name: /Deepslate/ }));
+    await user.click(screen.getByRole("button", { name: "下一步：参考图与描述" }));
+    await user.click(screen.getByRole("button", { name: "下一步：生成配置" }));
+    await user.click(await screen.findByRole("button", { name: "创建并开始生成" }));
+
+    await waitFor(() => expect(jobHistoryLoadCount).toBe(2));
+    expect(screen.getByRole("heading", { name: "候选结果" })).toBeVisible();
+    expect(screen.getByRole("article", { name: "候选 1" })).toBeVisible();
+    refreshGate.resolve();
+
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "候选结果" })).toBeVisible(),
+    );
+    expect(screen.getByRole("article", { name: "候选 1" })).toBeVisible();
+  });
+
   it("启动时列出已有项目，选择后加载覆盖与任务历史", async () => {
     const fetchMock = installRestorationFetch();
     render(<App />);

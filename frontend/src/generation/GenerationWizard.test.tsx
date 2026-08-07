@@ -772,11 +772,17 @@ describe("guided generation wizard", () => {
 
     let view!: ReturnType<typeof render>;
     const refreshJobs = vi.fn(async () => {
+      const refreshedManifest = Object.fromEntries(
+        Object.entries(manifest).reverse(),
+      ) as ProjectManifest;
+      const refreshedCoverage = Object.fromEntries(
+        Object.entries({ ...coverage, items: [...coverage.items] }).reverse(),
+      ) as unknown as CoverageReport;
       view.rerender(
         <GenerationWizard
           projectId={projectId}
-          manifest={{ ...manifest }}
-          coverage={{ ...coverage, items: [...coverage.items] }}
+          manifest={refreshedManifest}
+          coverage={refreshedCoverage}
           onJobsChanged={refreshJobs}
           onCurrentJobChange={vi.fn()}
         />,

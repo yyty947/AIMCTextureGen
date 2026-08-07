@@ -97,8 +97,8 @@ export default function GenerationWizard({
     const previous = previousInputs.current;
     const changed =
       previous.projectId !== projectId ||
-      JSON.stringify(previous.manifest) !== JSON.stringify(manifest) ||
-      JSON.stringify(previous.coverage) !== JSON.stringify(coverage);
+      stableSerialize(previous.manifest) !== stableSerialize(manifest) ||
+      stableSerialize(previous.coverage) !== stableSerialize(coverage);
     previousInputs.current = { projectId, manifest, coverage };
     if (!changed) {
       return;
@@ -540,4 +540,19 @@ function isRenderableGenerationJob(value: unknown): value is GenerationJobDetail
     maybe.state.candidates.length === 4 &&
     typeof maybe.state?.status === "string"
   );
+}
+
+function stableSerialize(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableSerialize).join(",")}]`;
+  }
+  if (value !== null && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>).sort(
+      ([left], [right]) => (left < right ? -1 : left > right ? 1 : 0),
+    );
+    return `{${entries
+      .map(([key, entry]) => `${JSON.stringify(key)}:${stableSerialize(entry)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? String(value);
 }

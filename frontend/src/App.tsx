@@ -52,6 +52,7 @@ export default function App() {
   const [manifest, setManifest] = useState<ProjectManifest | null>(null);
   const [coverage, setCoverage] = useState<CoverageReport | null>(null);
   const [jobs, setJobs] = useState<readonly JobHistoryEntry[]>([]);
+  const [jobHistoryError, setJobHistoryError] = useState<ApiError | null>(null);
   const [pendingImportedProject, setPendingImportedProject] =
     useState<ProjectManifest | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
@@ -308,6 +309,7 @@ export default function App() {
     setPendingImportedProject(null);
     setError(null);
     setDashboardError(null);
+    setJobHistoryError(null);
     setManifest(null);
     setCoverage(null);
     setJobs([]);
@@ -349,6 +351,7 @@ export default function App() {
           reconcileJobHistory(summary, details[index]),
         ),
       );
+      setJobHistoryError(null);
       setDashboardError(null);
     } catch (cause) {
       if (
@@ -365,6 +368,46 @@ export default function App() {
         selectedProject.current === projectId
       ) {
         setDashboardLoading(false);
+      }
+    }
+  }
+
+  async function refreshJobHistory(projectId: string) {
+    const componentRequestGeneration = componentGeneration.current;
+    const requestId = dashboardRequest.current + 1;
+    dashboardRequest.current = requestId;
+    try {
+      const summaries = await listJobs(projectId);
+      if (
+        !isCurrentComponentGeneration(componentRequestGeneration) ||
+        dashboardRequest.current !== requestId ||
+        selectedProject.current !== projectId
+      ) {
+        return;
+      }
+      const details = await Promise.all(
+        summaries.map((summary) => getJob(projectId, summary.jobId)),
+      );
+      if (
+        !isCurrentComponentGeneration(componentRequestGeneration) ||
+        dashboardRequest.current !== requestId ||
+        selectedProject.current !== projectId
+      ) {
+        return;
+      }
+      setJobs(
+        summaries.map((summary, index) =>
+          reconcileJobHistory(summary, details[index]),
+        ),
+      );
+      setJobHistoryError(null);
+    } catch (cause) {
+      if (
+        isCurrentComponentGeneration(componentRequestGeneration) &&
+        dashboardRequest.current === requestId &&
+        selectedProject.current === projectId
+      ) {
+        setJobHistoryError(toApiError(cause));
       }
     }
   }
@@ -505,11 +548,19 @@ export default function App() {
           ) : manifest !== null && coverage !== null ? (
             <>
               <CoverageSummary manifest={manifest} coverage={coverage} />
+              {jobHistoryError !== null && (
+                <InlineRequestError
+                  title="任务历史读取失败"
+                  error={jobHistoryError}
+                  retryLabel="重试任务历史"
+                  onRetry={() => void refreshJobHistory(selectedProjectId)}
+                />
+              )}
               <GenerationWizard
                 projectId={selectedProjectId}
                 manifest={manifest}
                 coverage={coverage}
-                onJobsChanged={() => loadProjectDashboard(selectedProjectId)}
+                onJobsChanged={() => refreshJobHistory(selectedProjectId)}
                 onCurrentJobChange={() => undefined}
               />
               <JobHistory jobs={jobs} />
