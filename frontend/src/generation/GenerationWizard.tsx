@@ -430,13 +430,17 @@ export default function GenerationWizard({
       return;
     }
     setLiveError(null);
-    const retried = await retryGenerationJob(projectId, visibleJob.request.jobId);
-    if (isRenderableGenerationJob(retried)) {
-      setCurrentJob(retried);
-      setStep(5);
+    try {
+      const retried = await retryGenerationJob(projectId, visibleJob.request.jobId);
+      if (isRenderableGenerationJob(retried)) {
+        setCurrentJob(retried);
+        setStep(5);
+      }
+      onCurrentJobChange(retried as unknown as JobDetail);
+      await onJobsChanged();
+    } catch (cause) {
+      setLiveError(toApiError(cause));
     }
-    onCurrentJobChange(retried as unknown as JobDetail);
-    await onJobsChanged();
   }
 
   if (options === null) {

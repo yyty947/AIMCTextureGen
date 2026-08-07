@@ -1,6 +1,6 @@
 # Task 12 report — live candidate streaming and actions
 
-Status: DONE
+Status: DONE — fix round 1
 
 Files changed:
 
@@ -27,6 +27,14 @@ What changed:
 - Added focused RED/GREEN tests for live events, candidate actions, wizard conflict/start handling, and legacy history labeling.
 - Added functional layout styles for the Phase 5 candidate surface.
 
+Fix round 1:
+
+- Revision gaps are checked against the prior accepted revision before state update; a gap refreshes durable HTTP state and reconnects with bounded backoff.
+- WebSocket, reconnect timer, fetch, and callback ownership is isolated per subscription generation, including project/job changes and unmount.
+- Report loading now exposes a stable error message and ignores stale success/failure callbacks after job changes.
+- Retry API rejection is caught by the wizard and leaves the failed job visible with a user-facing error.
+- Failed/canceled jobs are retryable only when `failure.retryable === true`; missing metadata is not retryable.
+
 Verification evidence:
 
 - RED:
@@ -49,9 +57,16 @@ Manual inspection:
 
 - No targeted desktop visual inspection was run in this task.
 
+Fix-round verification:
+
+- `npm test -- --run src/generation/useJobEvents.test.tsx src/generation/CandidateStep.test.tsx src/generation/GenerationWizard.test.tsx` — 21/21 tests passed.
+- `npm test` — 167/167 tests passed.
+- `npm run build` — TypeScript and Vite production build passed.
+- `git diff --check` — passed.
+
 Deferred minors:
 
-- None recorded in this task.
+- None recorded in this fix round.
 
 Commit:
 

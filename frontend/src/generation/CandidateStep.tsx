@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { ApiError } from "../api";
 import { getCandidateReport, readCandidateArtifactUrl } from "./api";
@@ -48,11 +48,15 @@ export default function CandidateStep({
     3: "final",
   });
   const [reports, setReports] = useState<Partial<Record<number, CandidateReport>>>({});
+  const [reportErrors, setReportErrors] = useState<Partial<Record<number, string>>>({});
   const [loadingReport, setLoadingReport] = useState<number | null>(null);
+  const reportGeneration = useRef(0);
 
   useEffect(() => {
     setReports({});
+    setReportErrors({});
     setLoadingReport(null);
+    reportGeneration.current += 1;
   }, [job?.request.jobId]);
 
   const actionableFailures = [
@@ -65,7 +69,7 @@ export default function CandidateStep({
   ];
   const retryable =
     job?.state.status === "failed" || job?.state.status === "canceled"
-      ? job.state.failure?.retryable ?? true
+      ? job.state.failure?.retryable === true
       : false;
 
   const cards = useMemo(() => {
@@ -83,12 +87,23 @@ export default function CandidateStep({
     if (job === null) {
       return;
     }
+    const requestedJobId = job.request.jobId;
+    const requestedGeneration = reportGeneration.current;
     setLoadingReport(candidateIndex);
+    setReportErrors((current) => ({ ...current, [candidateIndex]: undefined }));
     try {
-      const report = await getCandidateReport(projectId, job.request.jobId, candidateIndex);
+      const report = await getCandidateReport(projectId, requestedJobId, candidateIndex);
+      if (reportGeneration.current !== requestedGeneration) return;
       setReports((current) => ({ ...current, [candidateIndex]: report }));
+    } catch {
+      if (reportGeneration.current === requestedGeneration) {
+        setReportErrors((current) => ({
+          ...current,
+          [candidateIndex]: "质量报告读取失败，请稍后重试。",
+        }));
+      }
     } finally {
-      setLoadingReport(null);
+      if (reportGeneration.current === requestedGeneration) setLoadingReport(null);
     }
   }
 
@@ -237,6 +252,9 @@ export default function CandidateStep({
                   </button>
                   {report !== undefined && (
                     <p>{`seam score ${report.seamScore.average}`}</p>
+                  )}
+                  {reportErrors[candidate.candidateIndex] !== undefined && (
+                    <p role="alert">{reportErrors[candidate.candidateIndex]}</p>
                   )}
                 </div>
               )}

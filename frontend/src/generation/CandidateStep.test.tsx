@@ -1,4 +1,4 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { act, cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -10,6 +10,16 @@ const projectId = "6fda5078-1246-4cac-91e8-541808da14f4";
 const jobId = "0f6fb74b-5d0f-46b0-bf03-2fb41aa83694";
 const parentJobId = "3ec8b782-ec9b-48a6-b949-9ed175122414";
 const createdAt = "2026-08-03T10:00:00Z";
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
 
 afterEach(() => {
   cleanup();
@@ -350,5 +360,75 @@ describe("CandidateStep", () => {
     expect(screen.getByText("当前已有一个未完成任务")).toBeVisible();
     expect(screen.getByText("查看当前任务或取消后再创建新任务")).toBeVisible();
     expect(screen.getByText("检查已完成候选后重试任务")).toBeVisible();
+  });
+
+  it("shows a stable report error when report loading rejects", async () => {
+    const report = await import("./api");
+    vi.spyOn(report, "getCandidateReport").mockRejectedValue(new Error("report unavailable"));
+    renderCandidateStep();
+
+    await userEvent.setup().click(
+      within(screen.getByRole("article", { name: "候选 1" })).getByRole("button", {
+        name: "读取质量报告",
+      }),
+    );
+
+    expect(await screen.findByText("质量报告读取失败，请稍后重试。")).toBeVisible();
+  });
+
+  it("does not publish a stale report after the job changes", async () => {
+    const report = await import("./api");
+    const pending = deferred<Awaited<ReturnType<typeof report.getCandidateReport>>>();
+    vi.spyOn(report, "getCandidateReport").mockReturnValue(pending.promise);
+    const view = render(
+      <CandidateStep
+        connected
+        error={null}
+        job={makeJobDetail()}
+        projectId={projectId}
+        onCancel={vi.fn()}
+        onContinue={vi.fn()}
+        onRefresh={vi.fn()}
+        onRetry={vi.fn()}
+      />,
+    );
+    await userEvent.setup().click(
+      within(screen.getByRole("article", { name: "候选 1" })).getByRole("button", {
+        name: "读取质量报告",
+      }),
+    );
+    const nextJob = makeJobDetail();
+    const nextJobId = "12345678-1234-4abc-8def-123456789abc";
+    view.rerender(
+      <CandidateStep
+        connected
+        error={null}
+        job={{
+          ...nextJob,
+          request: { ...nextJob.request, jobId: nextJobId },
+          state: { ...nextJob.state, jobId: nextJobId },
+        }}
+        projectId={projectId}
+        onCancel={vi.fn()}
+        onContinue={vi.fn()}
+        onRefresh={vi.fn()}
+        onRetry={vi.fn()}
+      />,
+    );
+    pending.resolve({
+      schemaVersion: 1,
+      resolution: 16,
+      seamScore: { horizontal: 0.1, vertical: 0.15, average: 0.125 },
+    });
+    await act(async () => {
+      await pending.promise;
+    });
+
+    expect(screen.queryByText(/seam score/)).not.toBeInTheDocument();
+  });
+
+  it("does not offer retry when failure metadata is missing", () => {
+    renderCandidateStep(makeJobDetail({ status: "failed", failure: null }));
+    expect(screen.queryByRole("button", { name: "重试任务" })).not.toBeInTheDocument();
   });
 });

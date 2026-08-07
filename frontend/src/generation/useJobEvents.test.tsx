@@ -219,7 +219,11 @@ describe("useJobEvents", () => {
       });
     });
 
-    await waitFor(() => expect(result.current.job?.state.revision).toBe(3));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(result.current.job?.state.revision).toBe(3);
     act(() => socket.emitClose());
     await waitFor(() => expect(getJobMock).toHaveBeenCalled());
     expect(cancelJobMock).not.toHaveBeenCalled();
@@ -246,5 +250,66 @@ describe("useJobEvents", () => {
     unmount();
     expect(socket.closed).toBe(true);
     expect(getJobMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not accept a revision gap and reconnects after the durable refresh", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("WebSocket", FakeWebSocket as unknown as typeof WebSocket);
+    const getJobMock = vi
+      .spyOn(generationApi, "getGenerationJob")
+      .mockResolvedValue(makeJobDetail(4, "generating"));
+
+    const { result, unmount } = renderHook(() => useJobEvents(projectId, jobId));
+    const firstSocket = FakeWebSocket.instances[0]!;
+    act(() => {
+      firstSocket.emitMessage({ type: "snapshot", revision: 3, job: makeJobDetail(3) });
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(result.current.job?.state.revision).not.toBe(5);
+    act(() => {
+      firstSocket.emitMessage({ type: "snapshot", revision: 5, job: makeJobDetail(5) });
+    });
+    expect(result.current.job?.state.revision).not.toBe(5);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(getJobMock).toHaveBeenCalledOnce();
+    expect(result.current.job?.state.revision).toBe(4);
+
+    act(() => {
+      vi.advanceTimersByTime(250);
+    });
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    unmount();
+    vi.useRealTimers();
+  });
+
+  it("ignores callbacks from the previous subscription generation", async () => {
+    vi.stubGlobal("WebSocket", FakeWebSocket as unknown as typeof WebSocket);
+    const getJobMock = vi.spyOn(generationApi, "getGenerationJob").mockResolvedValue(
+      makeJobDetail(4, "generating"),
+    );
+    const { rerender, unmount } = renderHook(
+      ({ currentProjectId }) => useJobEvents(currentProjectId, jobId),
+      { initialProps: { currentProjectId: projectId } },
+    );
+    const oldSocket = FakeWebSocket.instances[0]!;
+    rerender({ currentProjectId: "7fda5078-1246-4cac-91e8-541808da14f5" });
+    getJobMock.mockClear();
+
+    act(() => {
+      oldSocket.emitMessage({ type: "snapshot", revision: 9, job: makeJobDetail(9) });
+      oldSocket.emitClose();
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(getJobMock).not.toHaveBeenCalled();
+    unmount();
   });
 });

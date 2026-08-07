@@ -847,7 +847,63 @@ describe("guided generation wizard", () => {
     await user.click(screen.getByRole("button", { name: "下一步：生成配置" }));
     await user.click(await screen.findByRole("button", { name: "创建并开始生成" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("当前已有一个未完成任务");
+    expect(await screen.findByText("当前已有一个未完成任务")).toBeVisible();
     expect(startJob).not.toHaveBeenCalled();
+  });
+
+  it("keeps the failed job visible and shows an error when retry rejects", async () => {
+    const generationApi = await import("./api");
+    vi.spyOn(generationApi, "getGenerationOptions").mockResolvedValue(generationOptions);
+    vi.spyOn(generationApi, "listPackReferences").mockResolvedValue(packReferences);
+    vi.spyOn(generationApi, "listUploadedReferences")
+      .mockResolvedValueOnce(uploadedStyleReferences)
+      .mockResolvedValueOnce(uploadedStructureReferences);
+    const failedJob = {
+      request: { jobId: "12345678-1234-4abc-8def-123456789abc" },
+      state: {
+        status: "failed",
+        failure: {
+          code: "GPU_OUT_OF_MEMORY",
+          stage: "execution",
+          userMessage: "显存不足",
+          recommendedActions: ["降低并行度后重试"],
+          technicalDetails: null,
+          retryable: true,
+          occurredAt: "2026-08-03T10:00:00Z",
+        },
+        candidates: [0, 1, 2, 3].map((candidateIndex) => ({
+          candidateIndex,
+          batchSeed: 101,
+          positionInBatch: candidateIndex,
+          status: "failed",
+          artifacts: { raw: null, final: null, nearest: null, tile: null, report: null },
+          lineage: null,
+          failure: null,
+        })),
+      },
+    } as never;
+    vi.spyOn(generationApi, "createGenerationJob").mockResolvedValue(failedJob);
+    vi.spyOn(generationApi, "startGenerationJob").mockResolvedValue(failedJob);
+    vi.spyOn(generationApi, "retryGenerationJob").mockRejectedValue(
+      new ApiRequestError({
+        code: "GENERATION_JOB_CONFLICT",
+        stage: "retrying_generation_job",
+        userMessage: "当前已有一个未完成任务",
+        recommendedActions: ["查看当前任务"],
+        technicalDetails: null,
+      }),
+    );
+
+    renderWizard();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("radio", { name: /Deepslate/ }));
+    await user.click(screen.getByRole("button", { name: "下一步：参考图与描述" }));
+    await user.click(screen.getByRole("button", { name: "下一步：生成配置" }));
+    await user.click(screen.getByRole("button", { name: "创建并开始生成" }));
+    const retryButton = await screen.findByRole("button", { name: "重试任务" });
+    await user.click(retryButton);
+
+    expect(await screen.findByText("当前已有一个未完成任务")).toBeVisible();
+    expect(screen.getByRole("button", { name: "重试任务" })).toBeVisible();
   });
 });
