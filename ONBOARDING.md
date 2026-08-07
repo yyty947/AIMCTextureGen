@@ -1,6 +1,6 @@
 # AIMCTextureGen 当前交接
 
-最后核对日期：2026-08-07
+最后核对日期：2026-08-08
 
 ## 当前状态
 
@@ -11,7 +11,7 @@ Phase 3 已通过合并提交 `ae424b1` 进入 `master`/`origin/master`。Phase 
 环境规范化、后台安装执行、端口占用错误映射、重建 manager 的安全停止、
 profile 哈希/receipt 就绪判定，以及取消/完成状态竞态：
 
-当前 checkout 位于 `codex/phase-5-four-candidate-generation`。Phase 5 已完成
+Phase 5 已完成
 交互式设计与书面规格复核，书面规格位于
 [`docs/superpowers/specs/2026-08-03-phase-5-four-candidate-generation-design.md`](docs/superpowers/specs/2026-08-03-phase-5-four-candidate-generation-design.md)，
 原生批次 seed、单活动任务协调器和 profile v2 的架构决定位于
@@ -253,6 +253,15 @@ Phase 6 必须接手一项已知兼容性问题：当前 Phase 5 为保持既有
 
 - [Minecraft Java Edition Snapshot 23w31a：多版本资源包元数据](https://feedback.minecraft.net/hc/en-us/articles/18619031671821-Minecraft-Java-Edition-Snapshot-23w31a)
 - [Minecraft Java Edition 1.21.9：新的 pack.mcmeta 格式](https://www.minecraft.net/en-us/article/minecraft-java-edition-1-21-9)
+
+Phase 6 还必须解决生产方块目录缺口；这是 MVP 验收前的强制门禁：当前
+`catalogs/java/dev-format-34.json` 只是 `development_fixture`，不是生产兼容目录。
+下一阶段计划必须明确纳入 MVP 声明范围内静态、非透明、非动画、普通单贴图方块的
+可追踪生产目录，并记录来源、格式版本及生成/维护过程；具体来源、工具和实现方案
+均待 Phase 6 规划决定。只向当前夹具补充少数路径不能视为完成；在此项完成前，不能
+把该目录作为完整的生产兼容性声明。来源确定后还要按仓库要求建立
+`docs/CATALOG.md`。动态、Alpha、多面、物品和模型资源仍按未决事项处理，不由本项
+默认扩展 MVP 范围。
 
 已确认的 Phase 5 关键边界：
 

@@ -144,7 +144,7 @@ is committed.
 
 ## Phase 6: Adoption, Export, Launcher, and MVP Acceptance
 
-**Planned ownership:** atomic adoption service, export validator, final wizard step, PowerShell launcher, end-to-end tests, `docs/TESTING.md`, licensing notices, user-facing setup documentation, and a final UI polish pass (form-control sizing/alignment, spacing, disabled/loading states, and visual hierarchy).
+**Planned ownership:** atomic adoption service, export validator, final wizard step, PowerShell launcher, production catalog provenance/documentation and MVP catalog acceptance, end-to-end tests, `docs/TESTING.md`, licensing notices, user-facing setup documentation, and a final UI polish pass (form-control sizing/alignment, spacing, disabled/loading states, and visual hierarchy).
 
 **Mandatory carry-over:** Revisit Java `pack.mcmeta` compatibility before claiming MVP
 support for Mojang's current official resource-pack metadata. Phase 5 intentionally kept
@@ -152,6 +152,19 @@ the older primary-`pack_format` boundary and did not cover every official legacy
 `supported_formats` form or the newer `min_format`/`max_format` form. Treat this as a
 Phase 6 planning input, not as a request to reproduce the Phase 5 rejection behavior.
 The official references already checked are recorded in `ONBOARDING.md`.
+
+**Mandatory carry-over: production MVP block catalog:** The current
+`java-dev-format-34` catalog remains a `development_fixture` and cannot be used
+as a production compatibility claim. Phase 6 planning must explicitly address
+this gap before MVP completion: the catalog for the declared MVP scope must be
+production-traceable and cover static, opaque, non-animated ordinary blocks with
+single-face texture paths. Its provenance, format-version association, and
+generation or maintenance process must be recorded; the source, tooling, and
+implementation remain TBD. This does not expand the MVP to animated, alpha,
+multi-face, item, or model assets, whose boundaries remain separate planning
+inputs. Do not treat adding a few individual paths to the development fixture
+as completion of this carry-over. Once the production source is decided, follow
+the repository requirement to document it in `docs/CATALOG.md`.
 
 **未决事项 / Unresolved planning inputs（schedule TBD）：** Preserve the following
 implementation-agnostic questions for next-stage planning; not all necessarily belong to
@@ -171,9 +184,9 @@ Keep the official `pack.mcmeta` compatibility carry-over visible alongside this 
 official references are already recorded in `ONBOARDING.md`; do not re-search official docs
 as a prerequisite.
 
-**Deliverable:** Explicit candidate adoption to the standard target path, refreshed coverage, validated temporary ZIP export, browser directory import, project restoration, startup environment checks, browser launch, model download consent, readable recovery guidance, and recorded 8 GB sequential validation.
+**Deliverable:** Explicit candidate adoption to the standard target path, refreshed coverage, a production-traceable catalog covering the declared MVP static ordinary-block scope with documented exclusions, validated temporary ZIP export, browser directory import, project restoration, startup environment checks, browser launch, model download consent, readable recovery guidance, and recorded 8 GB sequential validation.
 
-**Exit gate:** Every acceptance criterion in the MVP design specification has linked automated or manual evidence; original snapshot hashes remain unchanged; exports exclude internal artifacts; a clean Windows checkout can follow the documented setup path.
+**Exit gate:** Every acceptance criterion in the MVP design specification has linked automated or manual evidence; the active catalog is no longer only a `development_fixture` and its provenance, scope, exclusions, and maintenance/generation trace are documented; original snapshot hashes remain unchanged; exports exclude internal artifacts; a clean Windows checkout can follow the documented setup path.
 
 ## Cross-Phase Change Control
 

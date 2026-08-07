@@ -312,11 +312,11 @@ to overwrite a source. Exact before/after SHA-256 values and controlled
 negative results for the format-32 and missing-primary-format ZIPs are in the
 ignored Task 14 report. No derived ZIP is tracked.
 
-### Phase 5 manual browser procedure — pending user confirmation
+### Phase 5 manual browser procedure — completed user acceptance
 
-This is the remaining acceptance gate. It has not been performed by the
-implementing agent. The user should run it only after the automated gates and
-record the result before Phase 6 integration.
+This procedure is retained as the reproducible Phase 5 browser acceptance
+checklist. The user completed the Phase 5 acceptance and the post-fix live
+state/history smoke on 2026-08-08 after the automated gates passed.
 
 1. Start FastAPI from the repository root:
 
@@ -375,6 +375,9 @@ record the result before Phase 6 integration.
    accompanies them. Do not capture or commit screenshots containing real
    textures.
 
-The manual result remains pending user confirmation. Phase 6 is the next
-handoff only after the user reports this procedure's result and explicitly asks
-for integration.
+The user reported that generation content basically meets expectations,
+structure-reference selection works, and no additional functional issue was
+found. The post-fix smoke also confirmed automatic live updates without a
+manual browser refresh, the queued-to-generating history transition, and that
+the active task does not expose an invalid Continue action. Phase 5 is closed;
+Phase 6 is the next handoff.
