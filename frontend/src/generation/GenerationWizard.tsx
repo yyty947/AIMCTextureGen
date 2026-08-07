@@ -85,7 +85,11 @@ export default function GenerationWizard({
     readonly jobId: string;
     readonly status: GenerationJobDetail["state"]["status"];
   } | null>(null);
+  const onJobsChangedRef = useRef(onJobsChanged);
+  const onCurrentJobChangeRef = useRef(onCurrentJobChange);
   const [currentJob, setCurrentJob] = useState<GenerationJobDetail | null>(null);
+  onJobsChangedRef.current = onJobsChanged;
+  onCurrentJobChangeRef.current = onCurrentJobChange;
   currentProjectId.current = projectId;
   const subscribedJobId =
     currentJob !== null &&
@@ -95,7 +99,7 @@ export default function GenerationWizard({
       ? currentJob.request.jobId
       : null;
   const liveJob = useJobEvents(projectId, subscribedJobId);
-  const visibleJob = liveJob.job ?? currentJob;
+  const visibleJob = mergeJobSnapshots(liveJob.job, currentJob, subscribedJobId);
 
   useEffect(() => {
     const previous = previousInputs.current;
@@ -132,8 +136,8 @@ export default function GenerationWizard({
     setReferenceError(null);
     setCurrentJob(null);
     observedJobStatus.current = null;
-    onCurrentJobChange(null);
-  }, [coverage, manifest, onCurrentJobChange, projectId]);
+    onCurrentJobChangeRef.current(null);
+  }, [coverage, manifest, projectId]);
 
   useEffect(() => {
     let active = true;
@@ -171,23 +175,30 @@ export default function GenerationWizard({
         jobId: liveJob.job.request.jobId,
         status: liveJob.job.state.status,
       } as const;
-      const previousStatus = observedJobStatus.current;
+      const previousStatus =
+        observedJobStatus.current ??
+        (currentJob?.request.jobId === nextStatus.jobId
+          ? {
+              jobId: currentJob.request.jobId,
+              status: currentJob.state.status,
+            }
+          : null);
       observedJobStatus.current = nextStatus;
       setCurrentJob(liveJob.job);
       setStep(5);
-      onCurrentJobChange(liveJob.job as unknown as JobDetail);
+      onCurrentJobChangeRef.current(liveJob.job as unknown as JobDetail);
       if (
         previousStatus !== null &&
         previousStatus.jobId === nextStatus.jobId &&
         previousStatus.status !== nextStatus.status
       ) {
-        void onJobsChanged();
+        void onJobsChangedRef.current();
       }
     }
     if (liveJob.error !== null) {
       setLiveError(liveJob.error);
     }
-  }, [liveJob.error, liveJob.job, onCurrentJobChange, onJobsChanged]);
+  }, [liveJob.error, liveJob.job]);
 
   const filteredTargets = useMemo(() => {
     if (options === null) {
@@ -543,6 +554,23 @@ export default function GenerationWizard({
       onStyleWeightChange={setStyleWeight}
     />
   );
+}
+
+function mergeJobSnapshots(
+  liveJob: GenerationJobDetail | null,
+  commandJob: GenerationJobDetail | null,
+  subscribedJobId: string | null,
+): GenerationJobDetail | null {
+  if (liveJob === null) {
+    return commandJob;
+  }
+  if (commandJob === null) {
+    return liveJob;
+  }
+  if (liveJob.request.jobId !== commandJob.request.jobId) {
+    return liveJob.request.jobId === subscribedJobId ? liveJob : commandJob;
+  }
+  return liveJob.state.revision >= commandJob.state.revision ? liveJob : commandJob;
 }
 
 function isRenderableGenerationJob(value: unknown): value is GenerationJobDetail {

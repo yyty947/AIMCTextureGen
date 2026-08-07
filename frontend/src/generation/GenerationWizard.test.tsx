@@ -7,10 +7,38 @@ import { ApiRequestError } from "../api";
 import GenerationWizard from "./GenerationWizard";
 import type { PackReferenceRecord, UploadedReferenceRecord } from "./types";
 
-const mockUseJobEvents = vi.hoisted(() => vi.fn());
-vi.mock("./useJobEvents", () => ({ default: mockUseJobEvents }));
-
 const projectId = "6fda5078-1246-4cac-91e8-541808da14f4";
+const generationJobId = "12345678-1234-4abc-8def-123456789abc";
+
+class WizardWebSocket {
+  static instances: WizardWebSocket[] = [];
+
+  readonly url: string;
+  onopen: ((event: Event) => void) | null = null;
+  onmessage: ((event: MessageEvent<string>) => void) | null = null;
+  onclose: ((event: CloseEvent) => void) | null = null;
+  onerror: ((event: Event) => void) | null = null;
+  readyState = 0;
+
+  constructor(url: string) {
+    this.url = url;
+    WizardWebSocket.instances.push(this);
+  }
+
+  emitOpen() {
+    this.readyState = 1;
+    this.onopen?.(new Event("open"));
+  }
+
+  emitClose() {
+    this.readyState = 3;
+    this.onclose?.(new CloseEvent("close", { code: 1006 }));
+  }
+
+  close() {
+    this.readyState = 3;
+  }
+}
 
 const manifest: ProjectManifest = {
   schemaVersion: 2,
@@ -179,16 +207,12 @@ function deferred<T>() {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+  WizardWebSocket.instances.length = 0;
 });
 
 beforeEach(() => {
-  mockUseJobEvents.mockReset();
-  mockUseJobEvents.mockReturnValue({
-    job: null,
-    connected: false,
-    error: null,
-    refresh: vi.fn().mockResolvedValue(undefined),
-  });
+  vi.stubGlobal("WebSocket", WizardWebSocket as unknown as typeof WebSocket);
 });
 
 function makeLiveJob(
@@ -853,14 +877,12 @@ describe("guided generation wizard", () => {
     vi.spyOn(generationApi, "getGenerationOptions").mockResolvedValue(generationOptions);
     vi.spyOn(generationApi, "listPackReferences").mockResolvedValue(packReferences);
     vi.spyOn(generationApi, "listUploadedReferences").mockResolvedValue([]);
-
-    let liveJob = makeLiveJob("queued", 1);
-    mockUseJobEvents.mockImplementation(() => ({
-      job: liveJob,
-      connected: false,
-      error: null,
-      refresh: vi.fn().mockResolvedValue(undefined),
-    }));
+    const queuedJob = makeLiveJob("queued", 1);
+    const getJob = vi
+      .spyOn(generationApi, "getGenerationJob")
+      .mockResolvedValue(queuedJob);
+    vi.spyOn(generationApi, "createGenerationJob").mockResolvedValue(queuedJob);
+    vi.spyOn(generationApi, "startGenerationJob").mockResolvedValue(queuedJob);
     const refreshJobs = vi.fn().mockResolvedValue(undefined);
     const view = render(
       <GenerationWizard
@@ -871,38 +893,53 @@ describe("guided generation wizard", () => {
         onCurrentJobChange={vi.fn()}
       />,
     );
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("radio", { name: /Deepslate/ }));
+    await user.click(screen.getByRole("button", { name: "下一步：参考图与描述" }));
+    await user.click(screen.getByRole("button", { name: "下一步：生成配置" }));
+    await user.click(await screen.findByRole("button", { name: "创建并开始生成" }));
 
     expect(await screen.findByRole("heading", { name: "候选结果" })).toBeVisible();
     expect(screen.getByRole("button", { name: "继续任务" })).toBeVisible();
+    await waitFor(() => expect(WizardWebSocket.instances).toHaveLength(1));
+    refreshJobs.mockClear();
 
-    liveJob = makeLiveJob("generating", 2);
-    view.rerender(
-      <GenerationWizard
-        projectId={projectId}
-        manifest={manifest}
-        coverage={coverage}
-        onJobsChanged={refreshJobs}
-        onCurrentJobChange={vi.fn()}
-      />,
-    );
+    getJob.mockResolvedValue(makeLiveJob("generating", 2));
+    act(() => WizardWebSocket.instances[0]!.emitClose());
     await waitFor(() => expect(refreshJobs).toHaveBeenCalledTimes(1));
     expect(screen.queryByRole("button", { name: "继续任务" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "取消任务" })).toBeVisible();
+    await waitFor(() => expect(WizardWebSocket.instances).toHaveLength(2));
 
-    liveJob = makeLiveJob("postprocessing", 3);
-    view.rerender(
-      <GenerationWizard
-        projectId={projectId}
-        manifest={manifest}
-        coverage={coverage}
-        onJobsChanged={refreshJobs}
-        onCurrentJobChange={vi.fn()}
-      />,
-    );
+    getJob.mockResolvedValue(makeLiveJob("postprocessing", 3));
+    act(() => WizardWebSocket.instances[1]!.emitClose());
     await waitFor(() => expect(refreshJobs).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(WizardWebSocket.instances).toHaveLength(3));
 
-    liveJob = makeLiveJob("completed", 4);
-    view.rerender(
+    getJob.mockResolvedValue(makeLiveJob("completed", 4));
+    act(() => WizardWebSocket.instances[2]!.emitClose());
+    await waitFor(() => expect(refreshJobs).toHaveBeenCalledTimes(3));
+    expect(screen.queryByRole("button", { name: "继续任务" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "取消任务" })).not.toBeInTheDocument();
+    view.unmount();
+  });
+
+  it("prefers a newer HTTP command response over an older live snapshot", async () => {
+    const generationApi = await import("./api");
+    vi.spyOn(generationApi, "getGenerationOptions").mockResolvedValue(generationOptions);
+    vi.spyOn(generationApi, "listPackReferences").mockResolvedValue(packReferences);
+    vi.spyOn(generationApi, "listUploadedReferences").mockResolvedValue([]);
+    const queuedJob = makeLiveJob("queued", 1);
+    const startJob = vi
+      .spyOn(generationApi, "startGenerationJob")
+      .mockResolvedValue(makeLiveJob("generating", 2));
+    const getJob = vi
+      .spyOn(generationApi, "getGenerationJob")
+      .mockResolvedValue(queuedJob);
+    vi.spyOn(generationApi, "createGenerationJob").mockResolvedValue(queuedJob);
+    const refreshJobs = vi.fn().mockResolvedValue(undefined);
+    render(
       <GenerationWizard
         projectId={projectId}
         manifest={manifest}
@@ -911,7 +948,68 @@ describe("guided generation wizard", () => {
         onCurrentJobChange={vi.fn()}
       />,
     );
-    await waitFor(() => expect(refreshJobs).toHaveBeenCalledTimes(3));
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("radio", { name: /Deepslate/ }));
+    await user.click(screen.getByRole("button", { name: "下一步：参考图与描述" }));
+    await user.click(screen.getByRole("button", { name: "下一步：生成配置" }));
+    await user.click(await screen.findByRole("button", { name: "创建并开始生成" }));
+
+    await waitFor(() => expect(startJob).toHaveBeenCalledWith(projectId, generationJobId));
+    await waitFor(() => expect(WizardWebSocket.instances).toHaveLength(1));
+    getJob.mockResolvedValue(queuedJob);
+    act(() => WizardWebSocket.instances[0]!.emitClose());
+    await waitFor(() => expect(getJob).toHaveBeenCalled());
+    expect(screen.queryByRole("button", { name: "继续任务" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "取消任务" })).toBeVisible();
+  });
+
+  it("does not rerun the live projection effect for callback-only parent rerenders", async () => {
+    const generationApi = await import("./api");
+    vi.spyOn(generationApi, "getGenerationOptions").mockResolvedValue(generationOptions);
+    vi.spyOn(generationApi, "listPackReferences").mockResolvedValue(packReferences);
+    vi.spyOn(generationApi, "listUploadedReferences").mockResolvedValue([]);
+    const queuedJob = makeLiveJob("queued", 1);
+    const activeJob = makeLiveJob("generating", 2);
+    const getJob = vi
+      .spyOn(generationApi, "getGenerationJob")
+      .mockResolvedValue(activeJob);
+    vi.spyOn(generationApi, "createGenerationJob").mockResolvedValue(queuedJob);
+    vi.spyOn(generationApi, "startGenerationJob").mockResolvedValue(activeJob);
+    const firstCurrentJobChange = vi.fn();
+    const view = render(
+      <GenerationWizard
+        projectId={projectId}
+        manifest={manifest}
+        coverage={coverage}
+        onJobsChanged={vi.fn().mockResolvedValue(undefined)}
+        onCurrentJobChange={firstCurrentJobChange}
+      />,
+    );
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("radio", { name: /Deepslate/ }));
+    await user.click(screen.getByRole("button", { name: "下一步：参考图与描述" }));
+    await user.click(screen.getByRole("button", { name: "下一步：生成配置" }));
+    await user.click(await screen.findByRole("button", { name: "创建并开始生成" }));
+    await screen.findByRole("heading", { name: "候选结果" });
+    await waitFor(() => expect(WizardWebSocket.instances).toHaveLength(1));
+    act(() => WizardWebSocket.instances[0]!.emitClose());
+    await waitFor(() => expect(getJob).toHaveBeenCalled());
+    expect(firstCurrentJobChange).toHaveBeenCalled();
+
+    const replacementCurrentJobChange = vi.fn();
+    view.rerender(
+      <GenerationWizard
+        projectId={projectId}
+        manifest={manifest}
+        coverage={coverage}
+        onJobsChanged={vi.fn().mockResolvedValue(undefined)}
+        onCurrentJobChange={replacementCurrentJobChange}
+      />,
+    );
+
+    expect(replacementCurrentJobChange).not.toHaveBeenCalled();
+    view.unmount();
   });
 
   it("creates then starts one schema-3 job and skips start when create fails", async () => {

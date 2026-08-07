@@ -52,6 +52,10 @@ class FakeWebSocket {
     this.onclose?.(new CloseEvent("close", { code }));
   }
 
+  emitError() {
+    this.onerror?.(new Event("error"));
+  }
+
   close() {
     this.closed = true;
     this.readyState = 3;
@@ -333,5 +337,34 @@ describe("useJobEvents", () => {
     expect(result.current.connected).toBe(false);
 
     unmount();
+  });
+
+  it("refreshes durable state and reconnects after a WebSocket error", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("WebSocket", FakeWebSocket as unknown as typeof WebSocket);
+    const getJobMock = vi
+      .spyOn(generationApi, "getGenerationJob")
+      .mockResolvedValue(makeJobDetail(8, "postprocessing"));
+
+    const { result, unmount } = renderHook(() => useJobEvents(projectId, jobId));
+    const firstSocket = FakeWebSocket.instances[0]!;
+    act(() => {
+      firstSocket.emitOpen();
+      firstSocket.emitError();
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(getJobMock).toHaveBeenCalledWith(projectId, jobId, expect.any(AbortSignal));
+    expect(result.current.job?.state.revision).toBe(8);
+    act(() => {
+      vi.advanceTimersByTime(250);
+    });
+    expect(FakeWebSocket.instances).toHaveLength(2);
+
+    unmount();
+    vi.useRealTimers();
   });
 });
