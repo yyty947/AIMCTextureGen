@@ -81,6 +81,10 @@ export default function GenerationWizard({
   const previousInputs = useRef({ projectId, manifest, coverage });
   const projectEpoch = useRef(0);
   const currentProjectId = useRef(projectId);
+  const observedJobStatus = useRef<{
+    readonly jobId: string;
+    readonly status: GenerationJobDetail["state"]["status"];
+  } | null>(null);
   const [currentJob, setCurrentJob] = useState<GenerationJobDetail | null>(null);
   currentProjectId.current = projectId;
   const subscribedJobId =
@@ -127,6 +131,7 @@ export default function GenerationWizard({
     setUploadingKind(null);
     setReferenceError(null);
     setCurrentJob(null);
+    observedJobStatus.current = null;
     onCurrentJobChange(null);
   }, [coverage, manifest, onCurrentJobChange, projectId]);
 
@@ -162,13 +167,27 @@ export default function GenerationWizard({
 
   useEffect(() => {
     if (liveJob.job !== null) {
+      const nextStatus = {
+        jobId: liveJob.job.request.jobId,
+        status: liveJob.job.state.status,
+      } as const;
+      const previousStatus = observedJobStatus.current;
+      observedJobStatus.current = nextStatus;
       setCurrentJob(liveJob.job);
+      setStep(5);
       onCurrentJobChange(liveJob.job as unknown as JobDetail);
+      if (
+        previousStatus !== null &&
+        previousStatus.jobId === nextStatus.jobId &&
+        previousStatus.status !== nextStatus.status
+      ) {
+        void onJobsChanged();
+      }
     }
     if (liveJob.error !== null) {
       setLiveError(liveJob.error);
     }
-  }, [liveJob.error, liveJob.job, onCurrentJobChange]);
+  }, [liveJob.error, liveJob.job, onCurrentJobChange, onJobsChanged]);
 
   const filteredTargets = useMemo(() => {
     if (options === null) {

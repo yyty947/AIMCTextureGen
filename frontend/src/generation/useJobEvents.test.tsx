@@ -11,6 +11,7 @@ const createdAt = "2026-08-03T10:00:00Z";
 
 class FakeWebSocket {
   static instances: FakeWebSocket[] = [];
+  static failConstruction = false;
 
   readonly url: string;
   onopen: ((event: Event) => void) | null = null;
@@ -21,6 +22,9 @@ class FakeWebSocket {
   closed = false;
 
   constructor(url: string) {
+    if (FakeWebSocket.failConstruction) {
+      throw new Error("WebSocket unavailable");
+    }
     this.url = url;
     FakeWebSocket.instances.push(this);
   }
@@ -191,6 +195,7 @@ describe("useJobEvents", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     FakeWebSocket.instances.length = 0;
+    FakeWebSocket.failConstruction = false;
   });
 
   it("accepts the first snapshot, ignores heartbeats and lower revisions, and refreshes after disconnect", async () => {
@@ -310,6 +315,23 @@ describe("useJobEvents", () => {
       await Promise.resolve();
     });
     expect(getJobMock).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it("uses the durable job detail when the WebSocket path is unavailable", async () => {
+    vi.stubGlobal("WebSocket", FakeWebSocket as unknown as typeof WebSocket);
+    FakeWebSocket.failConstruction = true;
+    const getJobMock = vi
+      .spyOn(generationApi, "getGenerationJob")
+      .mockResolvedValue(makeJobDetail(7, "generating"));
+
+    const { result, unmount } = renderHook(() => useJobEvents(projectId, jobId));
+
+    await waitFor(() => expect(result.current.job?.state.revision).toBe(7));
+    expect(getJobMock).toHaveBeenCalledWith(projectId, jobId, expect.any(AbortSignal));
+    expect(result.current.job?.state.status).toBe("generating");
+    expect(result.current.connected).toBe(false);
+
     unmount();
   });
 });

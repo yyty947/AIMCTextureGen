@@ -110,9 +110,18 @@ export function useJobEvents(
     const connect = () => {
       if (!isCurrent() || jobId === null) return;
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const currentSocket = new WebSocket(
-        `${protocol}//${window.location.host}/api/projects/${encodeURIComponent(projectId)}/jobs/${encodeURIComponent(jobId)}/events`,
-      );
+      let currentSocket: WebSocket;
+      try {
+        currentSocket = new WebSocket(
+          `${protocol}//${window.location.host}/api/projects/${encodeURIComponent(projectId)}/jobs/${encodeURIComponent(jobId)}/events`,
+        );
+      } catch (cause) {
+        if (isCurrent()) {
+          setError(toApiError(cause));
+          scheduleReconnect(true);
+        }
+        return;
+      }
       socket = currentSocket;
       currentSocket.onopen = () => {
         if (isCurrent() && socket === currentSocket) setConnected(true);
@@ -136,7 +145,7 @@ export function useJobEvents(
         if (isCurrent() && socket === currentSocket) scheduleReconnect(true);
       };
       currentSocket.onerror = () => {
-        if (isCurrent() && socket === currentSocket) setConnected(false);
+        if (isCurrent() && socket === currentSocket) scheduleReconnect(true);
       };
     };
 

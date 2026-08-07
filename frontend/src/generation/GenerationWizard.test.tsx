@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
@@ -6,6 +6,9 @@ import type { CoverageReport, ProjectManifest } from "../api";
 import { ApiRequestError } from "../api";
 import GenerationWizard from "./GenerationWizard";
 import type { PackReferenceRecord, UploadedReferenceRecord } from "./types";
+
+const mockUseJobEvents = vi.hoisted(() => vi.fn());
+vi.mock("./useJobEvents", () => ({ default: mockUseJobEvents }));
 
 const projectId = "6fda5078-1246-4cac-91e8-541808da14f4";
 
@@ -177,6 +180,41 @@ afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
 });
+
+beforeEach(() => {
+  mockUseJobEvents.mockReset();
+  mockUseJobEvents.mockReturnValue({
+    job: null,
+    connected: false,
+    error: null,
+    refresh: vi.fn().mockResolvedValue(undefined),
+  });
+});
+
+function makeLiveJob(
+  status: "queued" | "generating" | "postprocessing" | "completed",
+  revision: number,
+) {
+  return {
+    request: { jobId: "12345678-1234-4abc-8def-123456789abc" },
+    state: {
+      revision,
+      status,
+      cancelRequestedAt: null,
+      failure: null,
+      candidates: [0, 1, 2, 3].map((candidateIndex) => ({
+        candidateIndex,
+        batchIndex: 0,
+        positionInBatch: candidateIndex,
+        batchSeed: 101,
+        status: status === "completed" ? "completed" : "pending",
+        artifacts: { raw: null, final: null, nearest: null, tile: null, report: null },
+        lineage: null,
+        failure: null,
+      })),
+    },
+  } as never;
+}
 
 function renderWizard() {
   const refreshJobs = vi.fn().mockResolvedValue(undefined);
@@ -808,6 +846,72 @@ describe("guided generation wizard", () => {
     expect(await screen.findByRole("heading", { name: "候选结果" })).toBeVisible();
     expect(screen.getByRole("article", { name: "候选 1" })).toBeVisible();
     expect(screen.getByRole("article", { name: "候选 4" })).toBeVisible();
+  });
+
+  it("refreshes history on durable status transitions and hides Continue once active", async () => {
+    const generationApi = await import("./api");
+    vi.spyOn(generationApi, "getGenerationOptions").mockResolvedValue(generationOptions);
+    vi.spyOn(generationApi, "listPackReferences").mockResolvedValue(packReferences);
+    vi.spyOn(generationApi, "listUploadedReferences").mockResolvedValue([]);
+
+    let liveJob = makeLiveJob("queued", 1);
+    mockUseJobEvents.mockImplementation(() => ({
+      job: liveJob,
+      connected: false,
+      error: null,
+      refresh: vi.fn().mockResolvedValue(undefined),
+    }));
+    const refreshJobs = vi.fn().mockResolvedValue(undefined);
+    const view = render(
+      <GenerationWizard
+        projectId={projectId}
+        manifest={manifest}
+        coverage={coverage}
+        onJobsChanged={refreshJobs}
+        onCurrentJobChange={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByRole("heading", { name: "候选结果" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "继续任务" })).toBeVisible();
+
+    liveJob = makeLiveJob("generating", 2);
+    view.rerender(
+      <GenerationWizard
+        projectId={projectId}
+        manifest={manifest}
+        coverage={coverage}
+        onJobsChanged={refreshJobs}
+        onCurrentJobChange={vi.fn()}
+      />,
+    );
+    await waitFor(() => expect(refreshJobs).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole("button", { name: "继续任务" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "取消任务" })).toBeVisible();
+
+    liveJob = makeLiveJob("postprocessing", 3);
+    view.rerender(
+      <GenerationWizard
+        projectId={projectId}
+        manifest={manifest}
+        coverage={coverage}
+        onJobsChanged={refreshJobs}
+        onCurrentJobChange={vi.fn()}
+      />,
+    );
+    await waitFor(() => expect(refreshJobs).toHaveBeenCalledTimes(2));
+
+    liveJob = makeLiveJob("completed", 4);
+    view.rerender(
+      <GenerationWizard
+        projectId={projectId}
+        manifest={manifest}
+        coverage={coverage}
+        onJobsChanged={refreshJobs}
+        onCurrentJobChange={vi.fn()}
+      />,
+    );
+    await waitFor(() => expect(refreshJobs).toHaveBeenCalledTimes(3));
   });
 
   it("creates then starts one schema-3 job and skips start when create fails", async () => {
