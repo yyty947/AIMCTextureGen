@@ -50,6 +50,7 @@ from aimctexturegen.jobs.models_v3 import (
     GenerationTarget,
     StoredArtifact,
 )
+from aimctexturegen.jobs.errors import JobError
 from aimctexturegen.jobs.store import JobInputFile, JobInputSnapshot, JobStore, LoadedJob
 from aimctexturegen.model_profiles.sdxl_v2 import SDXLV2Binding
 from aimctexturegen.model_profiles.workflows import GenericWorkflowInputs
@@ -789,23 +790,33 @@ class GenerationService:
         context: ExecutionContext,
     ) -> LoadedJob:
         current = loaded
-        state = _require_generation_state(current)
-        if state.status in {"canceled", "completed", "failed"}:
-            return current
-        if state.cancel_requested_at is None:
-            current = self._commit_state(
-                current,
-                request_cancel(state, now=self._clock()),
-                context=context,
+        for attempt in range(3):
+            current = self._store.load(
+                loaded.request.project_id,
+                loaded.request.job_id,
             )
             state = _require_generation_state(current)
-        if state.status != "canceled":
-            current = self._commit_state(
-                current,
-                confirm_canceled(state, now=self._clock()),
-                context=context,
-            )
-        return current
+            if state.status in {"canceled", "completed", "failed"}:
+                return current
+            if state.cancel_requested_at is None:
+                current = self._commit_state(
+                    current,
+                    request_cancel(state, now=self._clock()),
+                    context=context,
+                )
+                state = _require_generation_state(current)
+            if state.status == "canceled":
+                return current
+            try:
+                return self._commit_state(
+                    current,
+                    confirm_canceled(state, now=self._clock()),
+                    context=context,
+                )
+            except JobError as error:
+                if error.code != "JOB_REVISION_CONFLICT" or attempt == 2:
+                    raise
+        raise AssertionError("cancellation confirmation retry loop exhausted")
 
     def _batch_raw_is_complete(
         self,

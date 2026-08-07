@@ -1,7 +1,10 @@
 [CmdletBinding()]
 param(
     [Parameter()]
-    [string] $OutputPath
+    [string] $OutputPath,
+
+    [Parameter()]
+    [switch] $Phase5
 )
 
 Set-StrictMode -Version Latest
@@ -48,7 +51,7 @@ $repositoryRoot = Split-Path -Parent $PSScriptRoot
 if ([string]::IsNullOrWhiteSpace($OutputPath)) {
     $OutputPath = Join-Path (
         Join-Path $repositoryRoot ".generated"
-    ) "phase-3-synthetic-pack.zip"
+    ) $(if ($Phase5) { "phase-5-synthetic-pack.zip" } else { "phase-3-synthetic-pack.zip" })
 }
 elseif (-not [System.IO.Path]::IsPathRooted($OutputPath)) {
     $OutputPath = Join-Path $repositoryRoot $OutputPath
@@ -62,12 +65,13 @@ if ([System.IO.Path]::GetExtension($resolvedOutput) -cne ".zip") {
 $outputDirectory = Split-Path -Parent $resolvedOutput
 [System.IO.Directory]::CreateDirectory($outputDirectory) | Out-Null
 $publicationId = [Guid]::NewGuid().ToString("N")
+$temporaryPrefix = if ($Phase5) { "phase-5-synthetic-pack" } else { "phase-3-synthetic-pack" }
 $temporaryPath = Join-Path (
     $outputDirectory
-) (".phase-3-synthetic-pack-{0}.tmp" -f $publicationId)
+) (".{0}-{1}.tmp" -f $temporaryPrefix, $publicationId)
 $backupPath = Join-Path (
     $outputDirectory
-) (".phase-3-synthetic-pack-{0}.backup" -f $publicationId)
+) (".{0}-{1}.backup" -f $temporaryPrefix, $publicationId)
 
 # Both payloads are project-owned synthetic bytes. No Mojang assets are used.
 $metadata = [System.Text.UTF8Encoding]::new($false).GetBytes(
@@ -76,6 +80,13 @@ $metadata = [System.Text.UTF8Encoding]::new($false).GetBytes(
 $stoneTexture = [Convert]::FromBase64String(
     "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEklEQVR4nGN0SGhgYGBgYgADAA1qASTihlfEAAAAAElFTkSuQmCC"
 )
+$phase5FlatTexture = [Convert]::FromBase64String(
+    "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAI0lEQVR4nGMMCAhgIAUwkaSaYVQDcYCJSHVwMKqBGEByKAEAEV0BEPmjiqgAAAAASUVORK5CYII="
+)
+$phase5CheckerTexture = [Convert]::FromBase64String(
+    "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAI0lEQVR4nGMwMDBYsGAB8SQDSaoNDAwYRm1YMBpKC4ZIWgIA3wM4EMUy1aUAAAAASUVORK5CYII="
+)
+$stoneTextureToWrite = if ($Phase5) { $phase5FlatTexture } else { $stoneTexture }
 
 try {
     $fileStream = [System.IO.File]::Open(
@@ -98,7 +109,13 @@ try {
             Add-DeterministicZipEntry `
                 -Archive $archive `
                 -Name "assets/minecraft/textures/block/stone.png" `
-                -Content $stoneTexture
+                -Content $stoneTextureToWrite
+            if ($Phase5) {
+                Add-DeterministicZipEntry `
+                    -Archive $archive `
+                    -Name "assets/minecraft/textures/block/custom_unknown.png" `
+                    -Content $phase5CheckerTexture
+            }
         }
         finally {
             $archive.Dispose()
@@ -132,7 +149,12 @@ try {
     $digest = -join ($digestBytes | ForEach-Object { $_.ToString("x2") })
     Write-Output ("OUTPUT_PATH={0}" -f $resolvedOutput)
     Write-Output ("SHA256={0}" -f $digest)
-    Write-Output "COVERAGE=pack_format=34;covered=1;missing=1;unknown=0"
+    if ($Phase5) {
+        Write-Output "COVERAGE=pack_format=34;covered=1;missing=2;unknown=1"
+    }
+    else {
+        Write-Output "COVERAGE=pack_format=34;covered=1;missing=1;unknown=0"
+    }
 }
 finally {
     if ([System.IO.File]::Exists($temporaryPath)) {

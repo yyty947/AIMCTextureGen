@@ -5,15 +5,17 @@ import logging
 from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Request, Response, WebSocket, status
-from pydantic import BaseModel, ConfigDict, Field
+from fastapi import APIRouter, Body, Request, Response, WebSocket, status
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.websockets import WebSocketDisconnect
 
+from aimctexturegen.api import jobs as legacy_jobs_api
 from aimctexturegen.core.errors import ApiProblem
 from aimctexturegen.generation.coordinator import CurrentGenerationJob, GenerationCoordinator
 from aimctexturegen.generation.errors import GenerationError
 from aimctexturegen.generation.events import JobEventBroker
 from aimctexturegen.generation.service import CreateGenerationCommand, GenerationService
+from aimctexturegen.jobs.errors import JobError
 from aimctexturegen.jobs.models_v3 import ArtifactKind, GenerationJobRequest, GenerationJobState
 from aimctexturegen.jobs.store import LoadedJob
 from aimctexturegen.references.models import (
@@ -39,7 +41,7 @@ class TargetSelection(_TransportModel):
 class ReferenceSelectionModel(_TransportModel):
     source: Literal["pack", "upload"]
     relative_path: str | None = None
-    reference_id: UUID | None = None
+    reference_id: str | None = None
 
 
 class ReferenceSelectionsModel(_TransportModel):
@@ -116,17 +118,25 @@ def current_generation(request: Request) -> CurrentJobModel | None:
 @router.post(
     "/api/projects/{project_id}/jobs",
     status_code=status.HTTP_201_CREATED,
-    response_model=JobDetail,
+    response_model=JobDetail | legacy_jobs_api.JobDetail,
 )
 def create_job(
     request: Request,
     project_id: str,
-    payload: CreateGenerationRequest,
-) -> JobDetail:
+    payload: dict[str, object],
+) -> JobDetail | legacy_jobs_api.JobDetail:
+    try:
+        generation_payload = CreateGenerationRequest.model_validate(payload)
+    except ValidationError:
+        try:
+            legacy_payload = legacy_jobs_api.CreateJobRequest.model_validate(payload)
+        except ValidationError as error:
+            raise _invalid_request_problem() from error
+        return legacy_jobs_api.create_job(request, project_id, legacy_payload)
     try:
         loaded = _generation_coordinator(request).create_job(
             _parse_project_id(project_id),
-            payload.to_command(),
+            generation_payload.to_command(),
         )
         return _detail(loaded)
     except ApiProblem:
@@ -155,12 +165,40 @@ def start_job(request: Request, project_id: str, job_id: str) -> JobDetail:
         raise _internal_problem("starting_generation_job") from error
 
 
-@router.post("/api/projects/{project_id}/jobs/{job_id}/cancel", response_model=JobDetail)
-def cancel_job(request: Request, project_id: str, job_id: str) -> JobDetail:
+@router.post(
+    "/api/projects/{project_id}/jobs/{job_id}/cancel",
+    response_model=JobDetail | legacy_jobs_api.JobDetail,
+)
+def cancel_job(
+    request: Request,
+    project_id: str,
+    job_id: str,
+    payload: dict[str, object] | None = Body(default=None),
+) -> JobDetail | legacy_jobs_api.JobDetail:
     try:
+        parsed_project_id = _parse_project_id(project_id)
+        parsed_job_id = _parse_job_id(job_id)
+        existing = _load_job_for_dispatch(
+            request,
+            parsed_project_id,
+            parsed_job_id,
+        )
+        if existing is not None and not isinstance(
+            existing.request,
+            GenerationJobRequest,
+        ):
+            legacy_payload = legacy_jobs_api.CancelJobRequest.model_validate(
+                {} if payload is None else payload
+            )
+            return legacy_jobs_api.cancel_job(
+                request,
+                project_id,
+                job_id,
+                legacy_payload,
+            )
         loaded = _generation_coordinator(request).cancel(
-            _parse_project_id(project_id),
-            _parse_job_id(job_id),
+            parsed_project_id,
+            parsed_job_id,
         )
         return _detail(loaded)
     except ApiProblem:
@@ -175,13 +213,29 @@ def cancel_job(request: Request, project_id: str, job_id: str) -> JobDetail:
 @router.post(
     "/api/projects/{project_id}/jobs/{job_id}/retry",
     status_code=status.HTTP_201_CREATED,
-    response_model=JobDetail,
+    response_model=JobDetail | legacy_jobs_api.JobDetail,
 )
-def retry_job(request: Request, project_id: str, job_id: str) -> JobDetail:
+def retry_job(
+    request: Request,
+    project_id: str,
+    job_id: str,
+) -> JobDetail | legacy_jobs_api.JobDetail:
     try:
+        parsed_project_id = _parse_project_id(project_id)
+        parsed_job_id = _parse_job_id(job_id)
+        existing = _load_job_for_dispatch(
+            request,
+            parsed_project_id,
+            parsed_job_id,
+        )
+        if existing is not None and not isinstance(
+            existing.request,
+            GenerationJobRequest,
+        ):
+            return legacy_jobs_api.retry_job(request, project_id, job_id)
         loaded = _generation_coordinator(request).retry(
-            _parse_project_id(project_id),
-            _parse_job_id(job_id),
+            parsed_project_id,
+            parsed_job_id,
         )
         return _detail(loaded)
     except ApiProblem:
@@ -326,6 +380,18 @@ def _job_events(websocket: WebSocket) -> JobEventBroker:
     return broker
 
 
+def _load_job_for_dispatch(
+    request: Request,
+    project_id: UUID,
+    job_id: UUID,
+) -> LoadedJob | None:
+    try:
+        service = legacy_jobs_api._job_service(request.app.state.services)
+        return service.get_job(project_id, job_id)
+    except JobError:
+        return None
+
+
 def _detail(loaded: LoadedJob) -> JobDetail:
     return JobDetail(request=loaded.request, state=loaded.state)
 
@@ -403,7 +469,27 @@ def _to_upload_selection(item: ReferenceSelectionModel):
             recommended_actions=("检查任务参数后重新提交",),
             technical_details=None,
         )
-    return UploadReferenceSelection(source="upload", reference_id=item.reference_id)
+    try:
+        reference_id = UUID(item.reference_id)
+    except (ValueError, AttributeError) as error:
+        raise ApiProblem(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            code="INVALID_REQUEST",
+            stage="request_validation",
+            user_message="任务请求格式无效",
+            recommended_actions=("检查任务参数后重新提交",),
+            technical_details=None,
+        ) from error
+    if str(reference_id) != item.reference_id:
+        raise ApiProblem(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            code="INVALID_REQUEST",
+            stage="request_validation",
+            user_message="任务请求格式无效",
+            recommended_actions=("检查任务参数后重新提交",),
+            technical_details=None,
+        )
+    return UploadReferenceSelection(source="upload", reference_id=reference_id)
 
 
 def _generation_problem(error: GenerationError, stage: str) -> ApiProblem:
@@ -418,6 +504,17 @@ def _generation_problem(error: GenerationError, stage: str) -> ApiProblem:
         stage=stage,
         user_message=error.user_message,
         recommended_actions=error.recommended_actions,
+        technical_details=None,
+    )
+
+
+def _invalid_request_problem() -> ApiProblem:
+    return ApiProblem(
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        code="INVALID_REQUEST",
+        stage="request_validation",
+        user_message="任务请求格式无效",
+        recommended_actions=("检查任务参数后重新提交",),
         technical_details=None,
     )
 

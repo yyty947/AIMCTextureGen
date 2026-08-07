@@ -19,6 +19,7 @@ from aimctexturegen.jobs.generation_state import (
     fail_generation,
     request_cancel,
 )
+from aimctexturegen.jobs.errors import JobError
 from aimctexturegen.jobs.models_v3 import GenerationFailure, GenerationJobRequest, GenerationJobState
 from aimctexturegen.jobs.store import JobStore, LoadedJob
 from aimctexturegen.projects.repository import ProjectRepository
@@ -140,15 +141,27 @@ class GenerationCoordinator:
         state = _require_generation_state(loaded)
         if state.status in {"completed", "failed", "canceled"}:
             return loaded
-        if state.cancel_requested_at is None:
-            loaded = self._store.replace_state(
-                project_id,
-                job_id,
-                request_cancel(state, now=self._clock()),
-                expected_revision=state.revision,
-            )
+        for attempt in range(3):
+            if state.cancel_requested_at is not None:
+                break
+            try:
+                loaded = self._store.replace_state(
+                    project_id,
+                    job_id,
+                    request_cancel(state, now=self._clock()),
+                    expected_revision=state.revision,
+                )
+            except JobError as error:
+                if error.code != "JOB_REVISION_CONFLICT" or attempt == 2:
+                    raise
+                loaded = self._store.load(project_id, job_id)
+                state = _require_generation_state(loaded)
+                if state.status in {"completed", "failed", "canceled"}:
+                    return loaded
+                continue
             self._publish(loaded)
-            state = loaded.state
+            state = _require_generation_state(loaded)
+            break
         prompt_id = _active_prompt_id(state)
         active_client = None
         cancel_event = None
@@ -270,19 +283,25 @@ class GenerationCoordinator:
             self._active_prompt_id = prompt_id
 
     def _confirm_canceled(self, project_id: UUID, job_id: UUID) -> LoadedJob:
-        while True:
+        for attempt in range(3):
             loaded = self._store.load(project_id, job_id)
             state = _require_generation_state(loaded)
             if state.status == "canceled":
                 return loaded
-            committed = self._store.replace_state(
-                project_id,
-                job_id,
-                confirm_canceled(state, now=self._clock()),
-                expected_revision=state.revision,
-            )
+            try:
+                committed = self._store.replace_state(
+                    project_id,
+                    job_id,
+                    confirm_canceled(state, now=self._clock()),
+                    expected_revision=state.revision,
+                )
+            except JobError as error:
+                if error.code != "JOB_REVISION_CONFLICT" or attempt == 2:
+                    raise
+                continue
             self._publish(committed)
             return committed
+        raise AssertionError("cancellation confirmation retry loop exhausted")
 
     def _persist_cancel_confirmation_failed(
         self,

@@ -7,10 +7,13 @@ import json
 import re
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from io import BytesIO
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 import websockets
+
+from PIL import Image
 
 
 class FakeComfyServer:
@@ -31,6 +34,11 @@ class FakeComfyServer:
         ws_disconnect: bool = False,
         ws_hold: bool = False,
         upload_behavior: str = "ok",
+        generation_behavior: str | None = None,
+        output_count: int | None = None,
+        corrupt_index: int | None = None,
+        wrong_size_index: int | None = None,
+        hold_after_prompt_count: int | None = None,
     ) -> None:
         self.system_stats = system_stats or {
             "system": {"comfyui_version": "0.29.2"}
@@ -50,11 +58,26 @@ class FakeComfyServer:
         self.ws_disconnect = ws_disconnect
         self.ws_hold = ws_hold
         self.upload_behavior = upload_behavior
+        self.generation_behavior = generation_behavior
+        self.output_count = output_count
+        self.corrupt_index = corrupt_index
+        self.wrong_size_index = wrong_size_index
+        self.hold_after_prompt_count = hold_after_prompt_count
         self.last_prompt: dict | None = None
         self.last_upload_name: str | None = None
         self.last_client_id: str | None = None
         self.last_view_params: dict[str, str] | None = None
         self.last_interrupt_prompt_id: str | None = None
+        self.prompt_ids: list[str] = []
+        self.interrupt_calls: list[str | None] = []
+        self._prompt_counter = 0
+        self._history_by_prompt: dict[str, dict] = {}
+        self._outputs: dict[str, bytes] = {}
+        self._held_prompts: set[str] = set()
+        self._interrupted_prompts: set[str] = set()
+        self.upload_names: list[str] = []
+        self.prompt_payloads: list[dict] = []
+        self.protocol_events: list[str] = []
 
         self._httpd = ThreadingHTTPServer(("127.0.0.1", 0), _HttpHandler)
         self._httpd.fake_server = self  # type: ignore[attr-defined]
@@ -72,6 +95,23 @@ class FakeComfyServer:
             daemon=True,
         )
         self._ws_thread.start()
+
+    def _append_protocol_event(self, event: str) -> None:
+        self.protocol_events.append(event)
+
+    def _add_to_queue(self, prompt_id: str) -> None:
+        if not any(
+            len(item) > 1 and str(item[1]) == prompt_id
+            for item in self.queue_running
+        ):
+            self.queue_running.append([0, prompt_id, {}, {}])
+
+    def _remove_from_queue(self, prompt_id: str) -> None:
+        self.queue_running[:] = [
+            item
+            for item in self.queue_running
+            if not (len(item) > 1 and str(item[1]) == prompt_id)
+        ]
 
     @property
     def base_url(self) -> str:
@@ -93,6 +133,56 @@ class FakeComfyServer:
                 return
             for message in self.ws_script:
                 await websocket.send(json.dumps(message))
+            prompt_id = self.prompt_ids[-1] if self.prompt_ids else None
+            if prompt_id is not None:
+                if self.generation_behavior == "disconnect":
+                    await websocket.close()
+                    return
+                if self.generation_behavior in {"execution-error", "oom"}:
+                    detail = (
+                        "CUDA out of memory"
+                        if self.generation_behavior == "oom"
+                        else "sampler failed"
+                    )
+                    self._remove_from_queue(prompt_id)
+                    await websocket.send(
+                        json.dumps(
+                            {
+                                "type": "execution_error",
+                                "data": {
+                                    "prompt_id": prompt_id,
+                                    "exception_message": detail,
+                                },
+                            }
+                        )
+                    )
+                    await websocket.close()
+                    return
+                if self.generation_behavior == "timeout":
+                    self._held_prompts.add(prompt_id)
+                    while prompt_id in self._held_prompts and websocket.close_code is None:
+                        await asyncio.sleep(0.01)
+                if (
+                    self.hold_after_prompt_count is not None
+                    and len(self.prompt_ids) > self.hold_after_prompt_count
+                ):
+                    self._held_prompts.add(prompt_id)
+                    while prompt_id in self._held_prompts and websocket.close_code is None:
+                        await asyncio.sleep(0.01)
+                if prompt_id in self._interrupted_prompts:
+                    while websocket.close_code is None:
+                        await asyncio.sleep(0.01)
+                    return
+                if prompt_id not in self._held_prompts and websocket.close_code is None:
+                    self._remove_from_queue(prompt_id)
+                    await websocket.send(
+                        json.dumps(
+                            {
+                                "type": "executed",
+                                "data": {"prompt_id": prompt_id},
+                            }
+                        )
+                    )
             await websocket.close()
 
         async def serve() -> None:
@@ -166,7 +256,9 @@ class _HttpHandler(BaseHTTPRequestHandler):
                 self._send_bytes(b"not json")
                 return
             prompt_id = path[len("/history/") :]
-            history_entry = (server.history or {}).get(prompt_id)
+            history_entry = server._history_by_prompt.get(prompt_id)
+            if history_entry is None:
+                history_entry = (server.history or {}).get(prompt_id)
             self._json(
                 {prompt_id: history_entry}
                 if isinstance(history_entry, dict)
@@ -192,7 +284,10 @@ class _HttpHandler(BaseHTTPRequestHandler):
                 key: values[0] for key, values in query.items() if values
             }
             filename = query.get("filename", [""])[0]
-            body = server.view_bytes_by_name.get(filename, server.view_bytes)
+            body = server._outputs.get(
+                filename,
+                server.view_bytes_by_name.get(filename, server.view_bytes),
+            )
             self._send_bytes(body)
             return
         if path == "/interrupt":
@@ -215,6 +310,8 @@ class _HttpHandler(BaseHTTPRequestHandler):
             server.last_upload_name = (
                 match.group(1).decode("utf-8", "replace") if match else None
             )
+            if server.last_upload_name is not None:
+                server.upload_names.append(server.last_upload_name)
             if server.upload_behavior == "reject":
                 self.send_response(400)
                 self.send_header("Content-Length", "0")
@@ -243,9 +340,53 @@ class _HttpHandler(BaseHTTPRequestHandler):
             if server.prompt_behavior == "malformed":
                 self._send_bytes(b"not json")
                 return
+            if server.generation_behavior is None:
+                self._json(
+                    {
+                        "prompt_id": "11111111-2222-3333-4444-555555555555",
+                        "number": 1,
+                        "node_errors": {},
+                    }
+                )
+                return
+            prompt_id = f"prompt-{server._prompt_counter}"
+            server._prompt_counter += 1
+            server.prompt_ids.append(prompt_id)
+            server.prompt_payloads.append(payload)
+            server._append_protocol_event(f"prompt:{prompt_id}")
+            server._add_to_queue(prompt_id)
+            workflow = payload.get("prompt", {})
+            batch_size = 1
+            if isinstance(workflow, dict):
+                for node in workflow.values():
+                    if isinstance(node, dict) and isinstance(node.get("inputs"), dict):
+                        value = node["inputs"].get(
+                            "batch_size",
+                            node["inputs"].get("amount"),
+                        )
+                        if isinstance(value, int):
+                            batch_size = value
+                            break
+            count = batch_size if server.output_count is None else server.output_count
+            images = []
+            for index in range(count):
+                filename = f"{prompt_id}-{index}.png"
+                if index == server.corrupt_index:
+                    body = b"corrupt"
+                else:
+                    size = 16 if index == server.wrong_size_index else 1024
+                    image = Image.new("RGB", (size, size), (40 + index, 80, 120))
+                    buffer = BytesIO()
+                    image.save(buffer, format="PNG")
+                    body = buffer.getvalue()
+                server._outputs[filename] = body
+                images.append({"filename": filename, "subfolder": "", "type": "output"})
+            server._history_by_prompt[prompt_id] = {
+                "outputs": {"19": {"images": images}}
+            }
             self._json(
                 {
-                    "prompt_id": "11111111-2222-3333-4444-555555555555",
+                    "prompt_id": prompt_id,
                     "number": 1,
                     "node_errors": {},
                 }
@@ -255,11 +396,21 @@ class _HttpHandler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length", "0"))
             payload = {}
             if length:
-                payload = json.loads(self.rfile.read(length))
+                decoded = json.loads(self.rfile.read(length))
+                if isinstance(decoded, dict):
+                    payload = decoded
             prompt_id = payload.get("prompt_id")
             server.last_interrupt_prompt_id = (
                 str(prompt_id) if prompt_id is not None else None
             )
+            server.interrupt_calls.append(
+                str(prompt_id) if prompt_id is not None else None
+            )
+            if prompt_id is not None:
+                server._interrupted_prompts.add(str(prompt_id))
+                server._held_prompts.discard(str(prompt_id))
+                server._remove_from_queue(str(prompt_id))
+                server._append_protocol_event(f"interrupt:{prompt_id}")
             self._json({})
             return
         self.send_response(404)

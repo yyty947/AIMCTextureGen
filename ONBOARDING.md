@@ -212,10 +212,16 @@ git status --short
 
 ## 下一入口
 
-继续执行
+Phase 5 Task 13 已完成。完整 RED/GREEN、门禁结果和交接记录位于
+`.superpowers/sdd/2026-08-03-phase-5-four-candidate-generation/task-13-report.md`。
+下一步继续执行
 [`docs/superpowers/plans/2026-08-03-phase-5-four-candidate-generation.md`](docs/superpowers/plans/2026-08-03-phase-5-four-candidate-generation.md)
-的 Task 13，保持 `superpowers:subagent-driven-development`、测试先行、每项独立提交。
-当前已完成 Task 12；不要回退到“从 Task 1 开始”的旧入口，也不要并行执行其他阶段计划。
+的 Task 14，保持测试先行、真实 GPU 门禁和每项独立提交。不要回退到旧阶段，也不要并行执行其他阶段计划。
+
+Task 13 已验证：全量后端 `1124/1124` 通过、总覆盖率 85%；前端 `npm test`
+为 167/167，通过 TypeScript/Vite 生产构建；Task 13 聚焦集成测试 15/15
+通过；Phase 5 合成包生成器与 `-Phase5` 门禁通过。默认合成包 SHA-256
+仍为 `8ec378c876fe12b17e784c2d03ee59e7ea8a6c1601d7bf00e0a36980e2d24478`。
 
 已确认的 Phase 5 关键边界：
 
@@ -239,8 +245,8 @@ checkbox 仍受通用 `input` 尺寸规则影响，视觉尺寸/对齐未做最�
 全局 Node v24.13.0 复现；恢复固定运行时后再更新 `docs/TESTING.md` 的
 命令路径。
 
-当前分支已包含 Phase 5 Task 9 协调器/恢复实现，但还没有 Task 10 的
-generation/reference API、artifact 路由或 WebSocket 面。工作树中用户已有的
+当前分支已包含 Phase 5 Tasks 9–13 的协调器/恢复、generation/reference API、
+artifact 路由、WebSocket 和合成全链路测试实现。工作树中用户已有的
 未跟踪 `temp/`、`.tmp-review-cancel/`、`.tmp-review-prompt-reg/` 不属于本任务
 变更，必须保留。接手按 `AGENTS.md` 的必读顺序阅读，以当前代码和可重复验证
 结果为准。Phase 5 仍不做候选采用、导出、移动端、Java/Bedrock 转换、

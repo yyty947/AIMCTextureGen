@@ -1707,6 +1707,9 @@ git commit -m "feat: display live generation candidates"
 
 ### Task 13: Prove the synthetic end-to-end, failure, cancellation, and restart contracts
 
+**Status: complete.** RED/GREEN evidence and final gate results are recorded in
+`.superpowers/sdd/2026-08-03-phase-5-four-candidate-generation/task-13-report.md`.
+
 **Files:**
 - Create: `backend/tests/integration/test_generation_flow.py`
 - Create: `backend/tests/integration/test_generation_cancel.py`
@@ -1719,17 +1722,17 @@ git commit -m "feat: display live generation candidates"
 - Consumes: full FastAPI service graph with fake ComfyUI and generated project-owned assets.
 - Produces: repeatable no-GPU evidence that Phase 5 invariants hold across real HTTP/WS/service boundaries.
 
-- [ ] **Step 1: Extend the synthetic pack generator with opt-in Phase 5 reference variety**
+- [x] **Step 1: Extend the synthetic pack generator with opt-in Phase 5 reference variety**
 
 Keep the existing default ZIP bytes/hash unchanged. Add `-Phase5` to generate a separate ignored ZIP containing only project-created flat/checker RGB PNGs: covered `stone.png`, an unknown square custom PNG, and missing eligible `deepslate`. Add a deterministic script test and explicitly assert no real asset file is read.
 
-- [ ] **Step 2: Write complete success-flow RED integration**
+- [x] **Step 2: Write complete success-flow RED integration**
 
 The test imports the synthetic ZIP through the real API, lists targets/references, uploads optional synthetic references, creates/starts a schema-3 job, observes WebSocket revisions, lets fake Comfy return four generated PNGs, reads all artifact kinds, and asserts completion.
 
 Record complete path→SHA-256 maps for `source/` and `pack/` before create and after completion; assert exact equality.
 
-- [ ] **Step 3: Write atomic failure/cancel RED integration**
+- [x] **Step 3: Write atomic failure/cancel RED integration**
 
 Parameterized fake behaviors prove:
 
@@ -1739,7 +1742,7 @@ Parameterized fake behaviors prove:
 - cancellation after candidate 0 completion retains candidate 0, interrupts the current prompt, confirms queue absence, cancels the remainder, and leaves `pack/` unchanged;
 - a second project cannot create a queued job until the first is terminal.
 
-- [ ] **Step 4: Write restart/retry RED integration**
+- [x] **Step 4: Write restart/retry RED integration**
 
 Use two application service graphs over one temporary project root:
 
@@ -1750,7 +1753,7 @@ Use two application service graphs over one temporary project root:
 - retry inherits completed candidates, postprocesses complete raw, and reruns only batches with incomplete raw;
 - SQLite deletion/rebuild changes none of the canonical records.
 
-- [ ] **Step 5: Run integration tests and verify RED**
+- [x] **Step 5: Run integration tests and verify RED**
 
 ```powershell
 .\.venv\Scripts\python -W error -m pytest backend\tests\integration\test_generation_flow.py backend\tests\integration\test_generation_cancel.py backend\tests\integration\test_generation_restart.py -q
@@ -1758,11 +1761,11 @@ Use two application service graphs over one temporary project root:
 
 Expected: failures expose any missing full-stack wiring; do not weaken the assertions to fit implementation.
 
-- [ ] **Step 6: Make the smallest wiring/fake corrections required by the tests**
+- [x] **Step 6: Make the smallest wiring/fake corrections required by the tests**
 
 Corrections may touch only already-owned Phase 5 modules and `FakeComfyServer`. Preserve route/service boundaries. Every fake response must remain protocol-shaped; do not add test-only branches to production code.
 
-- [ ] **Step 7: Run full automated gates**
+- [x] **Step 7: Run full automated gates**
 
 ```powershell
 powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\tools\Generate-SyntheticPack.ps1 -Phase5
@@ -1783,7 +1786,7 @@ git status --short
 
 Expected: all pass; only intended tracked changes plus preserved user-owned `temp/` appear.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```powershell
 git add backend/tests/integration backend/tests/fakes/comfy_server.py tools/Generate-SyntheticPack.ps1 backend/tests/tools/test_synthetic_pack_generator.py
