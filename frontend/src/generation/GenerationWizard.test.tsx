@@ -730,6 +730,80 @@ describe("guided generation wizard", () => {
     });
   });
 
+  it("keeps the completed candidate view after same-project job history refresh", async () => {
+    const generationApi = await import("./api");
+    vi.spyOn(generationApi, "getGenerationOptions").mockResolvedValue(generationOptions);
+    vi.spyOn(generationApi, "listPackReferences").mockResolvedValue(packReferences);
+    vi.spyOn(generationApi, "listUploadedReferences").mockImplementation(
+      async (_requestedProjectId, kind) =>
+        kind === "style" ? uploadedStyleReferences : uploadedStructureReferences,
+    );
+    const completedJob = {
+      request: { jobId: "12345678-1234-4abc-8def-123456789abc" },
+      state: {
+        status: "completed",
+        candidates: [0, 1, 2, 3].map((candidateIndex) => ({
+          candidateIndex,
+          batchIndex: 0,
+          batchSeed: 101,
+          positionInBatch: candidateIndex,
+          status: "completed",
+          artifacts: {
+            raw: null,
+            final: {
+              relativePath: `candidates/${candidateIndex}.png`,
+              sha256: "a".repeat(64),
+              byteSize: 96,
+              mediaType: "image/png",
+              width: 16,
+              height: 16,
+            },
+            nearest: null,
+            tile: null,
+            report: null,
+          },
+          lineage: null,
+          failure: null,
+        })),
+      },
+    } as never;
+    vi.spyOn(generationApi, "createGenerationJob").mockResolvedValue(completedJob);
+    vi.spyOn(generationApi, "startGenerationJob").mockResolvedValue(completedJob);
+
+    let view!: ReturnType<typeof render>;
+    const refreshJobs = vi.fn(async () => {
+      view.rerender(
+        <GenerationWizard
+          projectId={projectId}
+          manifest={{ ...manifest }}
+          coverage={{ ...coverage, items: [...coverage.items] }}
+          onJobsChanged={refreshJobs}
+          onCurrentJobChange={vi.fn()}
+        />,
+      );
+    });
+    view = render(
+      <GenerationWizard
+        projectId={projectId}
+        manifest={manifest}
+        coverage={coverage}
+        onJobsChanged={refreshJobs}
+        onCurrentJobChange={vi.fn()}
+      />,
+    );
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("radio", { name: /Deepslate/ }));
+    await user.click(screen.getByRole("button", { name: "下一步：参考图与描述" }));
+    await user.click(screen.getByRole("button", { name: "下一步：生成配置" }));
+    await user.click(await screen.findByRole("button", { name: "创建并开始生成" }));
+
+    await waitFor(() => expect(refreshJobs).toHaveBeenCalledOnce());
+    expect(await screen.findByRole("heading", { name: "候选结果" })).toBeVisible();
+    expect(screen.getByRole("article", { name: "候选 1" })).toBeVisible();
+    expect(screen.getByRole("article", { name: "候选 4" })).toBeVisible();
+  });
+
   it("creates then starts one schema-3 job and skips start when create fails", async () => {
     const generationApi = await import("./api");
     vi.spyOn(generationApi, "getGenerationOptions").mockResolvedValue(generationOptions);

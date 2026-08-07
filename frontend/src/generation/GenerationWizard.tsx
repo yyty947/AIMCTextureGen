@@ -97,8 +97,8 @@ export default function GenerationWizard({
     const previous = previousInputs.current;
     const changed =
       previous.projectId !== projectId ||
-      previous.manifest !== manifest ||
-      previous.coverage !== coverage;
+      JSON.stringify(previous.manifest) !== JSON.stringify(manifest) ||
+      JSON.stringify(previous.coverage) !== JSON.stringify(coverage);
     previousInputs.current = { projectId, manifest, coverage };
     if (!changed) {
       return;
