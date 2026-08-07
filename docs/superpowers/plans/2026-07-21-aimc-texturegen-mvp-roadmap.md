@@ -112,12 +112,16 @@ for Task 11; Phase 4 is now merged into and pushed from `master`.
 
 **Implementation plan:** [`2026-08-03-phase-5-four-candidate-generation.md`](2026-08-03-phase-5-four-candidate-generation.md)
 
-**Status (2026-08-07):** Automation and real-GPU qualification are complete.
+**Status (2026-08-08):** Automation, real-GPU qualification, and focused manual
+acceptance are complete. Generation content basically meets expectation,
+structure-reference selection works, and no other functional issue was found in the
+remaining tests. High-resolution/detail quality and minor UI polish remain deferred.
 Profile v2 is verified after the complete 12/12 matrix, output postprocessing,
 restart audit, exact digests, and redacted evidence passed. Ignored manual-pack
-preparation and controlled negative-format audits also passed. Manual browser
-acceptance remains pending user confirmation; Phase 6 is the next handoff only
-after that confirmation.
+preparation and controlled negative-format audits also passed. Task 15's focused frontend
+tests passed 21/21, full frontend tests passed 176/176, and the Vite production build
+passed (27 modules). No real Vite/FastAPI WebSocket handshake was manually run. Phase 6
+is the next handoff.
 
 **Planned ownership:** `backend/src/aimctexturegen/generation/`, generation API/WebSocket endpoints, and the reference/configuration/candidate UI steps.
 
@@ -141,6 +145,31 @@ is committed.
 ## Phase 6: Adoption, Export, Launcher, and MVP Acceptance
 
 **Planned ownership:** atomic adoption service, export validator, final wizard step, PowerShell launcher, end-to-end tests, `docs/TESTING.md`, licensing notices, user-facing setup documentation, and a final UI polish pass (form-control sizing/alignment, spacing, disabled/loading states, and visual hierarchy).
+
+**Mandatory carry-over:** Revisit Java `pack.mcmeta` compatibility before claiming MVP
+support for Mojang's current official resource-pack metadata. Phase 5 intentionally kept
+the older primary-`pack_format` boundary and did not cover every official legacy
+`supported_formats` form or the newer `min_format`/`max_format` form. Treat this as a
+Phase 6 planning input, not as a request to reproduce the Phase 5 rejection behavior.
+The official references already checked are recorded in `ONBOARDING.md`.
+
+**未决事项 / Unresolved planning inputs（schedule TBD）：** Preserve the following
+implementation-agnostic questions for next-stage planning; not all necessarily belong to
+Phase 6:
+
+- dynamic/animated texture strips and non-block/model references, and whether animated
+  textures, items, and models are outside MVP generation/reference scope;
+- user prompt burden and the future built-in/constrained positive/negative prompt policy;
+- multi-face assets (side/top/bottom), what adoption/application should and should not
+  overwrite, and cross-face style consistency;
+- alpha/semitransparent textures as references and generated output, including
+  transparent/empty regions;
+- future generation-quality evaluation and upgrades; current profile/workflow candidates
+  still have quality headroom.
+
+Keep the official `pack.mcmeta` compatibility carry-over visible alongside this list. The
+official references are already recorded in `ONBOARDING.md`; do not re-search official docs
+as a prerequisite.
 
 **Deliverable:** Explicit candidate adoption to the standard target path, refreshed coverage, validated temporary ZIP export, browser directory import, project restoration, startup environment checks, browser launch, model download consent, readable recovery guidance, and recorded 8 GB sequential validation.
 

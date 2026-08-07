@@ -1875,7 +1875,7 @@ powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File 
 
 The preparation script creates an ignored derived ZIP, copies every member except root `assets/minecraft/textures/block/deepslate.png`, verifies `stone.png` remains, verifies overlays/member count except the one removal, and never overwrites any original ZIP.
 
-- [ ] **Step 6: Perform the real-pack API/UI acceptance**
+- [x] **Step 6: Perform the real-pack API/UI acceptance**
 
 Use the derived format-34 pack as the positive project:
 
@@ -1891,8 +1891,16 @@ Use the derived format-34 pack as the positive project:
 
 Before and after, compare `$Before` with new original ZIP hashes. Do not capture or commit screenshots containing real textures.
 
-Manual browser/API acceptance was not performed by the implementing agent and
-remains pending user confirmation; the exact procedure is in docs/TESTING.md.
+User manual acceptance is complete: generation content basically meets expectation,
+structure-reference selection works, and no other functional issue was found in the
+remaining tests. High-resolution/detail quality and minor UI polish are explicitly
+deferred. The exact procedure remains in docs/TESTING.md.
+
+**Phase 6 handoff note:** The negative test for a missing primary `pack_format` records
+the Phase 5 boundary only. Java `pack.mcmeta` compatibility with Mojang's complete
+official legacy and current metadata forms is deferred to Phase 6 and must remain a
+visible planning input. The official references are recorded in `ONBOARDING.md`; do
+not treat the current rejection behavior as the final compatibility contract.
 
 - [x] **Step 7: Give the user the focused manual browser procedure**
 
@@ -1943,7 +1951,76 @@ git add backend/src/aimctexturegen/model_profiles/smoke_v2.py backend/tests/mode
 git commit -m "docs: complete phase 5 qualification"
 ```
 
-Do not merge or push until the user confirms the manual browser results and explicitly asks for integration.
+The user-confirmed manual results are recorded above; Phase 5 closeout is complete and
+Phase 6 is the next implementation entry.
+
+### Task 15: Correct live job state/history synchronization before Phase 5 closeout
+
+**Files:**
+- Modify: `frontend/src/generation/useJobEvents.ts`
+- Modify: `frontend/src/generation/GenerationWizard.tsx`
+- Modify: `frontend/vite.config.ts`
+- Modify: `frontend/src/generation/useJobEvents.test.tsx`
+- Modify: `frontend/src/generation/GenerationWizard.test.tsx`
+
+**Interfaces:**
+- Consumes the existing revisioned WebSocket snapshots and durable job-detail endpoint.
+- Produces one current job view whose status drives the candidate actions, task-history refresh,
+  and terminal result display without a browser refresh.
+
+- [x] Add regression coverage for queued → generating/postprocessing → terminal transitions,
+  durable HTTP fallback when the WebSocket path is unavailable, history refresh on status
+  transitions, and hiding Continue while the durable job is active.
+- [x] Correct the development WebSocket proxy/fallback behavior without exposing local paths or
+  bypassing FastAPI.
+- [x] Run the focused frontend tests and build before the Phase 5 final gates.
+
+Task 15 closeout evidence: focused frontend tests 21/21, full frontend tests 176/176,
+and the Vite production build passed (27 modules). The tests cover HTTP fallback,
+error/close refresh and reconnect, revision-aware live-state merging, and hiding Continue
+for active jobs. No real Vite/FastAPI WebSocket handshake was manually run; the build does
+not prove the dev proxy at runtime.
+
+### Task 16: Record the confirmed Phase 5 closeout and unresolved next-stage questions
+
+**Files:**
+- Modify: `ONBOARDING.md`
+- Modify: `docs/superpowers/plans/2026-08-03-phase-5-four-candidate-generation.md`
+- Modify: `docs/superpowers/plans/2026-07-21-aimc-texturegen-mvp-roadmap.md`
+
+**Interfaces:**
+- Consumes the user-confirmed manual acceptance and Task 15 verification results.
+- Produces a truthful Phase 5 status and a concise, implementation-agnostic list of deferred
+  questions that the next-stage planner must not lose when this conversation is unavailable.
+
+- [x] Mark the corrected live status/history behavior and the focused manual acceptance with
+  actual evidence; keep generation-quality limitations and minor UI polish outside Phase 5.
+- [x] Record these as unresolved planning inputs, without selecting a solution or promising that
+  all belong to Phase 6: dynamic/animated textures and non-block/model references; built-in or
+  constrained prompt behavior; multi-face asset adoption and cross-face consistency; alpha and
+  semitransparent reference/generation semantics; and future candidate quality evaluation and
+  profile/workflow upgrades.
+- [x] Keep the already-recorded official `pack.mcmeta` compatibility carry-over visible alongside
+  these items.
+
+#### 未决事项 / Unresolved planning inputs（schedule TBD）
+
+The next-stage planner must retain these implementation-agnostic questions; not all are
+necessarily Phase 6 scope:
+
+- dynamic/animated texture strips and non-block/model references, and whether animated
+  textures, items, and models are outside MVP generation/reference scope;
+- user prompt burden and the future built-in/constrained positive/negative prompt policy;
+- multi-face assets (side/top/bottom): what adoption/application should and should not
+  overwrite, and how cross-face style consistency is evaluated;
+- alpha/semitransparent textures as references and generated output, including
+  transparent/empty regions;
+- future generation-quality evaluation and upgrades; current profile/workflow candidates
+  still have quality headroom.
+
+Keep the official `pack.mcmeta` compatibility carry-over next to this list: the already
+checked official references cover legacy `supported_formats` and current
+`min_format`/`max_format` forms. Do not re-search official docs as a prerequisite.
 
 ---
 
@@ -1970,6 +2047,8 @@ Task 3 + Task 4 + Task 5 + Task 6 + Task 7
 Tasks 1–12
   └── Task 13 synthetic integration
         └── Task 14 real qualification, manual acceptance, handoff
+              ├── Task 15 live state/history correction
+              └── Task 16 closeout and next-stage unresolved-items handoff
 ```
 
 Tasks 1 and 2 may be implemented sequentially in either order, but each must pass its full regression gate before dependent tasks begin. Tasks 3, 5, and 6 are technically parallelizable after their prerequisites; because all agents share one worktree, the recommended executor should still dispatch one task at a time unless it creates isolated worktrees.
@@ -1991,4 +2070,8 @@ Before execution begins, the plan author must confirm:
 - [x] Phase 5 never writes `pack/`, adopts, exports, merges overlays, or adds unsupported formats.
 - [x] All normal tests are synthetic/fake; real packs and GPU artifacts remain ignored and untracked.
 - [x] Manual verification is limited to real browser/GPU/visual risks; Phase 6 retains final polish.
+- [x] Live status/history synchronization is verified without manual browser refresh; active jobs
+  do not expose a no-op Continue action.
+- [x] The next-stage handoff preserves all five unresolved generation-scope and quality questions
+  plus the official `pack.mcmeta` compatibility carry-over.
 - [x] The plan contains no undefined interface used by a later task and no implementation placeholder.

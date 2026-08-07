@@ -234,9 +234,25 @@ c4be14ba2ff5cffc6c9ec603a2e58e200cc2952e1a249a05dc61ff7276d00f3a。本次 closeo
 runtime/full smoke output、模型、生成图和含真实素材截图都不得提交。
 自动化测试夹具仍只使用合成资产。
 
-手动浏览器/API acceptance 尚未执行，明确等待用户按 docs/TESTING.md 的 Phase 5
-procedure 确认。用户确认前不要进入 Phase 6 integration；Phase 6 是下一实现入口，
-负责 adoption/export、launcher 和最终 UI polish。
+用户已完成 docs/TESTING.md 的 Phase 5 手动 acceptance：生成内容基本符合预期，
+结构参考选择已正常工作，剩余测试未发现其他功能问题。高分辨率/细节质量和轻微
+UI polish 明确留到后续 MVP 验收；Phase 5 closeout 已完成，下一实现入口为
+Phase 6 的 adoption/export、launcher 和最终 UI polish。
+
+Task 15 的 live state/history 修正已由自动化证据确认：聚焦前端测试 21/21、全量
+前端测试 176/176，Vite 生产构建通过（27 modules）。这些证据覆盖无 WebSocket
+路径时的 HTTP fallback、错误/关闭后的刷新重连、revision-aware 状态合并，以及
+活动任务不显示无效 Continue；没有手动运行真实 Vite/FastAPI WebSocket handshake。
+
+Phase 6 必须接手一项已知兼容性问题：当前 Phase 5 为保持既有目录选择边界，仍按
+旧规则处理 `pack.mcmeta`，因此尚未覆盖 Mojang 官方当前支持的全部 Java 资源包
+元数据写法（包括旧格式的完整 `supported_formats` 形式，以及新格式的
+`min_format`/`max_format` 形式）。不要把 Phase 5 对缺少主 `pack_format` 的受控拒绝
+视为最终兼容性结论。该项已完成官方文档核对，下一阶段规划时直接依据官方说明并
+更新相应设计口径；无需重新搜索作为前置条件：
+
+- [Minecraft Java Edition Snapshot 23w31a：多版本资源包元数据](https://feedback.minecraft.net/hc/en-us/articles/18619031671821-Minecraft-Java-Edition-Snapshot-23w31a)
+- [Minecraft Java Edition 1.21.9：新的 pack.mcmeta 格式](https://www.minecraft.net/en-us/article/minecraft-java-edition-1-21-9)
 
 已确认的 Phase 5 关键边界：
 
@@ -255,6 +271,21 @@ ZIP、PNG、预览、生成图或含素材截图都不得提交。自动化仍�
 已知的非阻塞 UI 限制：推理环境面板当前优先保证功能和响应式可用性，许可
 checkbox 仍受通用 `input` 尺寸规则影响，视觉尺寸/对齐未做最终 polish。统一
 表单控件、间距、禁用态和视觉层级安排在 Phase 6 的 MVP 验收前处理。
+
+### 未决事项 / Unresolved planning inputs（schedule TBD）
+
+下一阶段规划必须保留以下问题；本清单不预设解决方案，也不意味着所有事项都属于
+Phase 6：
+
+- 是否支持动态/动画纹理条和非方块/模型资源作为参考，以及动画纹理、物品和模型是否超出 MVP 的生成/参考范围；
+- 用户 prompt 负担，以及未来内置或受约束的 positive/negative prompt policy；
+- 多面资产（side/top/bottom）的采用与应用边界、不得覆盖的内容，以及跨面风格一致性；
+- alpha/半透明纹理作为参考和生成输出时的语义，包括透明/空区域；
+- 后续候选质量评估与提升；当前 profile/workflow 候选仍有质量提升空间。
+
+官方 `pack.mcmeta` 兼容性 carry-over 仍与上述未决事项并列：Phase 6 规划必须覆盖
+官方 legacy `supported_formats` 与当前 `min_format`/`max_format` 形式；相关官方文档
+已核对，不要重新搜索官方文档作为前置条件。
 
 固定 Node 运行时 `runtime/node-v24.18.0-win-x64` 仍缺失；本次前端门禁已用
 全局 Node v24.13.0 实际复现，docs/TESTING.md 已记录这一事实。
