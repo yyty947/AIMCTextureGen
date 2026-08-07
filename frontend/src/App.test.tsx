@@ -56,6 +56,7 @@ const coverage = {
 
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
@@ -74,6 +75,38 @@ function deferred<T>() {
     reject = fail;
   });
   return { promise, reject, resolve };
+}
+
+function makeCompletedGenerationJob(jobId: string) {
+  return {
+    request: { jobId },
+    state: {
+      status: "completed",
+      candidates: [0, 1, 2, 3].map((candidateIndex) => ({
+        candidateIndex,
+        batchIndex: 0,
+        batchSeed: 101,
+        positionInBatch: candidateIndex,
+        status: "completed",
+        artifacts: {
+          raw: null,
+          final: {
+            relativePath: `candidates/${candidateIndex}.png`,
+            sha256: "a".repeat(64),
+            byteSize: 96,
+            mediaType: "image/png",
+            width: 16,
+            height: 16,
+          },
+          nearest: null,
+          tile: null,
+          report: null,
+        },
+        lineage: null,
+        failure: null,
+      })),
+    },
+  } as never;
 }
 
 const recoveryReport = {
@@ -720,6 +753,190 @@ describe("项目恢复与只读任务历史", () => {
       expect(screen.getByRole("heading", { name: "候选结果" })).toBeVisible(),
     );
     expect(screen.getByRole("article", { name: "候选 1" })).toBeVisible();
+  });
+
+  it("does not let an old wizard completion invalidate a new project dashboard load", async () => {
+    const generationApi = await import("./generation/api");
+    const secondProjectId = "7fda5078-1246-4cac-91e8-541808da14f5";
+    const secondProjectSummary = {
+      ...projectSummary,
+      project_id: secondProjectId,
+      project_name: "新项目",
+    };
+    const secondManifest = {
+      ...manifest,
+      project_id: secondProjectId,
+      project_name: "新项目",
+    };
+    const completedJob = makeCompletedGenerationJob(jobId);
+    const oldStart = deferred<unknown>();
+    const newDashboard = deferred<void>();
+    vi.spyOn(generationApi, "createGenerationJob").mockResolvedValue(completedJob);
+    vi.spyOn(generationApi, "startGenerationJob").mockReturnValue(
+      oldStart.promise as never,
+    );
+
+    let oldProjectJobLoads = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === "/api/projects") {
+          return Promise.resolve(
+            jsonResponse([projectSummary, secondProjectSummary]),
+          );
+        }
+        if (url === "/api/system/recovery") {
+          return Promise.resolve(jsonResponse(recoveryReport));
+        }
+        if (url === `/api/projects/${projectId}`) {
+          return Promise.resolve(jsonResponse(manifest));
+        }
+        if (url === `/api/projects/${projectId}/coverage`) {
+          return Promise.resolve(jsonResponse(coverage));
+        }
+        if (url === `/api/projects/${projectId}/jobs`) {
+          oldProjectJobLoads += 1;
+          return Promise.resolve(jsonResponse([jobSummary]));
+        }
+        if (url === `/api/projects/${projectId}/jobs/${jobId}`) {
+          return Promise.resolve(jsonResponse(jobDetail));
+        }
+        if (url === `/api/projects/${secondProjectId}`) {
+          return newDashboard.promise.then(() => jsonResponse(secondManifest));
+        }
+        if (url === `/api/projects/${secondProjectId}/coverage`) {
+          return newDashboard.promise.then(() => jsonResponse(coverage));
+        }
+        if (url === `/api/projects/${secondProjectId}/jobs`) {
+          return newDashboard.promise.then(() => jsonResponse([]));
+        }
+        if (url.endsWith("/generation-options")) {
+          return Promise.resolve(jsonResponse(generationOptions));
+        }
+        if (url.endsWith("/references/pack")) {
+          return Promise.resolve(jsonResponse([]));
+        }
+        if (url.includes("/references?kind=")) {
+          return Promise.resolve(jsonResponse([]));
+        }
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+
+    render(<App />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /恢复项目/ }));
+    await screen.findByLabelText("覆盖统计");
+    await user.click(await screen.findByRole("radio", { name: /Deepslate/ }));
+    await user.click(screen.getByRole("button", { name: "下一步：参考图与描述" }));
+    await user.click(screen.getByRole("button", { name: "下一步：生成配置" }));
+    await user.click(await screen.findByRole("button", { name: "创建并开始生成" }));
+
+    await user.click(await screen.findByRole("button", { name: /新项目/ }));
+    expect(
+      await screen.findByText("正在读取项目覆盖与任务历史…"),
+    ).toBeVisible();
+
+    await act(async () => {
+      oldStart.resolve(completedJob);
+      await oldStart.promise;
+    });
+    await waitFor(() => expect(oldProjectJobLoads).toBe(2));
+
+    newDashboard.resolve();
+    expect(
+      await screen.findByRole("heading", { name: "新项目" }),
+    ).toBeVisible();
+  });
+
+  it("clears an old job-history error after importing a new project", async () => {
+    const generationApi = await import("./generation/api");
+    const newProjectId = "8fda5078-1246-4cac-91e8-541808da14f6";
+    const importedManifest = {
+      ...manifest,
+      project_id: newProjectId,
+      project_name: "新导入项目",
+    };
+    const completedJob = makeCompletedGenerationJob(jobId);
+    vi.spyOn(generationApi, "createGenerationJob").mockResolvedValue(completedJob);
+    vi.spyOn(generationApi, "startGenerationJob").mockResolvedValue(completedJob);
+
+    let oldProjectJobLoads = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === "/api/projects" && init === undefined) {
+          return Promise.resolve(jsonResponse([projectSummary]));
+        }
+        if (url === "/api/system/recovery") {
+          return Promise.resolve(jsonResponse(recoveryReport));
+        }
+        if (url === "/api/projects/import") {
+          return Promise.resolve(jsonResponse(importedManifest, 201));
+        }
+        if (url === `/api/projects/${projectId}`) {
+          return Promise.resolve(jsonResponse(manifest));
+        }
+        if (url === `/api/projects/${projectId}/coverage`) {
+          return Promise.resolve(jsonResponse(coverage));
+        }
+        if (url === `/api/projects/${projectId}/jobs`) {
+          oldProjectJobLoads += 1;
+          return oldProjectJobLoads === 1
+            ? Promise.resolve(jsonResponse([jobSummary]))
+            : Promise.resolve(
+                jsonResponse(
+                  {
+                    code: "INDEX_UNAVAILABLE",
+                    stage: "index",
+                    user_message: "旧项目任务历史失败",
+                    recommended_actions: ["稍后重试"],
+                    technical_details: null,
+                  },
+                  503,
+                ),
+              );
+        }
+        if (url === `/api/projects/${projectId}/jobs/${jobId}`) {
+          return Promise.resolve(jsonResponse(jobDetail));
+        }
+        if (url === `/api/projects/${newProjectId}/coverage`) {
+          return Promise.resolve(jsonResponse(coverage));
+        }
+        if (url.endsWith("/generation-options")) {
+          return Promise.resolve(jsonResponse(generationOptions));
+        }
+        if (url.endsWith("/references/pack")) {
+          return Promise.resolve(jsonResponse([]));
+        }
+        if (url.includes("/references?kind=")) {
+          return Promise.resolve(jsonResponse([]));
+        }
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+
+    render(<App />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /恢复项目/ }));
+    await screen.findByLabelText("覆盖统计");
+    await user.click(await screen.findByRole("radio", { name: /Deepslate/ }));
+    await user.click(screen.getByRole("button", { name: "下一步：参考图与描述" }));
+    await user.click(screen.getByRole("button", { name: "下一步：生成配置" }));
+    await user.click(await screen.findByRole("button", { name: "创建并开始生成" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "旧项目任务历史失败",
+    );
+    await completeForm("新导入项目", "new-pack.zip");
+    await user.click(screen.getByRole("button", { name: "导入并分析" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "新导入项目" }),
+    ).toBeVisible();
+    expect(screen.queryByText("旧项目任务历史失败")).not.toBeInTheDocument();
   });
 
   it("启动时列出已有项目，选择后加载覆盖与任务历史", async () => {

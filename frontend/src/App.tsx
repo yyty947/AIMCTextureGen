@@ -58,6 +58,7 @@ export default function App() {
   const [error, setError] = useState<ApiError | null>(null);
   const componentGeneration = useRef(0);
   const dashboardRequest = useRef(0);
+  const jobHistoryRequest = useRef(0);
   const coverageRequest = useRef(0);
   const operationGeneration = useRef(0);
   const projectsEpoch = useRef(0);
@@ -75,6 +76,7 @@ export default function App() {
         componentGeneration.current = generation + 1;
       }
       dashboardRequest.current += 1;
+      jobHistoryRequest.current += 1;
       coverageRequest.current += 1;
       operationGeneration.current += 1;
       projectsEpoch.current += 1;
@@ -126,9 +128,11 @@ export default function App() {
       }
       importedProjectId = imported.projectId;
       dashboardRequest.current += 1;
+      jobHistoryRequest.current += 1;
       projectsEpoch.current += 1;
       selectedProject.current = imported.projectId;
       setDashboardError(null);
+      setJobHistoryError(null);
       setSelectedProjectId(imported.projectId);
       setDashboardLoading(false);
       setPendingImportedProject(imported);
@@ -302,6 +306,7 @@ export default function App() {
 
   function handleProjectSelect(projectId: string) {
     operationGeneration.current += 1;
+    jobHistoryRequest.current += 1;
     coverageRequest.current += 1;
     selectedProject.current = projectId;
     setActiveRequest("idle");
@@ -374,13 +379,13 @@ export default function App() {
 
   async function refreshJobHistory(projectId: string) {
     const componentRequestGeneration = componentGeneration.current;
-    const requestId = dashboardRequest.current + 1;
-    dashboardRequest.current = requestId;
+    const requestId = jobHistoryRequest.current + 1;
+    jobHistoryRequest.current = requestId;
     try {
       const summaries = await listJobs(projectId);
       if (
         !isCurrentComponentGeneration(componentRequestGeneration) ||
-        dashboardRequest.current !== requestId ||
+        jobHistoryRequest.current !== requestId ||
         selectedProject.current !== projectId
       ) {
         return;
@@ -390,7 +395,7 @@ export default function App() {
       );
       if (
         !isCurrentComponentGeneration(componentRequestGeneration) ||
-        dashboardRequest.current !== requestId ||
+        jobHistoryRequest.current !== requestId ||
         selectedProject.current !== projectId
       ) {
         return;
@@ -404,7 +409,7 @@ export default function App() {
     } catch (cause) {
       if (
         isCurrentComponentGeneration(componentRequestGeneration) &&
-        dashboardRequest.current === requestId &&
+        jobHistoryRequest.current === requestId &&
         selectedProject.current === projectId
       ) {
         setJobHistoryError(toApiError(cause));
