@@ -2,7 +2,7 @@
   "schema_version": 2,
   "profile_id": "sdxl-mapchip-ipadapter",
   "profile_version": "2",
-  "support_state": "candidate_unverified",
+  "support_state": "verified",
   "compatible_runtime_ids": [
     "comfyui-windows-nvidia"
   ],
@@ -150,6 +150,6 @@
     "canvas_size": 1024
   },
   "profile_defaults": {},
-  "user_limitations": "Candidate-only Phase 5 profile. It reuses the verified version-1 artifacts by content hash, but this manifest and its workflow variants remain unverified until the dedicated Phase 5 qualification task completes.",
-  "revision_notes": "Added on 2026-08-03 for Phase 5 four-candidate generation. Workflow files and digests are intentionally unlocked in this task; later qualification will lock them and may promote support_state."
+  "user_limitations": "Verified on the recorded Windows/NVIDIA smoke machine for the pinned runtime, model artifacts, custom node and four workflow variants. Results are specific to this configuration; changing any of them requires a new qualification.",
+  "revision_notes": "Qualified on 2026-08-07: all four workflow variants completed native batch sizes 1, 2 and 4 with four postprocessed outputs per cell; stop-start-stop audit and redacted evidence validation passed."
 }

@@ -251,5 +251,130 @@ Window 3 is reserved for the optional occupied-port check below. Open
    ZIP for this check.
 
 Record each result and any screenshot or console line in the task response.
-The Phase 4 manual checks passed and the branch was merged into and pushed
-from `master`; Phase 5 is the next implementation entry.
+
+## Phase 5 profile-v2 qualification and manual-pack audit
+
+The Phase 5 automation gate uses only the ignored managed runtime/models and
+ignored local manual-test packs. Ordinary tests generate synthetic inputs and
+must not require a GPU, ComfyUI, a user ZIP, or a downloaded model. Do not add
+real ZIPs, model files, generated PNGs, full smoke output, prompts, reference
+names/content, image bytes, credentials, absolute paths, or screenshots of real
+textures to tracked tests, docs, or evidence.
+
+The final focused smoke/model/tool gate was run with:
+
+~~~powershell
+.\.venv\Scripts\python -W error -m pytest backend\tests\model_profiles backend\tests\tools -q
+~~~
+
+Result: 74 passed in 4.28 seconds.
+
+The real qualification was run from the clean managed state after the
+workflow-binding and evidence JSON fixes. Do not rerun it merely to reproduce
+the recorded result; a new qualification must again be a complete matrix:
+
+~~~powershell
+Get-NetTCPConnection -State Listen -LocalAddress 127.0.0.1 -LocalPort 8188 -ErrorAction SilentlyContinue
+git check-ignore .\runtime\smoke\phase-5\
+powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\tools\Invoke-Phase5Smoke.ps1
+~~~
+
+The recorded final output was PHASE5_SMOKE_COMPLETED: all four workflow
+variants (text2img-no-style, text2img-style, img2img-no-style, img2img-style)
+passed native batch sizes 1, 2, and 4 (12/12). Every cell produced four
+ordered outputs, all outputs passed deterministic postprocessing, and the
+managed stop → start → stop audit passed. The final redacted evidence is the
+tracked docs/evidence/phase-5/evidence.json; full runtime output and evidence
+remain ignored. It validates after JSON reload and contains only bounded
+machine/runtime/profile/workflow digests, metrics, output hashes, and status
+fields.
+
+The profile manifest is verified only because that complete gate passed. The
+normal product binding path still requires verified; the qualification path
+uses require_verified=False only for candidate-only preflight and checks the
+exact variant, workflow digest, and output node. Profile v1 bytes remain under
+automated SHA-256 immutability tests.
+
+Prepare the ignored positive manual pack without changing its source ZIP:
+
+~~~powershell
+git check-ignore .\runtime\manual-test-packs\phase-5\legacy-converted.zip
+git check-ignore .\runtime\manual-test-packs\phase-5\third-party.zip
+git check-ignore .\runtime\manual-test-packs\phase-5\vanilla-latest.zip
+powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\tools\Prepare-Phase5ManualPack.ps1
+~~~
+
+The preparation script creates the ignored derived format-34 ZIP at
+runtime/manual-test-packs/phase-5/third-party-missing-deepslate.zip, removes
+only the root deepslate member, retains the root stone style member, checks the
+overlay member set (the recorded source had no overlay members), and refuses
+to overwrite a source. Exact before/after SHA-256 values and controlled
+negative results for the format-32 and missing-primary-format ZIPs are in the
+ignored Task 14 report. No derived ZIP is tracked.
+
+### Phase 5 manual browser procedure — pending user confirmation
+
+This is the remaining acceptance gate. It has not been performed by the
+implementing agent. The user should run it only after the automated gates and
+record the result before Phase 6 integration.
+
+1. Start FastAPI from the repository root:
+
+   ~~~powershell
+   .\.venv\Scripts\python -m uvicorn aimctexturegen.main:app --app-dir backend\src --host 127.0.0.1 --port 8000
+   ~~~
+
+2. In a second PowerShell window start Vite with the globally available Node:
+
+   ~~~powershell
+   Push-Location frontend
+   npm run dev -- --host 127.0.0.1 --port 5173
+   ~~~
+
+   Open http://127.0.0.1:5173 in a Windows desktop browser. Do not start a
+   second FastAPI process if port 8000 is already owned by the repository
+   command; inspect the listener first.
+
+3. Import the ignored derived pack
+   runtime/manual-test-packs/phase-5/third-party-missing-deepslate.zip once.
+   Confirm format 34, a missing deepslate target, an eligible stone pack
+   reference, and an unchanged source ZIP hash. Do not edit the generated
+   project pack/ during this check.
+
+4. Select a missing opaque Java block target. In 风格参考 select no style
+   reference for prompt-only and structure-only runs; select one pack style
+   reference for style-only and style+structure runs. Select one optional
+   结构参考 only for the structure runs. Enter a short prompt, choose 并行 1,
+   并行 2, and 并行 4 in separate finished runs, and click 创建并开始生成
+   after each configuration. Finish or cancel each job before starting the
+   next.
+
+5. After each click, expect 排队中, 生成中, or 后处理中, the connection note
+   实时连接已建立 or the persisted-snapshot note, incremental candidate
+   updates, and exactly four cards labeled 候选 1 through 候选 4. Each
+   completed card must expose 最终结果, 放大预览, 3×3 平铺, 读取质量报告,
+   batch seed, batch position, and a seam score.
+
+6. During one active run, wait for at least one 已完成 candidate, click
+   取消任务, and wait for terminal state 已取消. The completed candidate must
+   remain. For a queued job after an application restart, select 继续任务; for
+   an active job interrupted by restart, expect 失败, the JOB_INTERRUPTED
+   explanation, and preservation of completed candidates.
+
+7. Exercise the controlled OOM/failure fixture if available and confirm the
+   Chinese user message and recommended actions leave prompt, references, seeds,
+   project pack/, and support state unchanged. Import the ignored format-32 pack
+   and the ignored pack with no primary pack_format separately; expect readable
+   rejection and no guessed format. Do not use negative packs as generation
+   inputs.
+
+8. On failure, save the relevant FastAPI status code/JSON response and bounded
+   application/managed-ComfyUI log tail, with sensitive fields and absolute
+   paths redacted. Treat Extension context invalidated and extension-origin
+   MIME warnings as browser-extension noise unless an application-origin error
+   accompanies them. Do not capture or commit screenshots containing real
+   textures.
+
+The manual result remains pending user confirmation. Phase 6 is the next
+handoff only after the user reports this procedure's result and explicitly asks
+for integration.

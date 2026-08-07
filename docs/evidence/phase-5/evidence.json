@@ -1,0 +1,264 @@
+{
+  "cells": [
+    {
+      "batch_size": 1,
+      "elapsed_seconds": 26.46799999999712,
+      "failure": null,
+      "output_count": 4,
+      "output_hashes": [
+        "11b8d02274d78e071c843998529958f2a4750c8a35177fe652bfd0345be0565a",
+        "796753da81195219860a5046d809e5be8a33218759ef1fcdaa57cdedab3ce2e7",
+        "fb37e93fad8cb1a74d958d2915b33a387c2f2813303ad5c838d4beaa0c1bb902",
+        "6db7601c33adaba5b6d2608e3d99a5ead3173f436fdcf17cd8560a0743ef0606"
+      ],
+      "output_order_sha256": "3e7ff8b5f3ff36b708c09c2e0c317f585d92b83a5276dc316e3820b036796eb0",
+      "peak_process_ram_mib": 2604,
+      "peak_system_ram_mib": 14446,
+      "peak_vram_mib": 8516,
+      "postprocess_status": "completed",
+      "status": "completed",
+      "variant": "text2img-no-style"
+    },
+    {
+      "batch_size": 2,
+      "elapsed_seconds": 22.985000000000582,
+      "failure": null,
+      "output_count": 4,
+      "output_hashes": [
+        "6250490f0a917233a8d53f307659c0a13d81b30933d5eb296935e55b3c23dcb3",
+        "fea49455c2cb0b12f23b078ca696f765fba4ee25a48ca88113fe0808723ee5c7",
+        "14538c77e4a35ff606cb692faccf079687e4552f4c0e2f38f4f8ff4918c94373",
+        "40fb5de4d44f7fbbcc2c9fe6e3a90789ec44671666cdda0225bba7143631a53f"
+      ],
+      "output_order_sha256": "1e8bc2d3c78e4b21d5e94dd61ab09a5ce7c77df32edab3743e02b89023b88fda",
+      "peak_process_ram_mib": 2644,
+      "peak_system_ram_mib": 14418,
+      "peak_vram_mib": 8535,
+      "postprocess_status": "completed",
+      "status": "completed",
+      "variant": "text2img-no-style"
+    },
+    {
+      "batch_size": 4,
+      "elapsed_seconds": 24.281000000002678,
+      "failure": null,
+      "output_count": 4,
+      "output_hashes": [
+        "a8a22f1ccd8783458f33a664d8279ed5ac84ae8e7228e77a3108a9649f2acfdf",
+        "09a63e34c53169964ddfae0e74bbde1703870d2b48fd66a72425a956107da229",
+        "169303305befbbd726e4b4fea146878366bd9a58222da14b6120a59baeb79521",
+        "7bc3d4287ebcbec21912308637e06c0eb36a1b5dbf45a77a05b44f5fc4c703ff"
+      ],
+      "output_order_sha256": "785fbbbe3f232ae025401d80090efb7a5cd9177351c38de7f9fe772f1280c402",
+      "peak_process_ram_mib": 3204,
+      "peak_system_ram_mib": 15196,
+      "peak_vram_mib": 8487,
+      "postprocess_status": "completed",
+      "status": "completed",
+      "variant": "text2img-no-style"
+    },
+    {
+      "batch_size": 1,
+      "elapsed_seconds": 25.843999999997322,
+      "failure": null,
+      "output_count": 4,
+      "output_hashes": [
+        "dc5b8f40978e1fa42f5fbf9e2f0643136d0d089bf0e309d286a63cff6d4659fa",
+        "57642ea733a92c1ca16b16d7a2ae97ec9f81174b1c665378a4d595bc4a6d5a72",
+        "bd62cb6841be6f3c99089e84aa4e69ecc97f441b07d3cab3f11c4fe6628337d1",
+        "4e4221fc41a1b1bda69b35ea56458facc4cb2f703fdbe13384fee67cab179183"
+      ],
+      "output_order_sha256": "adff3902a4116dc05be2909ed0d9426fe53ff1f0485520fa768cdd1653f83a03",
+      "peak_process_ram_mib": 3599,
+      "peak_system_ram_mib": 16271,
+      "peak_vram_mib": 8360,
+      "postprocess_status": "completed",
+      "status": "completed",
+      "variant": "text2img-style"
+    },
+    {
+      "batch_size": 2,
+      "elapsed_seconds": 22.60900000000038,
+      "failure": null,
+      "output_count": 4,
+      "output_hashes": [
+        "a97c81d606d01533254a0f710953e64737ccb661b5cd722f8138921095677220",
+        "2a6a924e135e713b04ea3bbc45ae12f05ea7e0f3981400d3f3fa97a76018a8c5",
+        "18d1f3dcb7c142b921e9b7cc1181321fe0d8fc183f09ee1be91629a589e096c5",
+        "b3817b632270472fcca631c20bd3b5581177b9dc84fba3b632c90de7787e4909"
+      ],
+      "output_order_sha256": "93517b9c44c7fec4488be1cfc4a88ae4644753097f3117e98b7302d31dce0999",
+      "peak_process_ram_mib": 3618,
+      "peak_system_ram_mib": 16258,
+      "peak_vram_mib": 8457,
+      "postprocess_status": "completed",
+      "status": "completed",
+      "variant": "text2img-style"
+    },
+    {
+      "batch_size": 4,
+      "elapsed_seconds": 22.89099999999962,
+      "failure": null,
+      "output_count": 4,
+      "output_hashes": [
+        "be8199b6a41137df91019f28851c2dbea408c3afd14e4b0e4c0ebe21236fd58f",
+        "75a95f759ff0a53133914a0a510e53f7ff85a9ae725ae93959028853669dfaff",
+        "74a408bd2deb3a8b341563154885ad17effeafdc214a887b0f7bbaf8e2ea111c",
+        "fb776da901584f25db0a84bc5cf6ca0881882a16f3a7a6bf0148e38f753bf6c8"
+      ],
+      "output_order_sha256": "642da7d33144bf3cebaedbd51761af692a7142f37da54a7669760617b3898f36",
+      "peak_process_ram_mib": 3644,
+      "peak_system_ram_mib": 16289,
+      "peak_vram_mib": 8442,
+      "postprocess_status": "completed",
+      "status": "completed",
+      "variant": "text2img-style"
+    },
+    {
+      "batch_size": 1,
+      "elapsed_seconds": 23.281000000002678,
+      "failure": null,
+      "output_count": 4,
+      "output_hashes": [
+        "4090b1e959af3d0efd26fce7a35a83ed09011784c1e9ffc6d014835f9816e2bf",
+        "d35b92558e50511d8cd3b513305d104838d8b4d6f97770a85c8826b99f1a8a2c",
+        "41753fda7f679a81518957affc9f5917464006a085ef377d49ae40eccc2c2587",
+        "b6b2b72fbeaf6ec71cb1ffdd6658795f56babefa420dbcafecd98be9a717e39c"
+      ],
+      "output_order_sha256": "7af91da30b5be88aff7632bc1e626ea54b6b64d20272a5f298ed1440ff525033",
+      "peak_process_ram_mib": 3644,
+      "peak_system_ram_mib": 16259,
+      "peak_vram_mib": 6574,
+      "postprocess_status": "completed",
+      "status": "completed",
+      "variant": "img2img-no-style"
+    },
+    {
+      "batch_size": 2,
+      "elapsed_seconds": 21.187999999998283,
+      "failure": null,
+      "output_count": 4,
+      "output_hashes": [
+        "ab20620cf563e75064c7480588c3753f2fc500885d38923c3be7227466e79a77",
+        "9228e7407949b2f6437a09763aa8f6825468166c941e22606aafc9e61506ed28",
+        "ab94e4d7bdf53c7d9ef14bd997ac39c919dc4adcda3a0919a478b5be8608973a",
+        "7996559b2315a1edd61b4bec1d119ef3349f96464b3f27916a06d62e28258c72"
+      ],
+      "output_order_sha256": "ae566d8c1085f5fcfad76a2ccbe3271d57149837593730de8d89baca3dc45bbb",
+      "peak_process_ram_mib": 3644,
+      "peak_system_ram_mib": 15332,
+      "peak_vram_mib": 6574,
+      "postprocess_status": "completed",
+      "status": "completed",
+      "variant": "img2img-no-style"
+    },
+    {
+      "batch_size": 4,
+      "elapsed_seconds": 21.45300000000134,
+      "failure": null,
+      "output_count": 4,
+      "output_hashes": [
+        "d2eac458f9a25e36d2ea6d51d6a3750fc9cd989a1b5318dfad8432500f8d7d8b",
+        "e79c78e3cde71e68d8c0570d5a3dafb3b145ec0ce7b3435d3689a70560d9106a",
+        "85d3ae23a867c85ea3d1c14c4e0d700be3e7def6566e0b7c27309a1a388d6c3a",
+        "69904b2dd9da1016527192712ba5b0f1b10f431fddc30d0b588b6c1e414e9d4b"
+      ],
+      "output_order_sha256": "53b4474d6d883ab8e38e6db2a8f7ed92b1ad02cc34adf346cc681f5748934638",
+      "peak_process_ram_mib": 3644,
+      "peak_system_ram_mib": 15333,
+      "peak_vram_mib": 6574,
+      "postprocess_status": "completed",
+      "status": "completed",
+      "variant": "img2img-no-style"
+    },
+    {
+      "batch_size": 1,
+      "elapsed_seconds": 24.92199999999866,
+      "failure": null,
+      "output_count": 4,
+      "output_hashes": [
+        "647229e4848d308fc84bbf02a25a2758b707c69fe3b5e140b16bf5d2da3e47a3",
+        "3e6b086040deb3d5f492210eac8f41e32804f257cae9178ee1688e65d5d7ab4b",
+        "c07e38e3698b4e6a4fb286519b3222ec7936d177bb62215a5c109fc1320cb687",
+        "9abc5a7241cc3e38878e10e3714174c140686c7ad4ba6c525e377b53bb329c8e"
+      ],
+      "output_order_sha256": "595c87a14213b73d7c6a6419b3bccbdb54edd9f76044793726c41b81f839299c",
+      "peak_process_ram_mib": 3644,
+      "peak_system_ram_mib": 16257,
+      "peak_vram_mib": 8444,
+      "postprocess_status": "completed",
+      "status": "completed",
+      "variant": "img2img-style"
+    },
+    {
+      "batch_size": 2,
+      "elapsed_seconds": 22.812000000001717,
+      "failure": null,
+      "output_count": 4,
+      "output_hashes": [
+        "8ed27c0a5386b2d33c26b769f77a806a26b72bd7d3ac6efda6c636d545f8d631",
+        "1d6d168cbe890ca2201567235f88189b798a14cc16e37d4be3867cf89e7c5800",
+        "0fc24d1e0ebb457acdee48a571b7a162d95f679ab3fe940c3dc8752e941b91a6",
+        "82f4a7d912aceea28667047e6eeee9acc7b0e227c786ec1ab71657e64665ba6f"
+      ],
+      "output_order_sha256": "3b57ef77ea410e1f7cd34f2e830118fed410e6c5ab4ec30007ece59756b14707",
+      "peak_process_ram_mib": 3644,
+      "peak_system_ram_mib": 16355,
+      "peak_vram_mib": 8491,
+      "postprocess_status": "completed",
+      "status": "completed",
+      "variant": "img2img-style"
+    },
+    {
+      "batch_size": 4,
+      "elapsed_seconds": 22.29699999999866,
+      "failure": null,
+      "output_count": 4,
+      "output_hashes": [
+        "df1fba1c0911fcb4d9613580560f3524035c483d278faae679ec3c3fa28f3fbd",
+        "3afeec260a272814b8e40c3367526b1d34de6782fabf8e644096308bef3ebdf6",
+        "5bdacd3c9ee1af9f11d75853e0635386f2679d92382845ee10bf6fe41194e16b",
+        "c77f1e5477d0856e1a8f9df4e9e3a6bd1efb3f8b197eae3d1aead79be16decb9"
+      ],
+      "output_order_sha256": "aadd6dcb78685b112d99c6bdcbb2caa73a86f6ce6176333c6e3b69d7525eab9a",
+      "peak_process_ram_mib": 3661,
+      "peak_system_ram_mib": 16356,
+      "peak_vram_mib": 8491,
+      "postprocess_status": "completed",
+      "status": "completed",
+      "variant": "img2img-style"
+    }
+  ],
+  "completed_at": "2026-08-07T10:13:26.201757Z",
+  "machine": {
+    "architecture": "x86_64",
+    "driver_version": "610.88",
+    "gpu_name": "NVIDIA GeForce RTX 5080 Laptop GPU",
+    "os_name": "windows",
+    "vram_mib": 16303
+  },
+  "preflight_failure": null,
+  "profile_id": "sdxl-mapchip-ipadapter",
+  "profile_manifest_sha256": "c4be14ba2ff5cffc6c9ec603a2e58e200cc2952e1a249a05dc61ff7276d00f3a",
+  "profile_version": "2",
+  "qualification": "phase-5-profile-v2",
+  "qualification_status": "passed",
+  "restart_audit": "passed",
+  "runtime_commit": "322122449c9d2ba8b8df1bb517364527dd0615f1",
+  "runtime_id": "comfyui-windows-nvidia",
+  "runtime_manifest_sha256": "5d5fe88aaadd6004f398b6118a5d9e8ce4a350f6e37438964a4ea6cc2c5e4e10",
+  "runtime_release": "0.29.2",
+  "runtime_stats": {
+    "comfyui_version": "0.29.2",
+    "python_version": "3.13.14 (tags/v3.13.14:fd17997, Jun 10 2026, 13:03:48) [MSC v.1944 64 bit (AMD64)]",
+    "pytorch_version": "2.13.0+cu130"
+  },
+  "started_at": "2026-08-07T10:08:18.642231Z",
+  "support_state": "verified",
+  "workflow_digests": {
+    "img2img-no-style": "185d2e968082425d9b63521c9d38ebec51b9c8a8d718b6b229f4c782ef544bba",
+    "img2img-style": "766d7f7523ad17055240e36021abc1cec9fd359a763c0712670be6418a152c90",
+    "text2img-no-style": "25c1c1d238a126daf13b392a2844a20ba99ba2facd3d66c13ca8278323af3e7c",
+    "text2img-style": "80362974e036874262d166389c4099bfc0b85efb1aa6c9f98e58dce6ba8cad27"
+  }
+}

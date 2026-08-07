@@ -1815,7 +1815,7 @@ git commit -m "test: cover generation end to end"
 - Consumes: complete Phase 5, ignored managed runtime/models, and ignored user-provided packs.
 - Produces: verified profile-v2 manifest/evidence, exact manual test procedure/results, complete gates, and a truthful Phase 6 handoff.
 
-- [ ] **Step 1: Write qualification-tool RED tests**
+- [x] **Step 1: Write qualification-tool RED tests**
 
 ```python
 def test_v2_smoke_matrix_covers_four_variants_and_three_batch_sizes():
@@ -1835,13 +1835,13 @@ def test_evidence_rejects_absolute_paths_and_image_bytes():
 
 Evidence records runtime/profile/workflow digests, redacted machine/GPU/driver identity, batch/variant, output count/order hashes, postprocess status, elapsed seconds, peak VRAM MiB, peak process/system RAM MiB, and success/failure. It contains no prompt text, reference name/content, output image, token/header, or absolute path.
 
-- [ ] **Step 2: Implement the real smoke entry without changing product verification rules**
+- [x] **Step 2: Implement the real smoke entry without changing product verification rules**
 
 `Invoke-Phase5Smoke.ps1` calls the repository `.venv`, reuses the managed installation, verifies all receipts/hashes, starts managed ComfyUI, runs all four variants and batch sizes `1/2/4`, postprocesses every output into `runtime/smoke/phase-5/`, records bounded metrics, performs stop→start→stop audit, and writes ignored full evidence plus redacted candidate evidence.
 
 Qualification may load `candidate_unverified` with `require_verified=False`; normal product APIs must still reject it until promotion.
 
-- [ ] **Step 3: Run the real GPU qualification**
+- [x] **Step 3: Run the real GPU qualification**
 
 Preconditions:
 
@@ -1858,11 +1858,11 @@ powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File 
 
 Expected: four condition combinations succeed, batch 1/2/4 produce exact ordered counts, every output postprocesses, restart audit passes, and the script prints a final `PHASE5_SMOKE_COMPLETED` summary. If any matrix cell fails, leave v2 `candidate_unverified`, record the controlled failure locally, fix through RED/GREEN tests, and rerun the entire matrix.
 
-- [ ] **Step 4: Promote v2 only after all evidence passes**
+- [x] **Step 4: Promote v2 only after all evidence passes**
 
 Change only `support_state` to `verified` and any profile defaults/64-prefix wording proven by the smoke. Recompute the canonical profile digest, rerun exact workflow hashes, and generate `docs/evidence/phase-5/evidence.json` from the redacted model. Add a test that product binding now accepts v2 and v1 bytes are still unchanged.
 
-- [ ] **Step 5: Prepare and hash-audit the ignored real packs**
+- [x] **Step 5: Prepare and hash-audit the ignored real packs**
 
 ```powershell
 git check-ignore .\runtime\manual-test-packs\phase-5\legacy-converted.zip
@@ -1891,7 +1891,10 @@ Use the derived format-34 pack as the positive project:
 
 Before and after, compare `$Before` with new original ZIP hashes. Do not capture or commit screenshots containing real textures.
 
-- [ ] **Step 7: Give the user the focused manual browser procedure**
+Manual browser/API acceptance was not performed by the implementing agent and
+remains pending user confirmation; the exact procedure is in docs/TESTING.md.
+
+- [x] **Step 7: Give the user the focused manual browser procedure**
 
 The implementing agent performs automated and non-dense checks, then asks the user to verify only:
 
@@ -1904,11 +1907,11 @@ The implementing agent performs automated and non-dense checks, then asks the us
 
 Provide exact click order, expected text/status after each click, how to distinguish browser-extension errors, and what log/API response to save on failure. Do not require the `400/600/900 px` matrix unless Task 11/12 changed the relevant responsive breakpoint behavior and an observed defect warrants it.
 
-- [ ] **Step 8: Update stable documentation with actual results**
+- [x] **Step 8: Update stable documentation with actual results**
 
 `docs/MODEL_PROFILES.md` receives only verified measured v2 facts. `docs/TESTING.md` receives commands that were actually run, including fake CI, Phase 5 real smoke, real-pack privacy rules, and focused manual steps. Check all completed task boxes in this plan. Set the roadmap Phase 5 state to implementation/qualification complete and `ONBOARDING.md` to the exact next Phase 6 entry. Add an `AGENTS.md` pitfall only if it is general, repeatable, and not already captured.
 
-- [ ] **Step 9: Run final gates and inspect tracked scope**
+- [x] **Step 9: Run final gates and inspect tracked scope**
 
 ```powershell
 .\.venv\Scripts\python -m pip check
@@ -1931,7 +1934,7 @@ git ls-files | Select-String -Pattern '\.(zip|png|safetensors|7z)$'
 
 Expected: dependency check, all backend/frontend tests, and build pass; no runtime/real pack/model/generated PNG is tracked; only intentional project-owned UI/static PNGs, if any already existed, appear in the extension audit.
 
-- [ ] **Step 10: Review, commit, and stop before integration**
+- [x] **Step 10: Review, commit, and stop before integration**
 
 Use `superpowers:requesting-code-review`, address findings through `superpowers:receiving-code-review`, then run `superpowers:verification-before-completion`.
 

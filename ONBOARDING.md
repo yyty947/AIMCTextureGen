@@ -212,16 +212,31 @@ git status --short
 
 ## 下一入口
 
-Phase 5 Task 13 已完成。完整 RED/GREEN、门禁结果和交接记录位于
-`.superpowers/sdd/2026-08-03-phase-5-four-candidate-generation/task-13-report.md`。
-下一步继续执行
-[`docs/superpowers/plans/2026-08-03-phase-5-four-candidate-generation.md`](docs/superpowers/plans/2026-08-03-phase-5-four-candidate-generation.md)
-的 Task 14，保持测试先行、真实 GPU 门禁和每项独立提交。不要回退到旧阶段，也不要并行执行其他阶段计划。
+Phase 5 Task 14 的自动化与真实 GPU qualification closeout 已完成。完整
+RED/GREEN、门禁结果和交接记录位于忽略的本地报告
+`.superpowers/sdd/2026-08-03-phase-5-four-candidate-generation/task-14-report.md`。
+详细计划位于
+[`docs/superpowers/plans/2026-08-03-phase-5-four-candidate-generation.md`](docs/superpowers/plans/2026-08-03-phase-5-four-candidate-generation.md)。
 
-Task 13 已验证：全量后端 `1124/1124` 通过、总覆盖率 85%；前端 `npm test`
-为 167/167，通过 TypeScript/Vite 生产构建；Task 13 聚焦集成测试 15/15
-通过；Phase 5 合成包生成器与 `-Phase5` 门禁通过。默认合成包 SHA-256
-仍为 `8ec378c876fe12b17e784c2d03ee59e7ea8a6c1601d7bf00e0a36980e2d24478`。
+Task 14 最终自动化门禁已实际运行：`pip check` 无 broken requirements；后端
+`1144/1144` 通过、总覆盖率 83%；smoke/model/tool 聚焦测试 `74/74`；前端
+`npm test` 为 `167/167`，TypeScript/Vite 生产构建通过 27 个模块。前端使用
+全局 Node v24.13.0，因为固定的 `runtime/node-v24.18.0-win-x64` 仍不存在。
+
+真实 GPU qualification 已完成四个 workflow variant × batch 1/2/4 的 12/12 矩阵；
+全部输出通过 postprocess，stop → start → stop 审计通过，脱敏证据位于
+docs/evidence/phase-5/evidence.json，profile v2 canonical digest 为
+c4be14ba2ff5cffc6c9ec603a2e58e200cc2952e1a249a05dc61ff7276d00f3a。本次 closeout
+没有重跑 GPU。
+
+忽略目录中的三个真实 ZIP 已完成 before/after hash audit；正向派生包准备成功，
+格式 32 和缺少 primary pack_format 的包均产生受控拒绝。真实 ZIP、派生包、
+runtime/full smoke output、模型、生成图和含真实素材截图都不得提交。
+自动化测试夹具仍只使用合成资产。
+
+手动浏览器/API acceptance 尚未执行，明确等待用户按 docs/TESTING.md 的 Phase 5
+procedure 确认。用户确认前不要进入 Phase 6 integration；Phase 6 是下一实现入口，
+负责 adoption/export、launcher 和最终 UI polish。
 
 已确认的 Phase 5 关键边界：
 
@@ -241,11 +256,10 @@ ZIP、PNG、预览、生成图或含素材截图都不得提交。自动化仍�
 checkbox 仍受通用 `input` 尺寸规则影响，视觉尺寸/对齐未做最终 polish。统一
 表单控件、间距、禁用态和视觉层级安排在 Phase 6 的 MVP 验收前处理。
 
-固定 Node 运行时 `runtime/node-v24.18.0-win-x64` 仍缺失，前端门禁暂用
-全局 Node v24.13.0 复现；恢复固定运行时后再更新 `docs/TESTING.md` 的
-命令路径。
+固定 Node 运行时 `runtime/node-v24.18.0-win-x64` 仍缺失；本次前端门禁已用
+全局 Node v24.13.0 实际复现，docs/TESTING.md 已记录这一事实。
 
-当前分支已包含 Phase 5 Tasks 9–13 的协调器/恢复、generation/reference API、
+当前分支已包含 Phase 5 Tasks 9–14 的协调器/恢复、generation/reference API、
 artifact 路由、WebSocket 和合成全链路测试实现。工作树中用户已有的
 未跟踪 `temp/`、`.tmp-review-cancel/`、`.tmp-review-prompt-reg/` 不属于本任务
 变更，必须保留。接手按 `AGENTS.md` 的必读顺序阅读，以当前代码和可重复验证

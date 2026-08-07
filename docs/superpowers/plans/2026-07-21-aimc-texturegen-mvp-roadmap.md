@@ -112,6 +112,13 @@ for Task 11; Phase 4 is now merged into and pushed from `master`.
 
 **Implementation plan:** [`2026-08-03-phase-5-four-candidate-generation.md`](2026-08-03-phase-5-four-candidate-generation.md)
 
+**Status (2026-08-07):** Automation and real-GPU qualification are complete.
+Profile v2 is verified after the complete 12/12 matrix, output postprocessing,
+restart audit, exact digests, and redacted evidence passed. Ignored manual-pack
+preparation and controlled negative-format audits also passed. Manual browser
+acceptance remains pending user confirmation; Phase 6 is the next handoff only
+after that confirmation.
+
 **Planned ownership:** `backend/src/aimctexturegen/generation/`, generation API/WebSocket endpoints, and the reference/configuration/candidate UI steps.
 
 **Deliverable:** Versioned block prompt construction; 0–8 pack/upload style
