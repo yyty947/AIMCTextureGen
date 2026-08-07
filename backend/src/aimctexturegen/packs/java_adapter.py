@@ -333,13 +333,18 @@ def _parse_metadata(payload: bytes) -> PackMetadata:
     supported_formats = None
     if "supported_formats" in pack:
         supported = pack["supported_formats"]
-        if type(supported) is not dict or set(supported) != {
+        if type(supported) is list:
+            if len(supported) != 2:
+                raise PackValidationError("INVALID_PACK_METADATA", "pack.mcmeta 无效")
+            minimum, maximum = supported
+        elif type(supported) is dict and set(supported) == {
             "min_inclusive",
             "max_inclusive",
         }:
+            minimum = supported.get("min_inclusive")
+            maximum = supported.get("max_inclusive")
+        else:
             raise PackValidationError("INVALID_PACK_METADATA", "pack.mcmeta 无效")
-        minimum = supported.get("min_inclusive")
-        maximum = supported.get("max_inclusive")
         if (
             type(minimum) is not int
             or type(maximum) is not int

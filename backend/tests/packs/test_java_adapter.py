@@ -59,10 +59,30 @@ def test_preserves_supported_formats_without_replacing_primary(tmp_path: Path) -
     assert inspected.metadata.supported_formats == (34, 48)
 
 
+def test_imports_array_supported_formats_without_replacing_primary(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "array-range.zip"
+    metadata = {
+        "pack": {
+            "pack_format": 34,
+            "supported_formats": [34, 75],
+            "description": "synthetic",
+        }
+    }
+    with zipfile.ZipFile(source, "w") as archive:
+        archive.writestr("pack.mcmeta", json.dumps(metadata))
+
+    inspected = JavaPackAdapter().inspect(source)
+
+    assert inspected.metadata.pack_format == 34
+    assert inspected.metadata.supported_formats == (34, 75)
+
+
 @pytest.mark.parametrize(
     "supported_formats",
     [
-        [34, 48],
+        [34],
         {"min_inclusive": 34},
         {"min_inclusive": 34, "max_inclusive": 48, "unexpected": 49},
         {"min_inclusive": True, "max_inclusive": 48},
