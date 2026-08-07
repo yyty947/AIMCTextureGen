@@ -239,7 +239,11 @@ class ManagedInferenceService:
             raw = log_path.read_bytes()
         except OSError:
             return ""
-        return raw[-bounded:].decode("utf-8", errors="replace")
+        tail = raw[-bounded:]
+        try:
+            return tail.decode("utf-8")
+        except UnicodeDecodeError:
+            return tail.decode("gb18030", errors="replace")
 
     def shutdown(self) -> None:
         """Stop accepting installs and let active workers observe cancellation."""

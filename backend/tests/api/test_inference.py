@@ -230,6 +230,41 @@ def test_log_tail_is_bounded_and_has_no_path_input() -> None:
     assert invalid.status_code == 422
 
 
+def _managed_service_with_log(tmp_path: Path, payload: bytes) -> ManagedInferenceService:
+    from aimctexturegen.comfy.registry import ManifestRegistry
+
+    root = Path(__file__).resolve().parents[3]
+    registry = ManifestRegistry.load(root)
+    log_path = tmp_path / "logs" / "comfyui.log"
+    log_path.parent.mkdir()
+    log_path.write_bytes(payload)
+    return ManagedInferenceService(registry=registry, runtime_root=tmp_path)
+
+
+def test_log_tail_decodes_utf8_and_ascii_bytes(tmp_path: Path) -> None:
+    service = _managed_service_with_log(
+        tmp_path,
+        "ready\n模型加载完成\n".encode("utf-8"),
+    )
+
+    assert service.log_tail(64) == "ready\n模型加载完成\n"
+
+
+def test_log_tail_decodes_windows_chinese_console_bytes(tmp_path: Path) -> None:
+    service = _managed_service_with_log(
+        tmp_path,
+        "[进度] 正在生成候选\n".encode("cp936"),
+    )
+
+    assert service.log_tail(64) == "[进度] 正在生成候选\n"
+
+
+def test_log_tail_keeps_malformed_bytes_safe_and_bounded(tmp_path: Path) -> None:
+    service = _managed_service_with_log(tmp_path, b"prefix-\xff\xfe-suffix")
+
+    assert service.log_tail(8) == "�-suffix"
+
+
 def test_default_service_reports_missing_state_without_creating_runtime(
     tmp_path: Path,
 ) -> None:
