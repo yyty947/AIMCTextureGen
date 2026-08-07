@@ -171,6 +171,14 @@ export default function GenerationWizard({
 
   useEffect(() => {
     if (liveJob.job !== null) {
+      const projectedJob = mergeJobSnapshots(
+        liveJob.job,
+        currentJob,
+        subscribedJobId,
+      );
+      if (projectedJob !== liveJob.job) {
+        return;
+      }
       const nextStatus = {
         jobId: liveJob.job.request.jobId,
         status: liveJob.job.state.status,

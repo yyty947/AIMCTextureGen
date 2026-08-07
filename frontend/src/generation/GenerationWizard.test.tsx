@@ -35,6 +35,14 @@ class WizardWebSocket {
     this.onclose?.(new CloseEvent("close", { code: 1006 }));
   }
 
+  emitSnapshot(payload: unknown) {
+    this.onmessage?.(
+      new MessageEvent("message", {
+        data: JSON.stringify(payload),
+      }),
+    );
+  }
+
   close() {
     this.readyState = 3;
   }
@@ -238,6 +246,103 @@ function makeLiveJob(
       })),
     },
   } as never;
+}
+
+function makeGenerationSnapshot(
+  status: "queued" | "generating" | "postprocessing" | "completed",
+  revision: number,
+) {
+  return {
+    type: "snapshot",
+    revision,
+    job: {
+      request: {
+        schema_version: 3,
+        job_id: generationJobId,
+        project_id: projectId,
+        parent_job_id: null,
+        target: {
+          target_semantic_id: "minecraft:deepslate",
+          target_display_name: "Deepslate",
+          target_relative_path: "assets/minecraft/textures/block/deepslate.png",
+          catalog_id: "java-dev-format-34",
+        },
+        prompt: {
+          prompt_version: "java-block-prompt-v1",
+          positive_prompt: "cold stone",
+          negative_prompt: "none",
+          user_prompt: "cold stone",
+        },
+        resolution: 16,
+        parallelism: 1,
+        execution_batches: [0, 1, 2, 3].map((batchIndex) => ({
+          batch_index: batchIndex,
+          candidate_indices: [batchIndex],
+          seed: 101 + batchIndex,
+        })),
+        references: { style: [], structure: [] },
+        advanced: {
+          style_strength: null,
+          denoise_strength: null,
+          lora_weight: null,
+        },
+        model_profile: {
+          profile_id: "sdxl-mapchip-ipadapter",
+          profile_version: "2",
+          profile_manifest_sha256: "a".repeat(64),
+          runtime_id: "comfyui-windows-nvidia",
+          runtime_version: "0.29.2",
+          runtime_manifest_sha256: "b".repeat(64),
+          workflow_variant: "text2img-no-style",
+          workflow_sha256: "c".repeat(64),
+          output_node_id: "19",
+        },
+        created_at: "2026-08-03T10:00:00Z",
+      },
+      state: {
+        schema_version: 2,
+        job_id: generationJobId,
+        project_id: projectId,
+        revision,
+        status,
+        cancel_requested_at: null,
+        failure: null,
+        batches: [0, 1, 2, 3].map((batchIndex) => ({
+          batch_index: batchIndex,
+          candidate_indices: [batchIndex],
+          seed: 101 + batchIndex,
+          status: "pending",
+          prompt_id: null,
+          raw_artifacts: [],
+          started_at: null,
+          finished_at: null,
+          failure: null,
+        })),
+        candidates: [0, 1, 2, 3].map((candidateIndex) => ({
+          candidate_index: candidateIndex,
+          batch_index: candidateIndex,
+          position_in_batch: 0,
+          batch_seed: 101 + candidateIndex,
+          status: status === "completed" ? "completed" : "pending",
+          artifacts: {
+            raw: null,
+            final: null,
+            nearest: null,
+            tile: null,
+            report: null,
+          },
+          lineage: null,
+          failure: null,
+          started_at: null,
+          finished_at: null,
+        })),
+        created_at: "2026-08-03T10:00:00Z",
+        updated_at: "2026-08-03T10:00:00Z",
+        started_at: null,
+        finished_at: null,
+      },
+    },
+  };
 }
 
 function renderWizard() {
@@ -925,7 +1030,7 @@ describe("guided generation wizard", () => {
     view.unmount();
   });
 
-  it("prefers a newer HTTP command response over an older live snapshot", async () => {
+  it("keeps a newer HTTP command response when an older live snapshot arrives", async () => {
     const generationApi = await import("./api");
     vi.spyOn(generationApi, "getGenerationOptions").mockResolvedValue(generationOptions);
     vi.spyOn(generationApi, "listPackReferences").mockResolvedValue(packReferences);
@@ -934,9 +1039,6 @@ describe("guided generation wizard", () => {
     const startJob = vi
       .spyOn(generationApi, "startGenerationJob")
       .mockResolvedValue(makeLiveJob("generating", 2));
-    const getJob = vi
-      .spyOn(generationApi, "getGenerationJob")
-      .mockResolvedValue(queuedJob);
     vi.spyOn(generationApi, "createGenerationJob").mockResolvedValue(queuedJob);
     const refreshJobs = vi.fn().mockResolvedValue(undefined);
     render(
@@ -957,9 +1059,11 @@ describe("guided generation wizard", () => {
 
     await waitFor(() => expect(startJob).toHaveBeenCalledWith(projectId, generationJobId));
     await waitFor(() => expect(WizardWebSocket.instances).toHaveLength(1));
-    getJob.mockResolvedValue(queuedJob);
-    act(() => WizardWebSocket.instances[0]!.emitClose());
-    await waitFor(() => expect(getJob).toHaveBeenCalled());
+    act(() =>
+      WizardWebSocket.instances[0]!.emitSnapshot(
+        makeGenerationSnapshot("queued", 1),
+      ),
+    );
     expect(screen.queryByRole("button", { name: "继续任务" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "取消任务" })).toBeVisible();
   });
