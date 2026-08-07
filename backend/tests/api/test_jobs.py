@@ -64,6 +64,27 @@ def _request(app, method: str, path: str, **kwargs) -> httpx.Response:
     return asyncio.run(send())
 
 
+def _request_with_lifespan(
+    app,
+    method: str,
+    path: str,
+    **kwargs,
+) -> httpx.Response:
+    async def send() -> httpx.Response:
+        async with app.router.lifespan_context(app):
+            transport = httpx.ASGITransport(
+                app=app,
+                raise_app_exceptions=False,
+            )
+            async with httpx.AsyncClient(
+                transport=transport,
+                base_url="http://testserver",
+            ) as client:
+                return await client.request(method, path, **kwargs)
+
+    return asyncio.run(send())
+
+
 def _create_payload() -> dict[str, object]:
     return {
         "profile_id": "sdxl-mapchip-ipadapter",
@@ -408,6 +429,108 @@ def test_revision_conflict_and_invalid_transition_are_stable_conflicts(
         code="INVALID_JOB_TRANSITION",
         stage="canceling_job",
     )
+
+
+def test_legacy_cancel_without_body_maps_to_invalid_request(
+    tmp_path: Path,
+) -> None:
+    projects_root = tmp_path / "projects"
+    _write_project(projects_root)
+    app = create_app(project_root=projects_root, catalog_root=CATALOG_ROOT)
+
+    created = _create_job(app)
+    assert created.status_code == 201, created.text
+    job_id = created.json()["request"]["job_id"]
+    response = _request_with_lifespan(
+        app,
+        "POST",
+        f"/api/projects/{PROJECT_ID}/jobs/{job_id}/cancel",
+    )
+
+    _assert_error(
+        response,
+        status_code=422,
+        code="INVALID_REQUEST",
+        stage="request_validation",
+    )
+    assert str(projects_root) not in response.text
+    assert str(projects_root).replace("\\", "/") not in response.text
+
+
+def test_legacy_cancel_with_string_revision_maps_to_invalid_request(
+    tmp_path: Path,
+) -> None:
+    projects_root = tmp_path / "projects"
+    _write_project(projects_root)
+    app = create_app(project_root=projects_root, catalog_root=CATALOG_ROOT)
+
+    created = _create_job(app)
+    assert created.status_code == 201, created.text
+    job_id = created.json()["request"]["job_id"]
+    response = _request_with_lifespan(
+        app,
+        "POST",
+        f"/api/projects/{PROJECT_ID}/jobs/{job_id}/cancel",
+        json={"expected_revision": "0"},
+    )
+
+    _assert_error(
+        response,
+        status_code=422,
+        code="INVALID_REQUEST",
+        stage="request_validation",
+    )
+    assert str(projects_root) not in response.text
+    assert str(projects_root).replace("\\", "/") not in response.text
+
+
+def test_missing_legacy_cancel_job_maps_to_job_not_found(
+    tmp_path: Path,
+) -> None:
+    projects_root = tmp_path / "projects"
+    _write_project(projects_root)
+    app = create_app(project_root=projects_root, catalog_root=CATALOG_ROOT)
+    missing_job_id = "20000000-0000-4000-8000-000000000002"
+
+    response = _request_with_lifespan(
+        app,
+        "POST",
+        f"/api/projects/{PROJECT_ID}/jobs/{missing_job_id}/cancel",
+        json={"expected_revision": 0},
+    )
+
+    _assert_error(
+        response,
+        status_code=404,
+        code="JOB_NOT_FOUND",
+        stage="canceling_job",
+    )
+    assert str(projects_root) not in response.text
+    assert str(projects_root).replace("\\", "/") not in response.text
+
+
+def test_missing_legacy_retry_job_maps_to_job_not_found(
+    tmp_path: Path,
+) -> None:
+    projects_root = tmp_path / "projects"
+    _write_project(projects_root)
+    app = create_app(project_root=projects_root, catalog_root=CATALOG_ROOT)
+    missing_job_id = "20000000-0000-4000-8000-000000000002"
+
+    response = _request_with_lifespan(
+        app,
+        "POST",
+        f"/api/projects/{PROJECT_ID}/jobs/{missing_job_id}/retry",
+    )
+
+    _assert_error(
+        response,
+        status_code=404,
+        code="JOB_NOT_FOUND",
+        stage="retrying_job",
+    )
+    assert str(projects_root) not in response.text
+    assert str(projects_root).replace("\\", "/") not in response.text
 
 
 def test_missing_project_job_and_reference_use_stable_errors(

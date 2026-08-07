@@ -12,6 +12,7 @@ schema-3 generation routes.
 Changed intended files:
 
 - `backend/src/aimctexturegen/api/generation.py`
+- `backend/tests/api/test_jobs.py`
 - `backend/src/aimctexturegen/generation/coordinator.py`
 - `backend/src/aimctexturegen/generation/service.py`
 - `backend/tests/fakes/comfy_server.py`
@@ -28,6 +29,68 @@ The three production changes are confined to the Phase 5 generation API and
 generation coordinator/service modules: JSON upload reference IDs are parsed at
 the transport boundary, cancellation state writes retry bounded revision races,
 and overlapping legacy/schema-3 job routes dispatch by the durable job schema.
+
+## Fix round — legacy API error mappings
+
+Review identified two exception-boundary regressions in the overlapping
+`generation.py` routes. Strict legacy cancel validation was inside the route's
+broad handler, and `_load_job_for_dispatch` swallowed `JobError` before the
+missing-job path reached the internal-error mapping. The fix keeps schema-3
+dispatch unchanged, maps legacy validation through the existing
+`INVALID_REQUEST` envelope, and reuses the existing legacy `JobError` mapping
+for cancel/retry failures. `api/jobs.py` already had the correct typed catches
+and was not changed.
+
+### RED
+
+Added four direct FastAPI regressions in `backend/tests/api/test_jobs.py` for:
+
+- legacy cancel with no body;
+- legacy cancel with a string `expected_revision`;
+- missing legacy cancel job;
+- missing legacy retry job.
+
+Command:
+
+```powershell
+.\.venv\Scripts\python -W error -m pytest backend\tests\api\test_jobs.py -q
+```
+
+Result before the production fix: `4 failed, 18 passed in 22.16s`. The four
+new tests failed with the observed `500 INTERNAL_ERROR` responses, confirming
+the review regression rather than a test-collection or fixture failure.
+
+### GREEN and bounded fix verification
+
+```powershell
+.\.venv\Scripts\python -W error -m pytest backend\tests\api\test_jobs.py -q
+```
+
+Result: `22 passed in 29.10s`.
+
+```powershell
+.\.venv\Scripts\python -W error -m pytest backend\tests\api\test_jobs.py backend\tests\api\test_services_and_errors.py -q
+```
+
+Result: `30 passed in 34.73s`.
+
+```powershell
+.\.venv\Scripts\python -W error -m pytest backend\tests\api\test_generation.py backend\tests\api\test_generation_websocket.py -q
+```
+
+Result: `22 passed in 4.18s`; schema-3 route and WebSocket behavior remains
+green.
+
+```powershell
+.\.venv\Scripts\python -W error -m pytest backend\tests\integration\test_generation_flow.py backend\tests\integration\test_generation_cancel.py backend\tests\integration\test_generation_restart.py -q
+```
+
+Result: `15 passed in 29.43s`.
+
+The full backend coverage command was not rerun in this fix round. The earlier
+`1124/1124` Task 13 result below is historical baseline information only and
+is not claimed as fix-round evidence. Frontend tests/build were not rerun
+because this fix changes no frontend files.
 
 ## RED
 
@@ -74,7 +137,7 @@ Legacy compatibility verification after the route-dispatch correction:
 
 Result: `26 passed in 22.70s`.
 
-## Required gates
+## Original Task 13 gates (historical record)
 
 Synthetic Phase 5 generator:
 

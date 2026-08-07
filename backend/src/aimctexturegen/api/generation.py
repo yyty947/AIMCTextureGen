@@ -183,13 +183,13 @@ def cancel_job(
             parsed_project_id,
             parsed_job_id,
         )
-        if existing is not None and not isinstance(
-            existing.request,
-            GenerationJobRequest,
-        ):
-            legacy_payload = legacy_jobs_api.CancelJobRequest.model_validate(
-                {} if payload is None else payload
-            )
+        if not isinstance(existing.request, GenerationJobRequest):
+            try:
+                legacy_payload = legacy_jobs_api.CancelJobRequest.model_validate(
+                    {} if payload is None else payload
+                )
+            except ValidationError as error:
+                raise _invalid_request_problem() from error
             return legacy_jobs_api.cancel_job(
                 request,
                 project_id,
@@ -205,6 +205,8 @@ def cancel_job(
         raise
     except GenerationError as error:
         raise _generation_problem(error, "canceling_generation_job") from error
+    except JobError as error:
+        raise legacy_jobs_api._job_domain_problem(error, "canceling_job") from error
     except Exception as error:
         _LOGGER.exception("Unexpected generation cancel failure")
         raise _internal_problem("canceling_generation_job") from error
@@ -228,10 +230,7 @@ def retry_job(
             parsed_project_id,
             parsed_job_id,
         )
-        if existing is not None and not isinstance(
-            existing.request,
-            GenerationJobRequest,
-        ):
+        if not isinstance(existing.request, GenerationJobRequest):
             return legacy_jobs_api.retry_job(request, project_id, job_id)
         loaded = _generation_coordinator(request).retry(
             parsed_project_id,
@@ -242,6 +241,8 @@ def retry_job(
         raise
     except GenerationError as error:
         raise _generation_problem(error, "retrying_generation_job") from error
+    except JobError as error:
+        raise legacy_jobs_api._job_domain_problem(error, "retrying_job") from error
     except Exception as error:
         _LOGGER.exception("Unexpected generation retry failure")
         raise _internal_problem("retrying_generation_job") from error
@@ -384,12 +385,9 @@ def _load_job_for_dispatch(
     request: Request,
     project_id: UUID,
     job_id: UUID,
-) -> LoadedJob | None:
-    try:
-        service = legacy_jobs_api._job_service(request.app.state.services)
-        return service.get_job(project_id, job_id)
-    except JobError:
-        return None
+) -> LoadedJob:
+    service = legacy_jobs_api._job_service(request.app.state.services)
+    return service.get_job(project_id, job_id)
 
 
 def _detail(loaded: LoadedJob) -> JobDetail:
