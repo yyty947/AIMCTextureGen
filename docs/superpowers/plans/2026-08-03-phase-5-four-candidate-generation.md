@@ -174,7 +174,7 @@ class GenerationCoordinator:
 - Consumes: immutable version-1 manifest and current artifact installation receipts.
 - Produces: `ProfileKey`, `ModelProfileManifestV2`, `ModelProfileManifestRecord`, and `ManifestRegistry.profile(profile_id, profile_version)`. Task 1 keeps the legacy profile-binding path on exact version 1; Task 4 adds the schema-3 version-2 binding after its durable type exists.
 
-- [ ] **Step 1: Record version-1 byte immutability and RED versioned-registry tests**
+- [x] **Step 1: Record version-1 byte immutability and RED versioned-registry tests**
 
 ```python
 def test_registry_keeps_two_versions_of_one_profile_id(tmp_path: Path) -> None:
@@ -198,7 +198,7 @@ Before editing, independently confirm the locked value:
 (Get-FileHash .\manifests\model-profiles\sdxl-mapchip-ipadapter-v1.json -Algorithm SHA256).Hash.ToLowerInvariant()
 ```
 
-- [ ] **Step 2: Run the registry tests and verify RED**
+- [x] **Step 2: Run the registry tests and verify RED**
 
 ```powershell
 .\.venv\Scripts\python -W error -m pytest backend\tests\comfy\test_manifests.py backend\tests\comfy\test_registry.py backend\tests\model_profiles\test_registry.py -q
@@ -206,7 +206,7 @@ Before editing, independently confirm the locked value:
 
 Expected: failures because profile schema 2 and the version parameter do not exist and duplicate profile IDs are still rejected.
 
-- [ ] **Step 3: Add separate v1/v2 manifest records and tuple-keyed lookup**
+- [x] **Step 3: Add separate v1/v2 manifest records and tuple-keyed lookup**
 
 ```python
 WorkflowVariant = Literal[
@@ -232,7 +232,7 @@ ProfileKey = tuple[str, str]
 
 Validate that the v2 workflow variants are exactly the four names above, paths are safe, output node IDs are nonempty decimal strings, and every digest is either `None` or 64 lowercase hex characters. Change the registry internal key to `(profile_id, profile_version)` and require both values in every lookup; sort by that tuple for deterministic iteration.
 
-- [ ] **Step 4: Add the candidate v2 manifest without copying or editing v1**
+- [x] **Step 4: Add the candidate v2 manifest without copying or editing v1**
 
 Create `sdxl-mapchip-ipadapter-v2.json` with `schema_version: 2`, the same profile ID, version `"2"`, `support_state: "candidate_unverified"`, the exact runtime compatibility/artifact/license/hash records copied from v1, style range `0–8`, and four workflow records:
 
@@ -247,7 +247,7 @@ Create `sdxl-mapchip-ipadapter-v2.json` with `schema_version: 2`, the same profi
 
 Do not create workflow files in this task; registry tests must inject temporary workflow files or permit locked paths to be absent only for `candidate_unverified`. Product binding must reject `candidate_unverified`.
 
-- [ ] **Step 5: Update every profile consumer to request an exact version**
+- [x] **Step 5: Update every profile consumer to request an exact version**
 
 Use constants rather than silent “latest” selection:
 
@@ -259,7 +259,7 @@ profile = registry.profile(*SETUP_PROFILE_KEY)
 
 `Installer.inspect` and `ProfileCatalog.get` accept both profile ID and version. The legacy `build_model_profile_binding` receives `profile_version="1"` explicitly and keeps returning the existing schema-2 `ModelProfileBinding`. It rejects a version-2 profile with `PROFILE_CAPABILITY_MISMATCH` until Task 4 adds `build_generation_profile_binding(profile_version="2", style_reference_count=..., structure_reference_present=..., require_verified=...)` and the schema-3 binding type.
 
-- [ ] **Step 6: Run focused and regression tests**
+- [x] **Step 6: Run focused and regression tests**
 
 ```powershell
 .\.venv\Scripts\python -W error -m pytest backend\tests\comfy\test_manifests.py backend\tests\comfy\test_registry.py backend\tests\comfy\test_install_plan.py backend\tests\model_profiles\test_registry.py backend\tests\model_profiles\test_workflows.py -q
@@ -269,7 +269,7 @@ git diff --check
 
 Expected: all pass; v1 file hash is unchanged; v2 artifacts are classified `ready` when their identical v1 hashes are installed.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```powershell
 git add backend/src/aimctexturegen/comfy backend/src/aimctexturegen/model_profiles backend/src/aimctexturegen/inference backend/tests/comfy backend/tests/model_profiles backend/tests/api/test_inference.py manifests/model-profiles/sdxl-mapchip-ipadapter-v2.json
@@ -296,7 +296,7 @@ git commit -m "feat: version model profile manifests"
 - Consumes: legacy `JobRequest`, `JobStateRecord`, safe seed limit, atomic-file and guarded-directory primitives.
 - Produces: `GenerationJobRequest`, `GenerationJobState`, `DurableJobRequest`, `DurableJobState`, `JobInputSnapshot`, schema-aware codec functions, and a store that accepts either exact layout.
 
-- [ ] **Step 1: Write strict schema and native-batch RED tests**
+- [x] **Step 1: Write strict schema and native-batch RED tests**
 
 ```python
 @pytest.mark.parametrize(
@@ -326,7 +326,7 @@ def test_schema3_rejects_duplicate_or_missing_candidates():
 
 Also test: unknown fields, seed above `MAX_SAFE_SEED`, mismatched workflow variant/references, more than eight styles, structure count above one, wrong batch positions, artifact path escape, completed candidate without complete artifacts, and inherited candidate without lineage.
 
-- [ ] **Step 2: Run schema tests and verify RED**
+- [x] **Step 2: Run schema tests and verify RED**
 
 ```powershell
 .\.venv\Scripts\python -W error -m pytest backend\tests\jobs\test_models_v3.py backend\tests\jobs\test_codec.py backend\tests\jobs\test_generation_state.py -q
@@ -334,7 +334,7 @@ Also test: unknown fields, seed above `MAX_SAFE_SEED`, mismatched workflow varia
 
 Expected: import failures because the new files do not exist.
 
-- [ ] **Step 3: Implement focused schema-3 models**
+- [x] **Step 3: Implement focused schema-3 models**
 
 Use frozen strict Pydantic models with these durable fields:
 
@@ -411,7 +411,7 @@ The state-level failure is normally present only for terminal `failed`.
 One explicit exception is an active state with `cancel_requested_at` and
 `CANCEL_CONFIRMATION_FAILED`; it stays nonterminal and keeps the global slot.
 
-- [ ] **Step 4: Implement discriminated codecs without rewriting legacy bytes**
+- [x] **Step 4: Implement discriminated codecs without rewriting legacy bytes**
 
 ```python
 DurableJobRequest = JobRequest | GenerationJobRequest
@@ -429,7 +429,7 @@ def validate_durable_pair(
 
 Inspect `schema_version` from bounded JSON, then call the exact model. Never parse a legacy record through the schema-3 model. Add a byte-for-byte test using existing schema-1 and schema-2 request fixtures.
 
-- [ ] **Step 5: Implement pure generation state transitions**
+- [x] **Step 5: Implement pure generation state transitions**
 
 Provide exact functions:
 
@@ -448,7 +448,7 @@ def recover_generation_interruption(state: GenerationJobState, *, now: datetime)
 
 Each function increments revision exactly once. `request_cancel` is idempotent after the first durable timestamp. `confirm_canceled` preserves `completed`/`inherited`, cancels all other nonterminal work, and is illegal until `cancel_requested_at` exists.
 
-- [ ] **Step 6: Make `JobStore` schema-aware and atomically create frozen inputs**
+- [x] **Step 6: Make `JobStore` schema-aware and atomically create frozen inputs**
 
 Add:
 
@@ -473,7 +473,7 @@ def create_generation(
 
 Schema 3 exact top-level children are `request.json`, `state.json`, `inputs/`, `raw/`, `processed/`, `previews/`, and `reports/`. Legacy exact children remain unchanged. Validate all input paths against the fixed grammar `style/NN.png`, `structure.png`, and `references.json`; recalculate every hash during staging; publish the whole job directory by one rename.
 
-- [ ] **Step 7: Run focused, legacy, and index tests**
+- [x] **Step 7: Run focused, legacy, and index tests**
 
 ```powershell
 .\.venv\Scripts\python -W error -m pytest backend\tests\jobs backend\tests\index -q
@@ -483,7 +483,7 @@ git diff --check
 
 Expected: all pass; existing schema-1/2 test fixtures remain readable and unchanged; index rebuild summarizes both record families.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```powershell
 git add backend/src/aimctexturegen/jobs backend/src/aimctexturegen/index backend/tests/jobs backend/tests/index backend/tests/integration/test_restart_recovery.py
@@ -508,7 +508,7 @@ git commit -m "feat: persist schema 3 generation jobs"
 - Consumes: `ProjectRepository`, `CatalogRegistry`, `classify_coverage`, `JobInputSnapshot`, guarded directories, and atomic writes.
 - Produces: the fixed `ReferenceService` interface, server-generated reference IDs, safe content retrieval, and task-local frozen copies.
 
-- [ ] **Step 1: Write synthetic PNG validation RED tests**
+- [x] **Step 1: Write synthetic PNG validation RED tests**
 
 ```python
 def test_accepts_static_square_rgb_and_rgba_png():
@@ -537,7 +537,7 @@ Use synthetic colors only. Inside the validator, use
 Image.DecompressionBombWarning)` plus the explicit pixel cap; do not modify
 Pillow's process-global warning policy.
 
-- [ ] **Step 2: Run reference tests and verify RED**
+- [x] **Step 2: Run reference tests and verify RED**
 
 ```powershell
 .\.venv\Scripts\python -W error -m pytest backend\tests\references -q
@@ -545,7 +545,7 @@ Pillow's process-global warning policy.
 
 Expected: import failures because the reference package does not exist.
 
-- [ ] **Step 3: Implement the single bounded validator**
+- [x] **Step 3: Implement the single bounded validator**
 
 ```python
 MAX_REFERENCE_BYTES = 16 * 1024 * 1024
@@ -567,7 +567,7 @@ def validate_reference_png(payload: bytes) -> ValidatedReference: ...
 
 Require the PNG signature, `Image.open(...).format == "PNG"`, `n_frames == 1`, `is_animated is not True`, exact square bounds, full `load()`, mode RGB/RGBA after decode, and no bytes beyond the caller's cap.
 
-- [ ] **Step 4: Write library publication/deletion RED tests**
+- [x] **Step 4: Write library publication/deletion RED tests**
 
 ```python
 stored = store.create(project_id, "style", validated, now=NOW)
@@ -579,7 +579,7 @@ assert store.list(project_id, "style") == ()
 
 Also prove IDs, not uploaded filenames, form paths; a junction/reparse ancestor is rejected; metadata publication failure leaves no half-record; deleting an upload does not remove a job-local copy.
 
-- [ ] **Step 5: Implement the guarded project reference store**
+- [x] **Step 5: Implement the guarded project reference store**
 
 Store only:
 
@@ -590,7 +590,7 @@ uploads/<kind>-references/<uuid>/metadata.json
 
 `metadata.json` is strict schema 1 and records ID, kind, SHA-256, byte size, width, height, mode, and created time. Create into `<uuid>.tmp`, read back and validate both files, then rename. Deletion opens the exact UUID directory through `ProjectRepository`, rejects reparse points, and removes only the server-owned record.
 
-- [ ] **Step 6: Implement pack listing, selection resolution, and freeze**
+- [x] **Step 6: Implement pack listing, selection resolution, and freeze**
 
 Selection transport models are:
 
@@ -610,7 +610,7 @@ class ReferenceSelections(_StrictModel):
 
 `list_pack_references` returns only covered or unknown/custom square PNGs that pass the shared validator. `freeze` resolves all selections under a held project root, validates bytes again, assigns stable task IDs `style-00`…`style-07` and `structure-00`, and returns `JobInputSnapshot` paths `style/00.png`… plus optional `structure.png`. It never returns an absolute path.
 
-- [ ] **Step 7: Run focused and project safety regressions**
+- [x] **Step 7: Run focused and project safety regressions**
 
 ```powershell
 .\.venv\Scripts\python -W error -m pytest backend\tests\references backend\tests\packs\test_coverage.py backend\tests\projects -q
@@ -619,7 +619,7 @@ git diff --check
 
 Expected: all pass; no test fixture contains a real game texture.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```powershell
 git add backend/src/aimctexturegen/references backend/tests/references backend/tests/packs/test_coverage.py backend/tests/projects
@@ -642,7 +642,7 @@ git commit -m "feat: manage safe generation references"
 - Consumes: exact profile-v2 binding from Task 1, schema-3/store from Task 2, and `ReferenceService.freeze` from Task 3.
 - Produces: `compile_block_prompt`, `CreateGenerationCommand`, `build_execution_batches`, and `GenerationService.create_job`.
 
-- [ ] **Step 1: Write exact prompt RED tests**
+- [x] **Step 1: Write exact prompt RED tests**
 
 ```python
 def test_java_block_prompt_v1_is_exact_and_normalized():
@@ -665,7 +665,7 @@ def test_java_block_prompt_v1_is_exact_and_normalized():
 
 Assert `3232` for 32 and the exact prefix `"logical 64x64 pixel grid"` for 64; assert `"4848"` never appears. Assert item-icon/white-margin text appears only in the default negative prompt, never positive.
 
-- [ ] **Step 2: Run prompt tests and verify RED**
+- [x] **Step 2: Run prompt tests and verify RED**
 
 ```powershell
 .\.venv\Scripts\python -W error -m pytest backend\tests\generation\test_prompts.py -q
@@ -673,7 +673,7 @@ Assert `3232` for 32 and the exact prefix `"logical 64x64 pixel grid"` for 64; a
 
 Expected: import failure because the compiler does not exist.
 
-- [ ] **Step 3: Implement the versioned pure compiler**
+- [x] **Step 3: Implement the versioned pure compiler**
 
 ```python
 PROMPT_TEMPLATE_ID = "java-block-prompt"
@@ -697,7 +697,7 @@ def compile_block_prompt(
 
 Collapse all Unicode whitespace to one ASCII space, trim comma components, preserve component order, and reject either compiled string above `MAX_PROMPT_CODE_POINTS`.
 
-- [ ] **Step 4: Write batch-plan and atomic creation RED tests**
+- [x] **Step 4: Write batch-plan and atomic creation RED tests**
 
 ```python
 @pytest.mark.parametrize(
@@ -717,7 +717,7 @@ def test_create_freezes_exact_native_batches_and_inputs(parallelism, expected):
 
 Also prove: target must be currently missing and `mvp_eligible`; 0 styles select no-style; structure selects img2img; failed target/reference/profile validation creates no job directory and consumes no seed; a new job uses new seeds.
 
-- [ ] **Step 5: Implement command, batch builder, and creation service**
+- [x] **Step 5: Implement command, batch builder, and creation service**
 
 ```python
 class CreateGenerationCommand(_StrictModel):
@@ -756,7 +756,7 @@ It derives one of the four `WorkflowVariant` values from the two reference
 conditions, verifies capabilities and all profile/runtime/workflow digests,
 and persists the selected output node ID.
 
-- [ ] **Step 6: Add stable creation errors**
+- [x] **Step 6: Add stable creation errors**
 
 Map service errors to explicit codes including `JOB_TARGET_NOT_FOUND`, `JOB_TARGET_NOT_ELIGIBLE`, `JOB_TARGET_NOT_MISSING`, `REFERENCE_INVALID`, `PROFILE_NOT_READY`, and `PROFILE_WORKFLOW_MISMATCH`. Each error carries a Chinese user message and actions; do not persist an absolute path or arbitrary model log.
 
@@ -783,7 +783,7 @@ Only `GENERATION_JOB_CONFLICT` uses `current_job`; API Task 10 exposes that
 identity through `GET /api/generation/current` rather than adding local paths
 or arbitrary fields to the common error envelope.
 
-- [ ] **Step 7: Run focused tests**
+- [x] **Step 7: Run focused tests**
 
 ```powershell
 .\.venv\Scripts\python -W error -m pytest backend\tests\generation\test_prompts.py backend\tests\generation\test_creation.py backend\tests\jobs -q
@@ -792,7 +792,7 @@ git diff --check
 
 Expected: all pass; direct legacy `JobService` tests continue to pass.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```powershell
 git add backend/src/aimctexturegen/generation backend/tests/generation
@@ -820,11 +820,11 @@ git commit -m "feat: create immutable generation jobs"
 - Consumes: candidate v2 manifest and immutable generic input/profile binding.
 - Produces: `SDXLV2Binding`, locked workflow digests, native batch compilation, and fixed output-node identity.
 
-- [ ] **Step 1: Relax generic style cardinality to 0–8 while pinning v1 to 1–8**
+- [x] **Step 1: Relax generic style cardinality to 0–8 while pinning v1 to 1–8**
 
 Add RED tests that `GenericWorkflowInputs(style_reference_names=())` is valid for v2, but `SDXLBinding` v1 raises `WorkflowBindingError` rather than indexing an empty tuple. Add `batch_size: Literal[1, 2, 4] = 1` and `output_node_id` to generic inputs/bindings without changing v1 compiled output at default batch 1.
 
-- [ ] **Step 2: Write the four-variant compiler RED matrix**
+- [x] **Step 2: Write the four-variant compiler RED matrix**
 
 ```python
 @pytest.mark.parametrize(
@@ -848,7 +848,7 @@ def test_v2_compiles_only_the_selected_conditioning_graph(
 
 Assert no-style graphs contain none of `CLIPVisionLoader`, `CLIPVisionEncode`, `IPAdapterUnifiedLoader`, or `IPAdapterAdvanced`. Assert style graphs use `combine_embeds="average"` and `weight_type="style transfer"`. Assert text uses `EmptyLatentImage.batch_size`; img2img uses `RepeatLatentBatch.amount`.
 
-- [ ] **Step 3: Run compiler tests and verify RED**
+- [x] **Step 3: Run compiler tests and verify RED**
 
 ```powershell
 .\.venv\Scripts\python -W error -m pytest backend\tests\model_profiles\test_sdxl_v2.py backend\tests\model_profiles\test_sdxl.py backend\tests\model_profiles\test_workflows.py -q
@@ -856,7 +856,7 @@ Assert no-style graphs contain none of `CLIPVisionLoader`, `CLIPVisionEncode`, `
 
 Expected: failures because v2 binding/workflows do not exist and generic inputs still require a style.
 
-- [ ] **Step 4: Derive and validate four tracked API workflows**
+- [x] **Step 4: Derive and validate four tracked API workflows**
 
 Use the verified v1 node contracts as the source, not the ComfyUI UI export:
 
@@ -867,7 +867,7 @@ Use the verified v1 node contracts as the source, not the ComfyUI UI export:
 
 All four use output node `"19"` and the existing locked model filenames/preset. Do not expose sampler, steps, CFG, scheduler, LoRA strength, or node IDs outside `sdxl_v2.py`.
 
-- [ ] **Step 5: Implement `SDXLV2Binding`**
+- [x] **Step 5: Implement `SDXLV2Binding`**
 
 ```python
 class SDXLV2Binding(WorkflowBinding):
@@ -877,7 +877,7 @@ class SDXLV2Binding(WorkflowBinding):
 
 Require style count `0` for no-style and `1–8` for style; require structure exactly when variant starts `img2img`; set only semantic slots for prompts, seed, batch size, safe uploaded names, denoise, and style weight. Keep v1 compiler in `sdxl.py` and add an explicit empty-style guard.
 
-- [ ] **Step 6: Lock exact workflow SHA-256 values**
+- [x] **Step 6: Lock exact workflow SHA-256 values**
 
 ```powershell
 Get-ChildItem .\workflows\sdxl-mapchip-ipadapter-v2\*.api.json |
@@ -889,7 +889,7 @@ Get-ChildItem .\workflows\sdxl-mapchip-ipadapter-v2\*.api.json |
 
 Write those four values into the v2 manifest and add a test that hashes the raw tracked bytes. Keep `support_state` as `candidate_unverified`.
 
-- [ ] **Step 7: Run profile and manifest gates**
+- [x] **Step 7: Run profile and manifest gates**
 
 ```powershell
 .\.venv\Scripts\python -W error -m pytest backend\tests\model_profiles backend\tests\comfy\test_manifests.py backend\tests\comfy\test_registry.py -q
@@ -898,7 +898,7 @@ git diff --check
 
 Expected: all pass; v1 digest test remains unchanged.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```powershell
 git add backend/src/aimctexturegen/model_profiles backend/tests/model_profiles workflows/sdxl-mapchip-ipadapter-v2 manifests/model-profiles/sdxl-mapchip-ipadapter-v2.json backend/tests/comfy
@@ -920,11 +920,11 @@ git commit -m "feat: add sdxl profile v2 workflows"
 - Consumes: ComfyUI v0.29.2 `/prompt`, `/history/{id}`, `/view`, `/queue`, `/interrupt`, and WebSocket contracts.
 - Produces: `ComfyOutputImage`, `QueueSnapshot`, ordered output extraction, targeted interrupt, and cancel-aware wait.
 
-- [ ] **Step 1: Make fake ComfyUI protocol-faithful for multiple outputs and queue ownership**
+- [x] **Step 1: Make fake ComfyUI protocol-faithful for multiple outputs and queue ownership**
 
 Extend `FakeComfyServer` with `view_bytes_by_name`, `queue_running`, `queue_pending`, `last_interrupt_prompt_id`, and per-prompt history. `GET /queue` returns rows with prompt ID at index 1. `POST /interrupt` records optional JSON `{"prompt_id": "..."}`.
 
-- [ ] **Step 2: Write ordered-output and queue RED tests**
+- [x] **Step 2: Write ordered-output and queue RED tests**
 
 ```python
 def test_declared_output_images_preserve_selected_node_order():
@@ -940,7 +940,7 @@ def test_queue_and_targeted_interrupt_are_prompt_scoped():
 
 Also reject a missing output node, non-list `images`, unsafe filename/subfolder/type, duplicate descriptors, oversized downloads, and prompt IDs not represented as strings.
 
-- [ ] **Step 3: Write cancel-aware WebSocket RED tests**
+- [x] **Step 3: Write cancel-aware WebSocket RED tests**
 
 Use a held fake WebSocket and an event:
 
@@ -953,7 +953,7 @@ with pytest.raises(ComfyCanceledError):
 
 The test must complete in under one second rather than waiting for the full timeout.
 
-- [ ] **Step 4: Implement typed descriptors and queue methods**
+- [x] **Step 4: Implement typed descriptors and queue methods**
 
 ```python
 @dataclass(frozen=True)
@@ -977,11 +977,11 @@ def interrupt(self, prompt_id: str | None = None) -> None: ...
 
 Do not import generation/jobs/projects into `comfy/client.py`.
 
-- [ ] **Step 5: Make `wait_completion` observe cancellation promptly**
+- [x] **Step 5: Make `wait_completion` observe cancellation promptly**
 
 Add `cancel_requested: Callable[[], bool] | None = None`. Bound each WebSocket receive wait to `min(remaining, 0.25)`; a short receive timeout loops until the overall deadline unless cancellation is true. Raise `ComfyCanceledError`, not `ComfyTimeoutError`, on cancellation.
 
-- [ ] **Step 6: Run all Comfy transport tests**
+- [x] **Step 6: Run all Comfy transport tests**
 
 ```powershell
 .\.venv\Scripts\python -W error -m pytest backend\tests\comfy\test_client_http.py backend\tests\comfy\test_client_websocket.py backend\tests\comfy\test_client_errors.py -q
@@ -990,7 +990,7 @@ git diff --check
 
 Expected: all pass and the isolation test still proves the client imports no product layer.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```powershell
 git add backend/src/aimctexturegen/comfy backend/tests/comfy backend/tests/fakes/comfy_server.py
@@ -1011,7 +1011,7 @@ git commit -m "feat: support ordered comfy batches"
 - Consumes: `ComfyOutputImage`, schema-3 artifact models, `process_candidate`, atomic files, and guarded job roots.
 - Produces: `CandidateArtifactStore.publish_raw_batch`, `process_and_publish`, and `resolve`.
 
-- [ ] **Step 1: Write whole-batch raw publication RED tests**
+- [x] **Step 1: Write whole-batch raw publication RED tests**
 
 ```python
 def test_raw_batch_is_all_or_nothing():
@@ -1027,7 +1027,7 @@ def test_raw_batch_is_all_or_nothing():
 
 Also test missing/extra outputs, non-square, wrong 1024 canvas, RGBA when profile contract is RGB, publication failure, and exact mapping to candidate indices in output order.
 
-- [ ] **Step 2: Run artifact tests and verify RED**
+- [x] **Step 2: Run artifact tests and verify RED**
 
 ```powershell
 .\.venv\Scripts\python -W error -m pytest backend\tests\generation\test_artifacts.py -q
@@ -1035,7 +1035,7 @@ Also test missing/extra outputs, non-square, wrong 1024 canvas, RGBA when profil
 
 Expected: import failure because `generation/artifacts.py` does not exist.
 
-- [ ] **Step 3: Implement raw-batch staging and atomic publication**
+- [x] **Step 3: Implement raw-batch staging and atomic publication**
 
 ```python
 class CandidateArtifactStore:
@@ -1058,7 +1058,7 @@ integrity conflict, never an overwrite target. Do not record state until the
 renamed directory and every member are reopened and match. This single
 directory publication is the raw-batch atomicity boundary.
 
-- [ ] **Step 4: Write processed artifact and resolver RED tests**
+- [x] **Step 4: Write processed artifact and resolver RED tests**
 
 ```python
 artifacts = store.process_and_publish(loaded, candidate_index=0, resolution=16)
@@ -1076,7 +1076,7 @@ assert json.loads(report_path.read_bytes())["resolution"] == 16
 
 Prove a failure leaves the previous complete artifact set intact, report references match published hashes, and resolver rejects cross-project lineage, path traversal, hash mismatch, and an unavailable kind.
 
-- [ ] **Step 5: Implement per-candidate postprocessing publication**
+- [x] **Step 5: Implement per-candidate postprocessing publication**
 
 Run `process_candidate` in `processed/.candidate-<index>.tmp/`, validate its report and four outputs, then atomically rename that one directory to:
 
@@ -1093,7 +1093,7 @@ compatibility roots; clients use artifact records rather than assuming a disk
 path. The store resolves inherited artifacts by source job/candidate only after
 reopening that same project's canonical parent and verifying recorded SHA-256.
 
-- [ ] **Step 6: Run processing, artifact, and store gates**
+- [x] **Step 6: Run processing, artifact, and store gates**
 
 ```powershell
 .\.venv\Scripts\python -W error -m pytest backend\tests\generation\test_artifacts.py backend\tests\processing backend\tests\jobs\test_store.py -q
@@ -1102,7 +1102,7 @@ git diff --check
 
 Expected: all pass; `processing` remains independent from FastAPI and ComfyUI.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```powershell
 git add backend/src/aimctexturegen/generation/artifacts.py backend/src/aimctexturegen/jobs/store.py backend/tests/generation/test_artifacts.py backend/tests/processing backend/tests/jobs/test_store.py
@@ -1125,7 +1125,7 @@ git commit -m "feat: publish generation artifacts safely"
 - Consumes: version-2 compiler, `ComfyClient`, artifact store, state transitions, exact managed inference status, and frozen job inputs.
 - Produces: `ExecutionContext`, `ManagedInferenceService.ensure_generation_ready`, `GenerationService.run_job`, stable failure mapping, and `retry_job`.
 
-- [ ] **Step 1: Write a fake-runtime success RED test**
+- [x] **Step 1: Write a fake-runtime success RED test**
 
 ```python
 completed = service.run_job(
@@ -1145,7 +1145,7 @@ assert [c.status for c in completed.state.candidates] == ["completed"] * 4
 
 Assert references are uploaded from `jobs/<id>/inputs`, safe remote names include job/reference IDs, one Comfy prompt is submitted per native batch, each candidate revision becomes observable as it completes, and batch 0 finishes before batch 1 starts.
 
-- [ ] **Step 2: Write failure translation RED tests**
+- [x] **Step 2: Write failure translation RED tests**
 
 Use typed fake errors and histories to assert exact persisted codes:
 
@@ -1173,7 +1173,7 @@ def test_execution_failure_is_persisted_without_parameter_mutation(error, code):
 
 OOM recommendations must be exactly: lower parallelism on a new job, close VRAM-consuming applications, and stop other ComfyUI instances. Do not automatically perform any recommendation.
 
-- [ ] **Step 3: Run execution tests and verify RED**
+- [x] **Step 3: Run execution tests and verify RED**
 
 ```powershell
 .\.venv\Scripts\python -W error -m pytest backend\tests\generation\test_execution.py backend\tests\generation\test_failures.py backend\tests\generation\test_retry.py -q
@@ -1181,7 +1181,7 @@ OOM recommendations must be exactly: lower parallelism on a new job, close VRAM-
 
 Expected: failures because execution and retry do not exist.
 
-- [ ] **Step 4: Expose exact managed-inference readiness**
+- [x] **Step 4: Expose exact managed-inference readiness**
 
 ```python
 def ensure_generation_ready(
@@ -1193,7 +1193,7 @@ def ensure_generation_ready(
 
 Compare profile/runtime IDs, versions, manifest hashes, workflow digest, installed receipts, process readiness, and server node classes. If stopped and all records are ready, call the existing manager start. If missing/corrupt/unverified, raise `PROFILE_NOT_READY`; do not invoke installation.
 
-- [ ] **Step 5: Implement `run_job` batch loop**
+- [x] **Step 5: Implement `run_job` batch loop**
 
 For each persisted batch:
 
@@ -1210,7 +1210,7 @@ For each persisted batch:
 
 Never continue later batches after a failure.
 
-- [ ] **Step 6: Implement lineage retry**
+- [x] **Step 6: Implement lineage retry**
 
 `retry_job` accepts only `failed` or `canceled` schema-3 parents, preserves prompt/profile/workflow/parallelism/batches/seeds/advanced/references, creates a new job ID and `parent_job_id`, and copies the parent's frozen input bytes into the new job.
 
@@ -1222,7 +1222,7 @@ For each parent candidate:
 
 Do not mutate the parent state or artifacts.
 
-- [ ] **Step 7: Run execution/retry and regression gates**
+- [x] **Step 7: Run execution/retry and regression gates**
 
 ```powershell
 .\.venv\Scripts\python -W error -m pytest backend\tests\generation backend\tests\comfy backend\tests\model_profiles backend\tests\processing -q
@@ -1231,7 +1231,7 @@ git diff --check
 
 Expected: all pass using fake Comfy only.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```powershell
 git add backend/src/aimctexturegen/generation backend/src/aimctexturegen/inference/service.py backend/tests/generation
@@ -1368,7 +1368,7 @@ git commit -m "feat: coordinate one generation job"
 - Consumes: `ReferenceService`, `GenerationCoordinator`, artifact resolver, broker, and the stable API error envelope.
 - Produces: the exact Phase 5 HTTP/WebSocket surface below.
 
-- [ ] **Step 1: Write reference API RED tests**
+- [x] **Step 1: Write reference API RED tests**
 
 Lock these endpoints:
 
@@ -1383,7 +1383,7 @@ DELETE /api/projects/{project_id}/references/{kind}/{reference_id}
 
 `POST` accepts raw `image/png` bytes, not a local path or filename, and reads at most `16 MiB + 1` from `request.stream()`. Test lying/missing Content-Length, fragmented body, disconnect, wrong MIME type, plus-one byte, invalid UUID/kind, and stable path-free errors.
 
-- [ ] **Step 2: Write generation command/artifact RED tests**
+- [x] **Step 2: Write generation command/artifact RED tests**
 
 Lock:
 
@@ -1400,7 +1400,7 @@ GET  /api/projects/{project_id}/jobs/{job_id}/candidates/{candidate_index}/artif
 
 The create body contains only target, description, negative prompt, resolution, parallelism, reference selections, denoise, and style weight. It cannot supply seeds, compiled prompts, workflow IDs, sampler, steps, CFG, LoRA weight, artifact paths, job ID, or timestamps. `GET /api/generation/current` returns either `null` or `{project_id, job_id, status}` from the coordinator's canonical scan; the UI uses it after `GENERATION_JOB_CONFLICT`.
 
-- [ ] **Step 3: Write WebSocket RED tests**
+- [x] **Step 3: Write WebSocket RED tests**
 
 Lock:
 
@@ -1410,7 +1410,7 @@ WS /api/projects/{project_id}/jobs/{job_id}/events
 
 The first business message is `{"type":"snapshot","revision":N,"job":...}` loaded from disk. Later snapshots have strictly greater revision. Heartbeats use `{"type":"heartbeat"}` and never mutate state. A disconnect does not cancel. Test missing/corrupt job closes with a controlled code and no path details.
 
-- [ ] **Step 4: Run API tests and verify RED**
+- [x] **Step 4: Run API tests and verify RED**
 
 ```powershell
 .\.venv\Scripts\python -W error -m pytest backend\tests\api\test_references.py backend\tests\api\test_generation.py backend\tests\api\test_generation_websocket.py -q
@@ -1418,13 +1418,13 @@ The first business message is `{"type":"snapshot","revision":N,"job":...}` loade
 
 Expected: route/import failures.
 
-- [ ] **Step 5: Implement thin reference and generation routes**
+- [x] **Step 5: Implement thin reference and generation routes**
 
 Transport models use `extra="forbid", strict=True`. Route handlers parse canonical UUIDs, map arrays to tuples, call one service method, and convert typed errors. They do not open project paths, decode images, compile workflows, or update state directly.
 
 `generation-options` returns missing eligible targets, verified profile identity, defaults, fixed candidate count 4, allowed parallelism, and measured resource hints from the verified profile evidence. Before Task 14 promotion, automated tests inject a verified test profile/evidence.
 
-- [ ] **Step 6: Implement controlled artifact responses**
+- [x] **Step 6: Implement controlled artifact responses**
 
 Use the artifact resolver and return:
 
@@ -1435,7 +1435,7 @@ Use the artifact resolver and return:
 
 Never redirect or expose a filesystem path.
 
-- [ ] **Step 7: Implement durable-snapshot WebSocket**
+- [x] **Step 7: Implement durable-snapshot WebSocket**
 
 On connect, load/send current job. Then call:
 
@@ -1451,7 +1451,7 @@ changed_revision = await asyncio.to_thread(
 
 On a higher hint, reload and send the committed detail. Send heartbeat on a bounded idle interval. If revisions skip, sending the latest full snapshot is correct.
 
-- [ ] **Step 8: Run API and backend regression gates**
+- [x] **Step 8: Run API and backend regression gates**
 
 ```powershell
 .\.venv\Scripts\python -W error -m pytest backend\tests\api -q
@@ -1461,7 +1461,7 @@ git diff --check
 
 Expected: all pass. Existing legacy list/detail remains readable, while new create calls produce schema 3.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```powershell
 git add backend/src/aimctexturegen/api backend/src/aimctexturegen/main.py backend/tests/api
@@ -1489,7 +1489,7 @@ git commit -m "feat: expose generation api"
 - Consumes: Phase 5 HTTP response contracts and current loaded `ProjectManifest`/`CoverageReport`.
 - Produces: a strict client and guided target/reference/configuration flow that creates then starts one schema-3 job.
 
-- [ ] **Step 1: Write strict parser/request RED tests**
+- [x] **Step 1: Write strict parser/request RED tests**
 
 ```typescript
 it("parses schema 3 batches and rejects a missing candidate index", async () => {
@@ -1505,7 +1505,7 @@ it("parses schema 3 batches and rejects a missing candidate index", async () => 
 
 Test 0-style create body, pack/upload discriminated references, optional structure, strict four candidates, artifact URL encoding, create→start order, and no start request if create fails.
 
-- [ ] **Step 2: Run frontend API tests and verify RED**
+- [x] **Step 2: Run frontend API tests and verify RED**
 
 ```powershell
 Push-Location frontend
@@ -1519,7 +1519,7 @@ finally {
 
 Expected: test/import failure because generation client files do not exist.
 
-- [ ] **Step 3: Implement strict generation types and client**
+- [x] **Step 3: Implement strict generation types and client**
 
 Use discriminated TypeScript unions:
 
@@ -1543,7 +1543,7 @@ export interface CreateGenerationInput {
 
 All server payloads are runtime-validated. Keep legacy root `api.ts` parsing supported; update its job union instead of treating schema 2/3 as schema 1.
 
-- [ ] **Step 4: Write guided-flow RED tests**
+- [x] **Step 4: Write guided-flow RED tests**
 
 ```typescript
 it("defaults to missing eligible targets and keeps advanced controls conditional", async () => {
@@ -1558,17 +1558,17 @@ it("defaults to missing eligible targets and keeps advanced controls conditional
 
 Cover search, back navigation before creation, 0–8 enforcement, style upload/list/delete, optional structure, fixed-four copy, 1/2/4 resource hint copy, read-only profile, negative prompt advanced area, and create/start sequence.
 
-- [ ] **Step 5: Implement steps 2–4 as focused components**
+- [x] **Step 5: Implement steps 2–4 as focused components**
 
 `GenerationWizard` owns only form step/current job state. `TargetStep` receives missing eligible targets. `ReferenceStep` receives/upload references and form values. `GenerationStep` exposes resolution/parallelism and a `<details>` advanced region; denoise renders only with structure, style weight only with at least one style. Seed is not editable and is shown only after creation.
 
 No component reads `File.path`, filesystem APIs, or ComfyUI URLs. Do not add adoption/export buttons.
 
-- [ ] **Step 6: Mount the wizard without expanding `App.tsx` business logic**
+- [x] **Step 6: Mount the wizard without expanding `App.tsx` business logic**
 
 Pass selected project ID, manifest, coverage, and a job-list refresh callback. Existing import/recovery/project history stays operational. Use functional CSS sufficient for keyboard access and normal desktop layout; do not perform final checkbox/spacing/visual-system polish.
 
-- [ ] **Step 7: Run focused and full frontend gates**
+- [x] **Step 7: Run focused and full frontend gates**
 
 ```powershell
 Push-Location frontend
@@ -1586,7 +1586,7 @@ finally {
 
 Expected: all tests and TypeScript/Vite build pass.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```powershell
 git add frontend/src/generation frontend/src/App.tsx frontend/src/api.ts frontend/src/styles.css
